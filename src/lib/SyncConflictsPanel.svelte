@@ -82,6 +82,14 @@
                 </div>
               {/if}
             </div>
+            {#if copy.ambiguous}
+              <IconButton
+                icon="check"
+                size="sm"
+                label="Mark {stem(copy.copyPath)} as not a conflict"
+                onclick={() => vaultStore.dismissConflict(copy.copyPath)}
+              />
+            {/if}
             {#if copy.originalPath}
               <IconButton
                 icon="copy-simple"

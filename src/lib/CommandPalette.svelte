@@ -300,14 +300,12 @@
       id: 'outline-fold-all',
       category: 'Outline',
       label: 'Fold All List Items and Sections',
-      shortcut: 'Ctrl+Alt+[',
       action: () => onFormat('fold_all'),
     },
     {
       id: 'outline-unfold-all',
       category: 'Outline',
       label: 'Unfold All',
-      shortcut: 'Ctrl+Alt+]',
       action: () => onFormat('unfold_all'),
     },
     // Clipboard & Vault

@@ -44,9 +44,13 @@ function tokenize(src: string): Token[] {
       i++;
       continue;
     }
-    const num = /^(?:\d[\d_]*(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?/i.exec(src.slice(i));
+    // `1,250.50` groups thousands with commas. A comma before fewer or more than three digits
+    // separates function arguments, as in `max(1,2)`.
+    const num = /^(?:\d{1,3}(?:,\d{3})+(?![\d,])(?:\.\d+)?|\d[\d_]*(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?/i.exec(
+      src.slice(i)
+    );
     if (num) {
-      tokens.push({ kind: 'num', value: Number(num[0].replace(/_/g, '')) });
+      tokens.push({ kind: 'num', value: Number(num[0].replace(/[_,]/g, '')) });
       i += num[0].length;
       continue;
     }
@@ -237,6 +241,8 @@ export function inlineCalculation(line: string): { from: number; result: string 
     if (/\s/.test(expr[offset])) continue;
     // Start only at a word boundary, so `price` never yields `e`.
     if (offset > 0 && /[\p{L}\p{N}_.]/u.test(expr[offset - 1])) continue;
+    // Nor in the middle of a number such as `1,000`, which would give a wrong result.
+    if (offset > 1 && expr[offset - 1] === ',' && /\d/.test(expr[offset - 2])) continue;
     const candidate = expr.slice(offset);
     // A sign followed by a space is a list marker or prose dash, not a negative number.
     if (/^[-+]\s/.test(candidate)) continue;
@@ -266,6 +272,8 @@ export interface CalcLineResult {
 export function evaluateCalcBlock(lines: string[]): CalcLineResult[] {
   const scope: Scope = new Map();
   const results: CalcLineResult[] = [];
+  // A variable the user assigns keeps its value; the built-in of the same name steps aside.
+  const assigned = new Set<string>();
   let runningSum = 0;
   for (let i = 0; i < lines.length; i++) {
     if (!lines[i].trim()) {
@@ -276,12 +284,15 @@ export function evaluateCalcBlock(lines: string[]): CalcLineResult[] {
     if (!text) continue;
     const assignment = /^([\p{L}_][\p{L}\p{N}_]*)\s*=\s*(.+)$/u.exec(text);
     const expr = assignment ? assignment[2] : text;
-    scope.set('sum', runningSum);
-    scope.set('total', runningSum);
+    if (!assigned.has('sum')) scope.set('sum', runningSum);
+    if (!assigned.has('total')) scope.set('total', runningSum);
     try {
       const value = evaluate(expr, scope);
-      if (assignment) scope.set(assignment[1], value);
-      scope.set('prev', value);
+      if (assignment) {
+        scope.set(assignment[1], value);
+        assigned.add(assignment[1]);
+      }
+      if (!assigned.has('prev')) scope.set('prev', value);
       runningSum += value;
       results.push({ line: i, result: formatNumber(value) });
     } catch (err) {

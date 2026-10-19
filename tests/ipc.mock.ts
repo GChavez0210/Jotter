@@ -2,7 +2,9 @@ export const control = {
   save: async (path: string, content: string) => ({relPath:path,title:path,content}),
   openCalls: 0,
   closeCalls: 0,
+  noteCardCalls: 0,
 };
+export const getNoteCards = async () => {control.noteCardCalls++; return [];};
 export const saveNote = (path: string, content: string) => control.save(path, content);
 export const readNote = async (path: string) => ({relPath:path,title:path,content:'disk'});
 export const openVault = async () => {control.openCalls++; return {rootPath:'B',name:'B',tree:[],noteCount:0};};

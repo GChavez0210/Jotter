@@ -10,6 +10,7 @@ import {
 import {
   EditorSelection,
   EditorState,
+  Prec,
   RangeSet,
   StateEffect,
   StateField,
@@ -23,6 +24,7 @@ import {
   type DecorationSet,
   EditorView,
   type KeyBinding,
+  keymap,
   ViewPlugin,
   type ViewUpdate,
   WidgetType,
@@ -287,9 +289,15 @@ const zoomField = StateField.define<{ zoom: ZoomRange | null; decorations: Decor
     for (const effect of tr.effects) if (effect.is(setZoom)) zoom = effect.value;
     if (zoom === value.zoom) return value;
     // Recompute against the item at the zoom start, so new children typed at the end show.
+    // Never shrink below the mapped range: an edit can turn a child into a sibling (an outdent,
+    // or Enter on the zoomed line), and hiding it would hide text the user is working on.
     if (zoom) {
-      const item = itemOnLine(tr.state.doc, tr.state.doc.lineAt(zoom.from).number);
-      if (item) zoom = blockRange(tr.state.doc, item);
+      const doc = tr.state.doc;
+      const item = itemOnLine(doc, doc.lineAt(zoom.from).number);
+      if (item) {
+        const block = blockRange(doc, item);
+        zoom = { from: block.from, to: Math.max(block.to, doc.lineAt(zoom.to).to) };
+      }
     }
     return { zoom, decorations: zoomDecorations(tr.state, zoom) };
   },
@@ -309,18 +317,49 @@ const clampToZoom = EditorState.transactionFilter.of((tr) => {
   return [tr, { selection: { anchor }, sequential: true }];
 });
 
+/** The zoomed range, or null when the whole note shows. */
+export function zoomedRange(state: EditorState): ZoomRange | null {
+  return state.field(zoomField, false)?.zoom ?? null;
+}
+
+/** Zooms into the item at the cursor, or returns null when the cursor is not in a list. */
+export function zoomIntoItem(state: EditorState): TransactionSpec | null {
+  const item = itemAt(state.doc, state.doc.lineAt(state.selection.main.head).number);
+  if (!item) return null;
+  return { effects: [setZoom.of(blockRange(state.doc, item)), EditorView.scrollIntoView(0)] };
+}
+
+/**
+ * Enter at the end of the zoomed item's line adds a first child instead of a sibling. A
+ * sibling would sit outside the zoomed item, and the existing children would move under it.
+ */
+export function insertZoomChild(state: EditorState): TransactionSpec | null {
+  const zoom = zoomedRange(state);
+  const sel = state.selection.main;
+  if (!zoom || !sel.empty || state.selection.ranges.length > 1) return null;
+  const line = state.doc.lineAt(zoom.from);
+  if (sel.head !== line.to) return null;
+  const item = itemOnLine(state.doc, line.number);
+  if (!item) return null;
+  const marker = ITEM_RE.exec(line.text)![2];
+  const childMarker = /\d/.test(marker) ? `1${marker.slice(-1)}` : marker;
+  const indent = item.indentText.includes('\t') ? `${item.indentText}\t` : ' '.repeat(item.contentColumn);
+  const insert = `\n${indent}${childMarker} `;
+  return {
+    changes: { from: line.to, insert },
+    selection: { anchor: line.to + insert.length },
+    scrollIntoView: true,
+    userEvent: 'input',
+  };
+}
+
 /** Zooms into the item at the cursor. On the zoomed item's own line, zooms out one level. */
 export function toggleZoom(view: EditorView): boolean {
   const { state } = view;
   const zoom = state.field(zoomField, false)?.zoom;
   const cursorLine = state.doc.lineAt(state.selection.main.head);
   if (zoom && state.doc.lineAt(zoom.from).number === cursorLine.number) return zoomOut(view);
-  const item = itemAt(state.doc, cursorLine.number);
-  if (!item) return false;
-  view.dispatch({
-    effects: [setZoom.of(blockRange(state.doc, item)), EditorView.scrollIntoView(0)],
-  });
-  return true;
+  return runSpec(view, zoomIntoItem(state));
 }
 
 export function zoomOut(view: EditorView): boolean {
@@ -442,7 +481,9 @@ export const outlinerKeymap: KeyBinding[] = [
   { key: 'Tab', run: (v) => runSpec(v, shiftItem(v.state, 1)) },
   { key: 'Shift-Tab', run: (v) => runSpec(v, shiftItem(v.state, -1)) },
   { key: 'Mod-.', run: toggleZoom },
-  ...foldKeymap,
+  // Windows reports AltGr as Ctrl+Alt, so `Ctrl-Alt-[` would swallow `[` and `]` on German,
+  // French, and other layouts that type brackets with AltGr.
+  ...foldKeymap.filter((b) => !b.key?.startsWith('Ctrl-Alt-')),
 ];
 
 export function createOutlinerExtension(): Extension {
@@ -452,6 +493,8 @@ export function createOutlinerExtension(): Extension {
     foldCaretPlugin,
     zoomField,
     clampToZoom,
+    // Above the Markdown keymap, whose Enter continues the list with a sibling.
+    Prec.highest(keymap.of([{ key: 'Enter', run: (v) => runSpec(v, insertZoomChild(v.state)) }])),
     EditorView.baseTheme({
       '.cm-fold-anchor': { position: 'relative', display: 'inline-block', width: '0' },
       '.cm-fold-caret': {

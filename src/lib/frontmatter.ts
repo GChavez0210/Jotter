@@ -147,6 +147,11 @@ export function parseFrontmatter(doc: string): Frontmatter | null {
     layout.push(properties.length - 1);
     i = j;
   }
+  // Every line must be a property, a comment, a stray list item, or blank. A note that opens with
+  // a thematic break, such as `---` / `Intro text` / `---`, has no frontmatter, and hiding it
+  // would hide text.
+  const yamlLine = (text: string) => !text.trim() || /^\s*(#|-(\s|$))/.test(text);
+  if (!layout.every((item) => typeof item === 'number' || yamlLine(item))) return null;
 
   let end = 0;
   for (let k = 0; k <= close; k++) end += lines[k].length + 1;
