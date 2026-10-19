@@ -64,6 +64,25 @@ Markdown lists work as an outline:
 - Hover over an item with children and click the arrow in the left margin to fold them. `Ctrl+Shift+[` folds and `Ctrl+Shift+]` unfolds at the cursor, including heading sections.
 - `Ctrl+.` shows only the item at the cursor and its children. Press `Ctrl+.` again on that item, or click **Show whole note**, to zoom out.
 
+### Task Due Dates
+Give a checklist item a due date in any of three common formats, each with an optional time:
+
+```markdown
+- [ ] Pay rent 📅 2026-11-01
+- [ ] Call Sam due:2026-10-21 09:30
+- [ ] Renew passport [due:: 2026-12-01]
+```
+
+Live mode shows the date as a chip, such as **Tomorrow** or **Nov 1**, which turns red once the date has passed. Move the cursor onto the line to edit the date. **Add Due Date to Task** in the command palette adds today's date to the task at the cursor.
+
+To see due dates in a calendar app, choose a file in **Settings → Vault → Task calendar**. Jotter writes each open task as an event in that `.ics` file and rewrites it a few seconds after you edit, so a calendar subscribed to the file stays current. Tasks without a time are all-day events. Completed tasks are left out. Pick a file outside the vault, or inside a synced folder if your calendar app needs to reach it from another device.
+
+### Tags and Links
+The Notes sidebar can list notes by tag instead of by folder. Click **Tags & links** above the list. Nested tags such as `#project/alpha` appear under their parent tag, and notes without tags appear under **No tags**. Expand a note to see the notes it links to. Files stay in their folders; switch back with **Folders**.
+
+### Home Page
+With a vault open and no note open, Jotter shows a Home page of note cards: recently opened, recently edited, new, most linked notes, and a daily **Rediscover** pick from notes untouched for three months. A note appears only in the first section that matches it. Click the gear to customize: rename, reorder, hide, or remove sections, set each one's card count and sort order, limit it to a folder or tag, or add a section for a tag. Each vault keeps its own layout. Turn the Home page off in **Settings → Vault**.
+
 ### Syncing Through a Cloud Folder
 To use a vault on several computers, keep the vault folder inside a folder your sync client manages: Dropbox, OneDrive, Google Drive, or Box. Jotter reads and writes plain files, and it reloads notes that change on disk.
 

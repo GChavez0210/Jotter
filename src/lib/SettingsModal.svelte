@@ -514,6 +514,22 @@
               </div>
             {/if}
 
+            <div class="setting-card">
+              <div class="setting-info">
+                <label for="toggle-home-page" class="setting-label">Home page</label>
+                <div class="setting-desc">
+                  When no note is open, show cards for recent, new, linked, and forgotten notes. Click the gear on the Home page to choose its sections.
+                </div>
+              </div>
+              <input
+                id="toggle-home-page"
+                type="checkbox"
+                class="fluent-toggle"
+                checked={settingsStore.showHomePage}
+                onchange={(e) => settingsStore.setShowHomePage((e.currentTarget as HTMLInputElement).checked)}
+              />
+            </div>
+
             {#if vaultStore.vaultSnapshot}
               <div class="setting-card">
                 <div class="setting-info">
