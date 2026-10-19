@@ -41,7 +41,14 @@ class TaskCalendarStore {
   async choosePath() {
     const snapshot = vaultStore.vaultSnapshot;
     if (!snapshot) return;
-    const picked = await pickTaskCalendarPath(`${snapshot.name} tasks`);
+    let picked: string | null;
+    try {
+      picked = await pickTaskCalendarPath(`${snapshot.name} tasks`);
+    } catch (err) {
+      // Outside Windows there is no picker; Settings shows this message under the button.
+      this.lastError = err instanceof Error ? err.message : String(err);
+      return;
+    }
     if (!picked) return;
     this.paths = { ...this.paths, [snapshot.rootPath]: picked };
     this.persist();

@@ -243,9 +243,15 @@ export function inlineCalculation(line: string): { from: number; result: string 
     if (offset > 0 && /[\p{L}\p{N}_.]/u.test(expr[offset - 1])) continue;
     // Nor in the middle of a number such as `1,000`, which would give a wrong result.
     if (offset > 1 && expr[offset - 1] === ',' && /\d/.test(expr[offset - 2])) continue;
+    // Nor inside a hyphenated run such as `2026-10-19`.
+    if (offset > 1 && expr[offset - 1] === '-' && /\d/.test(expr[offset - 2])) continue;
     const candidate = expr.slice(offset);
     // A sign followed by a space is a list marker or prose dash, not a negative number.
     if (/^[-+]\s/.test(candidate)) continue;
+    // Dates (`2026-10-19`) and phone numbers (`555-1234`, `1-800-555-0100`) are not subtraction:
+    // integers joined by two or more unspaced hyphens, or one hyphen between two 3-digit groups.
+    // `10-5` and `100-25` still compute.
+    if (/(?<![\d.])\d+(?:-\d+){2,}(?![\d.])|(?<![\d.])\d{3,}-\d{3,}(?![\d.])/.test(candidate)) return null;
     if (!/[-+*/^%×÷(]/.test(candidate.replace(/^-/, ''))) return null;
     try {
       const value = evaluate(candidate);

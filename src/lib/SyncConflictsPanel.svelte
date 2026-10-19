@@ -35,7 +35,7 @@
   }
 </script>
 
-<div class="conflicts-panel" aria-label="Sync conflicts">
+<div class="conflicts-panel" role="region" aria-label="Sync conflicts">
   <div class="section-header"><span>Sync conflicts</span></div>
 
   <div class="list-scroll">

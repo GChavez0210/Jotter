@@ -5,6 +5,9 @@ export const control = {
   noteCardCalls: 0,
 };
 export const getNoteCards = async () => {control.noteCardCalls++; return [];};
+export const calendarControl = {pick: async (_name: string): Promise<string | null> => null, writes: [] as string[]};
+export const pickTaskCalendarPath = (name: string) => calendarControl.pick(name);
+export const writeTaskCalendar = async (path: string) => {calendarControl.writes.push(path); return true;};
 export const saveNote = (path: string, content: string) => control.save(path, content);
 export const readNote = async (path: string) => ({relPath:path,title:path,content:'disk'});
 export const openVault = async () => {control.openCalls++; return {rootPath:'B',name:'B',tree:[],noteCount:0};};
