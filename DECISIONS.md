@@ -45,15 +45,21 @@
 
 ## 8. Links, Backlinks, Full-Text Search (`tantivy`), Tags, Quick Switcher, & Calendar View (Milestone 4)
 - **SQLite `links` & `note_tags` Tables (`src-tauri/src/index.rs`, `src-tauri/src/links.rs`)**:
-  - `links (source_path, target, target_norm, heading, alias, line_number, line_context)` stores every outgoing `[[wiki link]]` outside inline/fenced code blocks with its 1-based line number (accounting for YAML frontmatter lines) and trimmed line context.
-  - `note_tags (path, tag)` stores unique normalized tags extracted from both YAML frontmatter (`tags: [a, b]` and multiline YAML list `- a`) and inline `#tags`.
+  - `links (source_path, target, target_norm, resolved_path, heading, alias, line_number, line_context)` stores every outgoing `[[wiki link]]` outside inline/fenced code blocks with its 1-based line number (accounting for YAML frontmatter lines), trimmed line context, and index-time `resolved_path` (`NULL` when unresolved).
+  - **Index-Time Wiki-Link Resolution (`WikiLinkResolver`)**: Each wiki link is resolved to a single vault note path using a 3-step precedence:
+    1. **Exact relative path first** (e.g., `[[Specs/Plan]]` -> `Specs/Plan.md`).
+    2. **Same folder as the source note** (e.g., `[[Plan]]` inside `Beta/Deep/Sibling.md` -> `Beta/Deep/Plan.md`).
+    3. **Shortest path among notes with that stem** (tie-broken lexicographically).
+    `query_backlinks_for_note` queries `WHERE l.resolved_path = ?1 AND l.source_path != ?1`, and `re_resolve_all_links` automatically re-resolves affected links whenever notes are created, renamed, or deleted.
+  - `note_tags (path, tag)` stores unique normalized tags extracted from both YAML frontmatter (`tags: [a, b]` and multiline YAML list `- a`) and inline `#tags`. `extract_tags` rejects tags composed exclusively of digits (e.g., `#1`, `#2024`) and requires at least one non-digit character (e.g., `#v2`, `#2024-plan`), matching Obsidian.
   - Both tables are rebuilt on vault open and updated incrementally via `upsert_scanned_note` and `delete_indexed_path` on in-app saves, renames, deletes, and debounced watcher batches.
 - **Full-Text Search (`tantivy` in `src-tauri/src/search.rs`)**:
-  - `VaultSearchIndex` maintains an in-memory `tantivy` index (`path` STRING, `title` TEXT, `body` TEXT). It performs a full rebuild **only** on vault open (`rebuild_from_scanned`) and updates incrementally (`upsert_scanned_note`, `upsert_batch`, `delete_path_or_prefix`) on note creations, saves, renames, deletions, and watcher batches.
-  - Search queries use `tantivy::SnippetGenerator` to produce `<mark>`-highlighted HTML snippets alongside 1-based line numbers and total match counts.
+  - **Single Long-Lived `IndexWriter`**: `VaultSearchIndex` holds a single `Mutex<IndexWriter>` created once at startup and reused across `rebuild_from_scanned`, `upsert_scanned_note`, `upsert_batch`, and `delete_path_or_prefix`. A second writer is never opened, and any commit failure returns an `Err` visible to the caller.
+  - **Prefix Delete via `path_prefix` & Unstored Body**: Each document indexes `path` (`STRING | STORED`), `path_prefix` (`STRING`, containing one token for the note's exact path plus one token per ancestor folder prefix), `title` (`TEXT | STORED`), and `body` (`TEXT` only, **not** `STORED`). `delete_path_or_prefix` issues a single `delete_term` on `path_prefix_field` without scanning segments or reading stored documents. Because `body` is not stored in Tantivy's RAM directory (saving memory proportional to vault size), `search` reads matched `.md` files from disk (or falls back to the stored title in unit tests without a vault root) to generate `<mark>`-highlighted snippets and 1-based line numbers.
 - **Wiki-Link Autocomplete & Click-Through Navigation (`src/lib/wikiLinkAutocomplete.ts`, `src/lib/livePreview.ts`, `src/lib/Editor.svelte`)**:
   - Typing `[[` triggers a CodeMirror 6 completion list of vault notes matching on both note title and relative path.
-  - Clicking a rendered `[[wiki link]]` in Live mode (or `Ctrl+Click` on raw syntax in Source mode) resolves the target note in the vault and opens it in a tab; if `[[Note#Heading]]` is specified, the editor scrolls directly to the matching Markdown heading (`scrollToHeading`). If the target note does not exist yet, a prompt offers to create and open it.
+  - Clicking a rendered `[[wiki link]]` in Live mode (or `Ctrl+Click` on raw syntax in Source mode) resolves the target note in the vault using the same 3-step precedence and opens it in a tab; if `[[Note#Heading]]` is specified, the editor scrolls directly to the matching Markdown heading (`scrollToHeading`). If the target note does not exist yet, a prompt offers to create and open it.
 - **Calendar View (`src/lib/CalendarView.svelte`)**:
   - Displays a month grid with dot + count indicators and heat-style shading for notes touched each day, with a `Modified` / `Created` toggle (`Modified` uses `edit_log` when present and falls back to filesystem `mtime`).
   - Supports full keyboard navigation on the month grid: `ArrowLeft`/`ArrowRight`/`ArrowUp`/`ArrowDown` move between days (automatically crossing month boundaries), `Enter` opens the focused day's note list, and `T` jumps to today.
+

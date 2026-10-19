@@ -41,7 +41,7 @@ pub struct AppState {
     pub backdrop: Mutex<BackdropState>,
     pub active_vault: Mutex<Option<PathBuf>>,
     pub sqlite_conn: Arc<Mutex<Connection>>,
-    pub search_index: Arc<Mutex<VaultSearchIndex>>,
+    pub search_index: Arc<VaultSearchIndex>,
     pub watcher: Mutex<Option<RecommendedWatcher>>,
     pub recent_self_writes: Arc<Mutex<HashMap<String, Instant>>>,
     pub recent_vaults_file: PathBuf,
@@ -117,7 +117,7 @@ fn is_recent_self_write(
 fn process_watcher_batch(
     vault_root: &Path,
     sqlite_conn: &Arc<Mutex<Connection>>,
-    search_index: &Arc<Mutex<VaultSearchIndex>>,
+    search_index: &Arc<VaultSearchIndex>,
     batch_rel_paths: &[String],
 ) {
     enum IncrementalOp {
@@ -170,19 +170,17 @@ fn process_watcher_batch(
     }
 
     // 3. Apply incremental Tantivy full-text search updates
-    if let Ok(search_idx) = search_index.lock() {
-        for op in &ops {
-            match op {
-                IncrementalOp::Delete(rel) => {
-                    let _ = search_idx.delete_path_or_prefix(rel);
-                }
-                IncrementalOp::SingleFile(scanned) => {
-                    let _ = search_idx.upsert_scanned_note(scanned);
-                }
-                IncrementalOp::DirFiles(dir_rel, scanned_list) => {
-                    let _ = search_idx.delete_path_or_prefix(dir_rel);
-                    let _ = search_idx.upsert_batch(scanned_list);
-                }
+    for op in &ops {
+        match op {
+            IncrementalOp::Delete(rel) => {
+                let _ = search_index.delete_path_or_prefix(rel);
+            }
+            IncrementalOp::SingleFile(scanned) => {
+                let _ = search_index.upsert_scanned_note(scanned);
+            }
+            IncrementalOp::DirFiles(dir_rel, scanned_list) => {
+                let _ = search_index.delete_path_or_prefix(dir_rel);
+                let _ = search_index.upsert_batch(scanned_list);
             }
         }
     }
@@ -192,7 +190,7 @@ fn start_vault_watcher(
     app_handle: AppHandle,
     vault_root: PathBuf,
     sqlite_conn: Arc<Mutex<Connection>>,
-    search_index: Arc<Mutex<VaultSearchIndex>>,
+    search_index: Arc<VaultSearchIndex>,
     recent_self_writes: Arc<Mutex<HashMap<String, Instant>>>,
 ) -> Result<RecommendedWatcher, String> {
     let (tx, rx) = mpsc::channel::<Vec<String>>();
@@ -366,12 +364,14 @@ fn open_vault(
 
     // Walk the filesystem and parse notes/links/tags BEFORE locking SQLite or Tantivy
     let scanned_files = scan_dir_files_from_disk(&vault_root, &vault_root)?;
-    if let Ok(conn) = state.sqlite_conn.lock() {
+    {
+        let conn = state
+            .sqlite_conn
+            .lock()
+            .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
         apply_scanned_vault_index(&conn, &scanned_files)?;
     }
-    if let Ok(search_idx) = state.search_index.lock() {
-        let _ = search_idx.rebuild_from_scanned(&scanned_files);
-    }
+    state.search_index.rebuild_from_scanned(&scanned_files)?;
 
     let watcher = start_vault_watcher(
         app_handle,
@@ -486,14 +486,15 @@ fn create_note(
 
     let abs = vault_root.join(&doc.rel_path);
     let now_ms = system_time_to_ms(SystemTime::now());
-    if let Ok(scanned) = scan_single_file_from_disk(&vault_root, &abs) {
-        if let Ok(conn) = state.sqlite_conn.lock() {
-            let _ = upsert_scanned_note(&conn, &scanned, Some(now_ms));
-        }
-        if let Ok(search_idx) = state.search_index.lock() {
-            let _ = search_idx.upsert_scanned_note(&scanned);
-        }
+    let scanned = scan_single_file_from_disk(&vault_root, &abs)?;
+    {
+        let conn = state
+            .sqlite_conn
+            .lock()
+            .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+        upsert_scanned_note(&conn, &scanned, Some(now_ms))?;
     }
+    state.search_index.upsert_scanned_note(&scanned)?;
 
     Ok((snapshot, doc))
 }
@@ -513,14 +514,15 @@ fn save_note(
         mark_self_write(&state.recent_self_writes, &doc.rel_path);
         let abs = vault_root.join(&doc.rel_path);
         let now_ms = system_time_to_ms(SystemTime::now());
-        if let Ok(scanned) = scan_single_file_from_disk(&vault_root, &abs) {
-            if let Ok(conn) = state.sqlite_conn.lock() {
-                let _ = upsert_scanned_note(&conn, &scanned, Some(now_ms));
-            }
-            if let Ok(search_idx) = state.search_index.lock() {
-                let _ = search_idx.upsert_scanned_note(&scanned);
-            }
+        let scanned = scan_single_file_from_disk(&vault_root, &abs)?;
+        {
+            let conn = state
+                .sqlite_conn
+                .lock()
+                .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+            upsert_scanned_note(&conn, &scanned, Some(now_ms))?;
         }
+        state.search_index.upsert_scanned_note(&scanned)?;
     }
 
     Ok(doc)
@@ -558,25 +560,27 @@ fn rename_entry(
         None
     };
 
-    if let Ok(conn) = state.sqlite_conn.lock() {
-        let _ = rename_edit_log_paths(&conn, &res.old_rel_path, &res.new_rel_path);
-        let _ = delete_indexed_path(&conn, &res.old_rel_path);
+    {
+        let conn = state
+            .sqlite_conn
+            .lock()
+            .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+        rename_edit_log_paths(&conn, &res.old_rel_path, &res.new_rel_path)?;
+        delete_indexed_path(&conn, &res.old_rel_path)?;
         if let Some(scanned) = &single_scanned {
-            let _ = upsert_scanned_note(&conn, scanned, None);
+            upsert_scanned_note(&conn, scanned, None)?;
         } else if let Some(scanned_list) = &dir_scanned {
             for scanned in scanned_list {
-                let _ = upsert_scanned_note(&conn, scanned, None);
+                upsert_scanned_note(&conn, scanned, None)?;
             }
         }
     }
 
-    if let Ok(search_idx) = state.search_index.lock() {
-        let _ = search_idx.delete_path_or_prefix(&res.old_rel_path);
-        if let Some(scanned) = &single_scanned {
-            let _ = search_idx.upsert_scanned_note(scanned);
-        } else if let Some(scanned_list) = &dir_scanned {
-            let _ = search_idx.upsert_batch(scanned_list);
-        }
+    state.search_index.delete_path_or_prefix(&res.old_rel_path)?;
+    if let Some(scanned) = &single_scanned {
+        state.search_index.upsert_scanned_note(scanned)?;
+    } else if let Some(scanned_list) = &dir_scanned {
+        state.search_index.upsert_batch(scanned_list)?;
     }
 
     Ok(res)
@@ -589,12 +593,14 @@ fn delete_entry(state: State<'_, AppState>, rel_path: String) -> Result<VaultSna
     mark_self_write(&state.recent_self_writes, &clean);
 
     let snapshot = delete_vault_entry(&vault_root, &clean)?;
-    if let Ok(conn) = state.sqlite_conn.lock() {
-        let _ = delete_indexed_path(&conn, &clean);
+    {
+        let conn = state
+            .sqlite_conn
+            .lock()
+            .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+        delete_indexed_path(&conn, &clean)?;
     }
-    if let Ok(search_idx) = state.search_index.lock() {
-        let _ = search_idx.delete_path_or_prefix(&clean);
-    }
+    state.search_index.delete_path_or_prefix(&clean)?;
 
     Ok(snapshot)
 }
@@ -664,11 +670,14 @@ fn search_vault(
     query: String,
     limit: Option<usize>,
 ) -> Result<Vec<SearchHit>, String> {
-    let search_idx = state
-        .search_index
+    let vault_root = state
+        .active_vault
         .lock()
-        .map_err(|e| format!("Failed to lock Tantivy search index: {e}"))?;
-    search_idx.search(&query, limit.unwrap_or(40))
+        .map_err(|e| format!("Failed to lock active vault state: {e}"))?
+        .clone();
+    state
+        .search_index
+        .search(vault_root.as_deref(), &query, limit.unwrap_or(40))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -697,7 +706,7 @@ pub fn run() {
             }),
             active_vault: Mutex::new(None),
             sqlite_conn: Arc::new(Mutex::new(conn)),
-            search_index: Arc::new(Mutex::new(search_idx)),
+            search_index: Arc::new(search_idx),
             watcher: Mutex::new(None),
             recent_self_writes: Arc::new(Mutex::new(HashMap::new())),
             recent_vaults_file,

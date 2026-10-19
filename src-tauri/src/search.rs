@@ -1,31 +1,52 @@
+use std::fs;
+use std::path::Path;
+use std::sync::Mutex;
+
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
 use tantivy::schema::{Field, Schema, Value, STORED, STRING, TEXT};
-use tantivy::snippet::SnippetGenerator;
-use tantivy::{doc, Index, IndexReader, ReloadPolicy, TantivyDocument, Term};
+use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term};
 
 use crate::index::ScannedNoteFile;
 use crate::types::SearchHit;
 
-/// Full-text search index powered by `tantivy`, rebuilt on vault open and updated incrementally.
+/// Full-text search index powered by `tantivy`.
+///
+/// Architectural properties:
+/// 1. Keeps a single long-lived `IndexWriter` behind a `Mutex<IndexWriter>` reused across
+///    `rebuild_from_scanned`, `upsert_scanned_note`, `upsert_batch`, and `delete_path_or_prefix`.
+///    A second writer is never opened.
+/// 2. Indexes a `path_prefix` `STRING` field with one token for the exact path plus one token per
+///    ancestor folder so `delete_path_or_prefix` deletes by term without scanning segments or
+///    reading stored documents.
+/// 3. Does NOT store full note bodies in `tantivy` (`body` is `TEXT` only, not `STORED`).
+///    Highlighted `<mark>` snippets and 1-based line numbers are generated from the `.md` file
+///    on disk for only the top `limit` hits returned by a query.
 pub struct VaultSearchIndex {
     index: Index,
     reader: IndexReader,
+    writer: Mutex<IndexWriter>,
     path_field: Field,
+    path_prefix_field: Field,
     title_field: Field,
     body_field: Field,
 }
 
 impl VaultSearchIndex {
-    /// Creates a new in-RAM Tantivy full-text search index for the vault.
+    /// Creates a new in-RAM Tantivy full-text search index with a single long-lived `IndexWriter`.
     pub fn new() -> Result<Self, String> {
         let mut schema_builder = Schema::builder();
         let path_field = schema_builder.add_text_field("path", STRING | STORED);
+        let path_prefix_field = schema_builder.add_text_field("path_prefix", STRING);
         let title_field = schema_builder.add_text_field("title", TEXT | STORED);
-        let body_field = schema_builder.add_text_field("body", TEXT | STORED);
+        // Full note body is indexed for full-text search but NOT stored in Tantivy RAM
+        let body_field = schema_builder.add_text_field("body", TEXT);
         let schema = schema_builder.build();
 
         let index = Index::create_in_ram(schema);
+        let writer = index
+            .writer(15_000_000)
+            .map_err(|e| format!("Failed to create long-lived Tantivy writer: {e}"))?;
         let reader = index
             .reader_builder()
             .reload_policy(ReloadPolicy::Manual)
@@ -35,30 +56,45 @@ impl VaultSearchIndex {
         Ok(Self {
             index,
             reader,
+            writer: Mutex::new(writer),
             path_field,
+            path_prefix_field,
             title_field,
             body_field,
         })
     }
 
+    fn build_tantivy_doc(&self, f: &ScannedNoteFile) -> TantivyDocument {
+        let norm_path = normalize_search_rel_path(&f.path);
+        let mut document = TantivyDocument::default();
+        document.add_text(self.path_field, &norm_path);
+        document.add_text(self.path_prefix_field, &norm_path);
+
+        // Index one token per ancestor folder so folder-prefix deletes are a single term delete
+        for ancestor in ancestor_folder_prefixes(&norm_path) {
+            document.add_text(self.path_prefix_field, &ancestor);
+        }
+
+        document.add_text(self.title_field, &f.title);
+        document.add_text(self.body_field, &f.content);
+        document
+    }
+
     /// Rebuilds the entire Tantivy search index from pre-scanned vault files (called on vault open).
     pub fn rebuild_from_scanned(&self, files: &[ScannedNoteFile]) -> Result<usize, String> {
         let mut writer = self
-            .index
-            .writer(15_000_000)
-            .map_err(|e| format!("Failed to acquire Tantivy writer: {e}"))?;
+            .writer
+            .lock()
+            .map_err(|e| format!("Failed to lock Tantivy writer for rebuild: {e}"))?;
 
         writer
             .delete_all_documents()
             .map_err(|e| format!("Failed to clear Tantivy index: {e}"))?;
 
         for f in files {
+            let doc = self.build_tantivy_doc(f);
             writer
-                .add_document(doc!(
-                    self.path_field => f.path.as_str(),
-                    self.title_field => f.title.as_str(),
-                    self.body_field => f.content.as_str(),
-                ))
+                .add_document(doc)
                 .map_err(|e| format!("Failed to add document {} to Tantivy: {e}", f.path))?;
         }
 
@@ -67,12 +103,12 @@ impl VaultSearchIndex {
             .map_err(|e| format!("Failed to commit Tantivy rebuild: {e}"))?;
         self.reader
             .reload()
-            .map_err(|e| format!("Failed to reload Tantivy reader: {e}"))?;
+            .map_err(|e| format!("Failed to reload Tantivy reader after rebuild: {e}"))?;
 
         Ok(files.len())
     }
 
-    /// Incrementally upserts a single scanned note in the Tantivy index.
+    /// Incrementally upserts a single scanned note in the Tantivy index using the shared `IndexWriter`.
     pub fn upsert_scanned_note(&self, scanned: &ScannedNoteFile) -> Result<(), String> {
         self.upsert_batch(std::slice::from_ref(scanned))
     }
@@ -83,19 +119,16 @@ impl VaultSearchIndex {
             return Ok(());
         }
         let mut writer = self
-            .index
-            .writer(15_000_000)
-            .map_err(|e| format!("Failed to acquire Tantivy writer: {e}"))?;
+            .writer
+            .lock()
+            .map_err(|e| format!("Failed to lock Tantivy writer for upsert: {e}"))?;
 
         for f in files {
-            let term = Term::from_field_text(self.path_field, &f.path);
-            writer.delete_term(term);
+            let norm_path = normalize_search_rel_path(&f.path);
+            writer.delete_term(Term::from_field_text(self.path_field, &norm_path));
+            let doc = self.build_tantivy_doc(f);
             writer
-                .add_document(doc!(
-                    self.path_field => f.path.as_str(),
-                    self.title_field => f.title.as_str(),
-                    self.body_field => f.content.as_str(),
-                ))
+                .add_document(doc)
                 .map_err(|e| format!("Failed to add document {} to Tantivy: {e}", f.path))?;
         }
 
@@ -104,49 +137,43 @@ impl VaultSearchIndex {
             .map_err(|e| format!("Failed to commit Tantivy upsert: {e}"))?;
         self.reader
             .reload()
-            .map_err(|e| format!("Failed to reload Tantivy reader: {e}"))?;
+            .map_err(|e| format!("Failed to reload Tantivy reader after upsert: {e}"))?;
         Ok(())
     }
 
-    /// Incrementally deletes a note path or all notes under a folder prefix (`rel_path/...`).
+    /// Incrementally deletes a note path or all notes under a folder prefix (`rel_path/...`)
+    /// via the indexed `path_prefix` field without scanning segments or reading stored documents.
     pub fn delete_path_or_prefix(&self, rel_path: &str) -> Result<(), String> {
-        let searcher = self.reader.searcher();
-        let prefix = format!("{rel_path}/");
-        let mut matching_paths = vec![rel_path.to_string()];
-
-        for segment_reader in searcher.segment_readers() {
-            let store_reader = segment_reader
-                .get_store_reader(1)
-                .map_err(|e| format!("Failed to read Tantivy store: {e}"))?;
-            for doc_id in segment_reader.doc_ids_alive() {
-                if let Ok(doc) = store_reader.get::<TantivyDocument>(doc_id) {
-                    if let Some(p) = doc.get_first(self.path_field).and_then(|v| v.as_str()) {
-                        if p == rel_path || p.starts_with(&prefix) {
-                            matching_paths.push(p.to_string());
-                        }
-                    }
-                }
-            }
+        let norm_path = normalize_search_rel_path(rel_path);
+        if norm_path.is_empty() {
+            return Ok(());
         }
 
         let mut writer = self
-            .index
-            .writer::<TantivyDocument>(15_000_000)
-            .map_err(|e| format!("Failed to acquire Tantivy writer: {e}"))?;
-        for p in matching_paths {
-            writer.delete_term(Term::from_field_text(self.path_field, &p));
-        }
+            .writer
+            .lock()
+            .map_err(|e| format!("Failed to lock Tantivy writer for delete: {e}"))?;
+
+        writer.delete_term(Term::from_field_text(self.path_field, &norm_path));
+        writer.delete_term(Term::from_field_text(self.path_prefix_field, &norm_path));
+
         writer
             .commit()
-            .map_err(|e| format!("Failed to commit Tantivy delete: {e}"))?;
+            .map_err(|e| format!("Failed to commit Tantivy delete for {norm_path}: {e}"))?;
         self.reader
             .reload()
-            .map_err(|e| format!("Failed to reload Tantivy reader: {e}"))?;
+            .map_err(|e| format!("Failed to reload Tantivy reader after delete: {e}"))?;
         Ok(())
     }
 
     /// Searches the vault for `query_str` and returns up to `limit` hits with `<mark>` highlighted snippets.
-    pub fn search(&self, query_str: &str, limit: usize) -> Result<Vec<SearchHit>, String> {
+    /// Reads matched `.md` files from `vault_root` on disk so Tantivy does not need to store document bodies.
+    pub fn search(
+        &self,
+        vault_root: Option<&Path>,
+        query_str: &str,
+        limit: usize,
+    ) -> Result<Vec<SearchHit>, String> {
         let trimmed = query_str.trim();
         if trimmed.is_empty() {
             return Ok(Vec::new());
@@ -160,10 +187,6 @@ impl VaultSearchIndex {
         let top_docs = searcher
             .search(&query, &TopDocs::with_limit(limit.max(1)))
             .map_err(|e| format!("Tantivy search failed: {e}"))?;
-
-        let mut snippet_gen = SnippetGenerator::create(&searcher, &*query, self.body_field)
-            .map_err(|e| format!("Failed to create SnippetGenerator: {e}"))?;
-        snippet_gen.set_max_num_chars(180);
 
         let query_tokens: Vec<String> = trimmed
             .split_whitespace()
@@ -191,24 +214,15 @@ impl VaultSearchIndex {
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_string();
-            let body = retrieved_doc
-                .get_first(self.body_field)
-                .and_then(|v| v.as_str())
+
+            let disk_body = vault_root
+                .and_then(|root| fs::read_to_string(root.join(&path)).ok())
                 .unwrap_or_default();
 
-            let (line_number, match_count, fallback_line) =
-                compute_line_and_match_stats(body, &title, &query_tokens);
+            let (line_number, match_count, best_line) =
+                compute_line_and_match_stats(&disk_body, &title, &query_tokens);
 
-            let snippet = snippet_gen.snippet_from_doc(&retrieved_doc);
-            let raw_html = snippet.to_html();
-            let snippet_html = if !raw_html.trim().is_empty() {
-                // Tantivy's Snippet::to_html() wraps highlights in `<b>...</b>`; convert to `<mark>`
-                raw_html
-                    .replace("<b>", "<mark>")
-                    .replace("</b>", "</mark>")
-            } else {
-                highlight_line_html(&fallback_line, &query_tokens)
-            };
+            let snippet_html = highlight_line_html(&best_line, &query_tokens);
 
             hits.push(SearchHit {
                 path,
@@ -221,6 +235,24 @@ impl VaultSearchIndex {
 
         Ok(hits)
     }
+}
+
+fn normalize_search_rel_path(rel_path: &str) -> String {
+    rel_path
+        .trim()
+        .replace('\\', "/")
+        .trim_matches('/')
+        .to_string()
+}
+
+fn ancestor_folder_prefixes(norm_path: &str) -> Vec<String> {
+    let mut prefixes = Vec::new();
+    for (idx, ch) in norm_path.char_indices() {
+        if ch == '/' && idx > 0 {
+            prefixes.push(norm_path[..idx].to_string());
+        }
+    }
+    prefixes
 }
 
 fn escape_html_text(input: &str) -> String {
@@ -239,7 +271,7 @@ fn escape_html_text(input: &str) -> String {
 }
 
 fn highlight_line_html(line: &str, tokens: &[String]) -> String {
-    let trimmed: String = line.trim().chars().take(160).collect();
+    let trimmed: String = line.trim().chars().take(180).collect();
     if tokens.is_empty() {
         return escape_html_text(&trimmed);
     }
@@ -307,8 +339,20 @@ fn compute_line_and_match_stats(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
-    fn sample_scanned(path: &str, title: &str, content: &str) -> ScannedNoteFile {
+    fn sample_scanned_in_dir(
+        root: &Path,
+        path: &str,
+        title: &str,
+        content: &str,
+    ) -> ScannedNoteFile {
+        let full_path = root.join(path);
+        if let Some(parent) = full_path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(&full_path, content).unwrap();
+
         ScannedNoteFile {
             path: path.to_string(),
             title: title.to_string(),
@@ -323,14 +367,19 @@ mod tests {
 
     #[test]
     fn tantivy_search_returns_highlighted_snippets_and_updates_incrementally() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+
         let search_idx = VaultSearchIndex::new().expect("create tantivy index");
         let docs = vec![
-            sample_scanned(
-                "Specs/Clipboard.md",
+            sample_scanned_in_dir(
+                root,
+                "Specs/Sub/Clipboard.md",
                 "Clipboard Engine",
                 "# Clipboard\nPreserves exact Notepad line breaks in Slack and Word.",
             ),
-            sample_scanned(
+            sample_scanned_in_dir(
+                root,
                 "Daily/2026-10-19.md",
                 "2026-10-19",
                 "Worked on Windows 11 Mica backdrop and Fluent icons.",
@@ -340,9 +389,9 @@ mod tests {
         let count = search_idx.rebuild_from_scanned(&docs).unwrap();
         assert_eq!(count, 2);
 
-        let hits = search_idx.search("Notepad", 10).unwrap();
+        let hits = search_idx.search(Some(root), "Notepad", 10).unwrap();
         assert_eq!(hits.len(), 1);
-        assert_eq!(hits[0].path, "Specs/Clipboard.md");
+        assert_eq!(hits[0].path, "Specs/Sub/Clipboard.md");
         assert!(
             hits[0].snippet_html.contains("<mark>Notepad</mark>")
                 || hits[0].snippet_html.to_lowercase().contains("<mark>notepad</mark>"),
@@ -352,20 +401,69 @@ mod tests {
         assert_eq!(hits[0].line_number, 2);
 
         // Incrementally update Daily/2026-10-19.md to also mention Notepad
-        let updated = sample_scanned(
+        let updated = sample_scanned_in_dir(
+            root,
             "Daily/2026-10-19.md",
             "2026-10-19",
             "Verified Notepad paste behavior in Google Chat.",
         );
         search_idx.upsert_scanned_note(&updated).unwrap();
 
-        let hits_after_update = search_idx.search("Notepad", 10).unwrap();
+        let hits_after_update = search_idx.search(Some(root), "Notepad", 10).unwrap();
         assert_eq!(hits_after_update.len(), 2);
 
-        // Incrementally delete Specs folder
+        // Incrementally delete ancestor folder "Specs" via indexed path_prefix without scanning docs
         search_idx.delete_path_or_prefix("Specs").unwrap();
-        let hits_after_delete = search_idx.search("Notepad", 10).unwrap();
+        let hits_after_delete = search_idx.search(Some(root), "Notepad", 10).unwrap();
         assert_eq!(hits_after_delete.len(), 1);
         assert_eq!(hits_after_delete[0].path, "Daily/2026-10-19.md");
+    }
+
+    #[test]
+    fn concurrent_search_index_upserts_from_two_threads_do_not_drop_updates() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path().to_path_buf();
+        let search_idx = Arc::new(VaultSearchIndex::new().expect("create tantivy index"));
+
+        let per_thread_count = 20usize;
+        let mut handles = Vec::new();
+
+        for thread_id in 0..2 {
+            let idx_clone = Arc::clone(&search_idx);
+            let root_clone = root.clone();
+            handles.push(std::thread::spawn(move || {
+                for i in 0..per_thread_count {
+                    let rel_path = format!("Thread{thread_id}/Note_{i}.md");
+                    let title = format!("Thread {thread_id} Note {i}");
+                    let content = format!(
+                        "# {title}\nConcurrentSharedKeyword thread_{thread_id}_item_{i}"
+                    );
+                    let scanned =
+                        sample_scanned_in_dir(&root_clone, &rel_path, &title, &content);
+                    idx_clone
+                        .upsert_scanned_note(&scanned)
+                        .expect("concurrent upsert must succeed without dropping");
+                }
+            }));
+        }
+
+        for h in handles {
+            h.join().expect("worker thread panicked");
+        }
+
+        let all_hits = search_idx
+            .search(
+                Some(&root),
+                "ConcurrentSharedKeyword",
+                per_thread_count * 2 + 10,
+            )
+            .expect("search after concurrent upserts");
+
+        assert_eq!(
+            all_hits.len(),
+            per_thread_count * 2,
+            "All {} concurrent upserts across both threads must be present in the index",
+            per_thread_count * 2
+        );
     }
 }

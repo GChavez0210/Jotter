@@ -315,9 +315,9 @@ fn push_normalized_tag(tags: &mut Vec<String>, raw_token: &str) {
     let valid_chars = cleaned
         .chars()
         .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '/');
-    let has_alpha = cleaned.chars().any(|c| c.is_alphabetic());
+    let has_non_digit = cleaned.chars().any(|c| !c.is_numeric());
 
-    if valid_chars && has_alpha && !tags.iter().any(|existing| existing == cleaned) {
+    if valid_chars && has_non_digit && !tags.iter().any(|existing| existing == cleaned) {
         tags.push(cleaned.to_string());
     }
 }
@@ -557,5 +557,14 @@ mod tests {
                 line_context: "And [[Second Target]] on line 9.".to_string(),
             }
         );
+    }
+
+    #[test]
+    fn rejects_digit_only_tags_and_accepts_tags_with_non_digits() {
+        let doc = "---\ntags: [1, 2024, v2, 2024-plan]\n---\nChecking inline #1 and #2024 versus #v2 and #2024-plan.";
+        let tags = extract_tags(doc);
+        assert_eq!(tags, vec!["v2".to_string(), "2024-plan".to_string()]);
+        assert!(!tags.contains(&"1".to_string()));
+        assert!(!tags.contains(&"2024".to_string()));
     }
 }

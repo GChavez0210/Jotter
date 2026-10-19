@@ -105,6 +105,7 @@ pub fn init_index_schema(conn: &Connection) -> Result<(), String> {
             source_path TEXT NOT NULL,
             target TEXT NOT NULL,
             target_norm TEXT NOT NULL,
+            resolved_path TEXT,
             heading TEXT,
             alias TEXT,
             line_number INTEGER NOT NULL,
@@ -114,15 +115,149 @@ pub fn init_index_schema(conn: &Connection) -> Result<(), String> {
             path TEXT NOT NULL,
             tag TEXT NOT NULL,
             PRIMARY KEY (path, tag)
-        );
-        CREATE INDEX IF NOT EXISTS idx_notes_modified_date ON notes(modified_date);
+        );",
+    )
+    .map_err(|e| format!("Failed to initialize SQLite index schema: {e}"))?;
+
+    // Ensure `resolved_path` exists if upgrading an older schema on disk
+    let _ = conn.execute("ALTER TABLE links ADD COLUMN resolved_path TEXT", []);
+
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_notes_modified_date ON notes(modified_date);
         CREATE INDEX IF NOT EXISTS idx_notes_created_date ON notes(created_date);
         CREATE INDEX IF NOT EXISTS idx_edit_log_path_ms ON edit_log(path, edited_ms DESC);
         CREATE INDEX IF NOT EXISTS idx_links_source_path ON links(source_path);
         CREATE INDEX IF NOT EXISTS idx_links_target_norm ON links(target_norm);
+        CREATE INDEX IF NOT EXISTS idx_links_resolved_path ON links(resolved_path);
         CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag);",
     )
-    .map_err(|e| format!("Failed to initialize SQLite index schema: {e}"))
+    .map_err(|e| format!("Failed to initialize SQLite index indices: {e}"))
+}
+
+/// Lookup table that resolves wiki-link targets to a single vault note path using:
+/// 1. Exact relative path first
+/// 2. Same folder as the source note
+/// 3. Shortest path among notes with that stem (tie-broken lexicographically)
+pub struct WikiLinkResolver {
+    exact_map: std::collections::HashMap<String, String>,
+    stem_map: std::collections::HashMap<String, String>,
+}
+
+impl WikiLinkResolver {
+    pub fn new(all_note_paths: &[String]) -> Self {
+        let mut exact_map = std::collections::HashMap::with_capacity(all_note_paths.len());
+        let mut stem_map: std::collections::HashMap<String, String> =
+            std::collections::HashMap::with_capacity(all_note_paths.len());
+
+        for path in all_note_paths {
+            let norm_rel = normalize_link_target(path);
+            if norm_rel.is_empty() {
+                continue;
+            }
+            exact_map.insert(norm_rel, path.clone());
+
+            let stem = path
+                .rsplit('/')
+                .next()
+                .map(normalize_link_target)
+                .unwrap_or_default();
+            if !stem.is_empty() {
+                match stem_map.get(&stem) {
+                    Some(existing)
+                        if (existing.len(), existing.as_str()) <= (path.len(), path.as_str()) => {}
+                    _ => {
+                        stem_map.insert(stem, path.clone());
+                    }
+                }
+            }
+        }
+
+        Self {
+            exact_map,
+            stem_map,
+        }
+    }
+
+    pub fn resolve(&self, source_path: &str, raw_target: &str) -> Option<String> {
+        let target_norm = normalize_link_target(raw_target);
+        if target_norm.is_empty() {
+            return None;
+        }
+
+        // 1. Exact relative path first
+        if let Some(exact) = self.exact_map.get(&target_norm) {
+            return Some(exact.clone());
+        }
+
+        // 2. Same folder as the source note
+        let source_norm = source_path.trim().replace('\\', "/");
+        if let Some((source_dir, _)) = source_norm.rsplit_once('/') {
+            if !source_dir.is_empty() {
+                let same_folder_norm = normalize_link_target(&format!("{source_dir}/{target_norm}"));
+                if let Some(same_folder_match) = self.exact_map.get(&same_folder_norm) {
+                    return Some(same_folder_match.clone());
+                }
+            }
+        }
+
+        // 3. Shortest path among notes with that stem
+        if !target_norm.contains('/') {
+            if let Some(shortest) = self.stem_map.get(&target_norm) {
+                return Some(shortest.clone());
+            }
+        }
+
+        None
+    }
+}
+
+/// Resolves a single wiki link against `all_note_paths`.
+pub fn resolve_wiki_link_path(
+    source_path: &str,
+    raw_target: &str,
+    all_note_paths: &[String],
+) -> Option<String> {
+    WikiLinkResolver::new(all_note_paths).resolve(source_path, raw_target)
+}
+
+/// Re-resolves all links in the `links` table against the current set of notes in `notes`.
+pub fn re_resolve_all_links(conn: &Connection) -> Result<(), String> {
+    let mut notes_stmt = conn
+        .prepare("SELECT path FROM notes ORDER BY path ASC")
+        .map_err(|e| format!("Failed to prepare notes query for link resolution: {e}"))?;
+    let all_note_paths: Vec<String> = notes_stmt
+        .query_map([], |row| row.get(0))
+        .map_err(|e| format!("Failed to read note paths for link resolution: {e}"))?
+        .filter_map(Result::ok)
+        .collect();
+
+    let resolver = WikiLinkResolver::new(&all_note_paths);
+
+    let mut links_stmt = conn
+        .prepare("SELECT id, source_path, target, resolved_path FROM links")
+        .map_err(|e| format!("Failed to prepare links query for resolution: {e}"))?;
+    let link_rows: Vec<(i64, String, String, Option<String>)> = links_stmt
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })
+        .map_err(|e| format!("Failed to read links for resolution: {e}"))?
+        .filter_map(Result::ok)
+        .collect();
+
+    let mut update_stmt = conn
+        .prepare("UPDATE links SET resolved_path = ?1 WHERE id = ?2")
+        .map_err(|e| format!("Failed to prepare resolved_path update: {e}"))?;
+
+    for (id, source_path, target, current_resolved) in link_rows {
+        let new_resolved = resolver.resolve(&source_path, &target);
+        if new_resolved != current_resolved {
+            update_stmt
+                .execute(params![new_resolved, id])
+                .map_err(|e| format!("Failed to update resolved_path for link {id}: {e}"))?;
+        }
+    }
+
+    Ok(())
 }
 
 /// Logs an in-app save event in `edit_log` (`path`, `edited_ms`), which is preserved across index rebuilds.
@@ -233,8 +368,8 @@ pub fn replace_note_links(
             continue;
         }
         conn.execute(
-            "INSERT INTO links (source_path, target, target_norm, heading, alias, line_number, line_context)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO links (source_path, target, target_norm, resolved_path, heading, alias, line_number, line_context)
+             VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6, ?7)",
             params![
                 source_path,
                 link.target,
@@ -365,9 +500,7 @@ fn walk_and_scan_dir(
     Ok(())
 }
 
-/// Upserts a pre-scanned `.md` file into SQLite (`notes`, `links`, and `note_tags`),
-/// consulting `edit_log` for the latest in-app `edited_ms` and falling back to `scanned.fs_modified_ms`.
-pub fn upsert_scanned_note(
+fn upsert_scanned_note_no_resolve(
     conn: &Connection,
     scanned: &ScannedNoteFile,
     in_app_save_ms: Option<i64>,
@@ -399,6 +532,18 @@ pub fn upsert_scanned_note(
     Ok(())
 }
 
+/// Upserts a pre-scanned `.md` file into SQLite (`notes`, `links`, and `note_tags`),
+/// consulting `edit_log` for the latest in-app `edited_ms` and falling back to `scanned.fs_modified_ms`,
+/// then re-resolves all affected wiki links across the vault.
+pub fn upsert_scanned_note(
+    conn: &Connection,
+    scanned: &ScannedNoteFile,
+    in_app_save_ms: Option<i64>,
+) -> Result<(), String> {
+    upsert_scanned_note_no_resolve(conn, scanned, in_app_save_ms)?;
+    re_resolve_all_links(conn)
+}
+
 /// Indexes a single `.md` file from disk into the SQLite cache.
 /// If `override_modified_ms` is `Some(ms)`, logs `(path, ms)` in `edit_log`.
 /// Otherwise uses the latest `edit_log` entry when present and falls back to file `mtime`.
@@ -412,7 +557,8 @@ pub fn index_single_file(
     upsert_scanned_note(conn, &scanned, override_modified_ms)
 }
 
-/// Removes a note or all notes inside a folder (`rel_path` or `rel_path/%`) from `notes`, `links`, and `note_tags`.
+/// Removes a note or all notes inside a folder (`rel_path` or `rel_path/%`) from `notes`, `links`, and `note_tags`,
+/// and re-resolves affected links across the vault.
 pub fn delete_indexed_path(conn: &Connection, rel_path: &str) -> Result<(), String> {
     let prefix = format!("{rel_path}/%");
     conn.execute(
@@ -430,7 +576,7 @@ pub fn delete_indexed_path(conn: &Connection, rel_path: &str) -> Result<(), Stri
         params![rel_path, prefix],
     )
     .map_err(|e| format!("Failed to delete indexed path {rel_path} from note_tags: {e}"))?;
-    Ok(())
+    re_resolve_all_links(conn)
 }
 
 /// Applies a pre-scanned list of vault files to rebuild `notes`, `links`, and `note_tags` while preserving `edit_log`.
@@ -447,9 +593,10 @@ pub fn apply_scanned_vault_index(
     .map_err(|e| format!("Failed to clear derived index tables: {e}"))?;
 
     for scanned in scanned_files {
-        upsert_scanned_note(conn, scanned, None)?;
+        upsert_scanned_note_no_resolve(conn, scanned, None)?;
     }
 
+    re_resolve_all_links(conn)?;
     Ok(scanned_files.len())
 }
 
@@ -460,31 +607,26 @@ pub fn rebuild_index_from_vault(conn: &Connection, vault_root: &Path) -> Result<
     apply_scanned_vault_index(conn, &scanned)
 }
 
-/// Queries all backlinks pointing to `active_rel_path` (matching by note stem/title or relative path).
+/// Queries all backlinks pointing to `active_rel_path` using the index-time `resolved_path` column.
 pub fn query_backlinks_for_note(
     conn: &Connection,
     active_rel_path: &str,
 ) -> Result<Vec<BacklinkEntry>, String> {
-    let rel_norm = normalize_link_target(active_rel_path);
-    let stem_norm = active_rel_path
-        .rsplit('/')
-        .next()
-        .map(normalize_link_target)
-        .unwrap_or_else(|| rel_norm.clone());
+    let normalized_path = active_rel_path.trim().replace('\\', "/");
 
     let mut stmt = conn
         .prepare(
             "SELECT l.source_path, COALESCE(n.title, l.source_path), l.target, l.heading, l.alias, l.line_number, l.line_context
              FROM links l
              LEFT JOIN notes n ON n.path = l.source_path
-             WHERE (l.target_norm = ?1 OR l.target_norm = ?2)
-               AND l.source_path != ?3
+             WHERE l.resolved_path = ?1
+               AND l.source_path != ?1
              ORDER BY l.source_path ASC, l.line_number ASC",
         )
         .map_err(|e| format!("Failed to prepare backlinks query: {e}"))?;
 
     let rows = stmt
-        .query_map(params![rel_norm, stem_norm, active_rel_path], |row| {
+        .query_map(params![normalized_path], |row| {
             Ok(BacklinkEntry {
                 source_path: row.get(0)?,
                 source_title: row.get(1)?,
@@ -843,5 +985,95 @@ mod tests {
         delete_indexed_path(&conn, "Daily.md").unwrap();
         let backlinks_after = query_backlinks_for_note(&conn, "Specs/Clipboard Engine.md").unwrap();
         assert!(backlinks_after.is_empty());
+    }
+
+    #[test]
+    fn resolves_wiki_links_with_two_plan_md_notes_and_reresolves_on_create_rename_delete() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+
+        fs::create_dir_all(root.join("Alpha")).unwrap();
+        fs::create_dir_all(root.join("Beta/Deep")).unwrap();
+        fs::create_dir_all(root.join("Gamma")).unwrap();
+
+        // Two notes named Plan.md in different folders ("Alpha/Plan.md" is shorter than "Beta/Deep/Plan.md")
+        fs::write(root.join("Alpha/Plan.md"), "# Alpha Plan").unwrap();
+        fs::write(root.join("Beta/Deep/Plan.md"), "# Beta Deep Plan").unwrap();
+
+        // Sibling in Beta/Deep links to [[Plan]] -> should resolve to same-folder "Beta/Deep/Plan.md"
+        fs::write(
+            root.join("Beta/Deep/Sibling.md"),
+            "Same folder link: [[Plan]]",
+        )
+        .unwrap();
+
+        // Gamma/Overview.md links to:
+        // - [[Plan]] -> should resolve to shortest path "Alpha/Plan.md"
+        // - [[Beta/Deep/Plan]] -> should resolve by exact relative path to "Beta/Deep/Plan.md"
+        // - [[NonExistent]] -> unresolved (NULL)
+        fs::write(
+            root.join("Gamma/Overview.md"),
+            "Stem link: [[Plan]]\nExact path link: [[Beta/Deep/Plan]]\nMissing: [[NonExistent]]",
+        )
+        .unwrap();
+
+        let conn = Connection::open_in_memory().unwrap();
+        rebuild_index_from_vault(&conn, root).unwrap();
+
+        // Verify unresolved link stores NULL in resolved_path
+        let missing_resolved: Option<String> = conn
+            .query_row(
+                "SELECT resolved_path FROM links WHERE source_path = 'Gamma/Overview.md' AND target = 'NonExistent'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(missing_resolved, None);
+
+        // Alpha/Plan.md gets backlink from Gamma/Overview.md's [[Plan]] (shortest path)
+        let alpha_backlinks = query_backlinks_for_note(&conn, "Alpha/Plan.md").unwrap();
+        assert_eq!(alpha_backlinks.len(), 1);
+        assert_eq!(alpha_backlinks[0].source_path, "Gamma/Overview.md");
+        assert_eq!(alpha_backlinks[0].target, "Plan");
+
+        // Beta/Deep/Plan.md gets backlinks from Beta/Deep/Sibling.md (same folder) and Gamma/Overview.md (exact relative path)
+        let beta_backlinks = query_backlinks_for_note(&conn, "Beta/Deep/Plan.md").unwrap();
+        assert_eq!(beta_backlinks.len(), 2);
+        assert_eq!(beta_backlinks[0].source_path, "Beta/Deep/Sibling.md");
+        assert_eq!(beta_backlinks[1].source_path, "Gamma/Overview.md");
+
+        // 1. CREATE: Create Gamma/Plan.md in the same folder as Gamma/Overview.md.
+        // Gamma/Overview.md's [[Plan]] must re-resolve from Alpha/Plan.md to Gamma/Plan.md!
+        let gamma_plan = root.join("Gamma/Plan.md");
+        fs::write(&gamma_plan, "# Gamma Plan").unwrap();
+        index_single_file(&conn, root, &gamma_plan, None).unwrap();
+
+        let gamma_backlinks = query_backlinks_for_note(&conn, "Gamma/Plan.md").unwrap();
+        assert_eq!(gamma_backlinks.len(), 1);
+        assert_eq!(gamma_backlinks[0].source_path, "Gamma/Overview.md");
+        assert!(query_backlinks_for_note(&conn, "Alpha/Plan.md")
+            .unwrap()
+            .is_empty());
+
+        // 2. DELETE: Delete Gamma/Plan.md -> Gamma/Overview.md's [[Plan]] re-resolves back to Alpha/Plan.md
+        delete_indexed_path(&conn, "Gamma/Plan.md").unwrap();
+        let alpha_backlinks_after_del = query_backlinks_for_note(&conn, "Alpha/Plan.md").unwrap();
+        assert_eq!(alpha_backlinks_after_del.len(), 1);
+        assert_eq!(
+            alpha_backlinks_after_del[0].source_path,
+            "Gamma/Overview.md"
+        );
+
+        // 3. RENAME: Rename Alpha/Plan.md to Archive/LongSubfolder/Deep/Plan.md (longer than Beta/Deep/Plan.md)
+        fs::create_dir_all(root.join("Archive/LongSubfolder/Deep")).unwrap();
+        let renamed_plan = root.join("Archive/LongSubfolder/Deep/Plan.md");
+        fs::write(&renamed_plan, "# Renamed Plan").unwrap();
+        delete_indexed_path(&conn, "Alpha/Plan.md").unwrap();
+        index_single_file(&conn, root, &renamed_plan, None).unwrap();
+
+        // Now Beta/Deep/Plan.md is the shortest path for [[Plan]], so Gamma/Overview.md's [[Plan]] resolves to Beta/Deep/Plan.md
+        let beta_backlinks_after_rename =
+            query_backlinks_for_note(&conn, "Beta/Deep/Plan.md").unwrap();
+        assert_eq!(beta_backlinks_after_rename.len(), 3);
     }
 }
