@@ -54,7 +54,7 @@ export const ACCENT_PRESETS = [
   { id: 'teal', label: 'Teal', light: '#1d6b6c', dark: '#7ccbc9' },
   { id: 'rust', label: 'Rust', light: '#a3472a', dark: '#e59a7c' },
   { id: 'graphite', label: 'Graphite', light: '#46443f', dark: '#cfcac0' },
-  { id: 'amber', label: 'Amber', light: '#8a5d08', dark: '#e3b65a' },
+  { id: 'amber', label: 'Amber', light: '#7f5607', dark: '#e3b65a' },
   { id: 'rose', label: 'Rose', light: '#a6375a', dark: '#ee9db5' },
 ] as const;
 

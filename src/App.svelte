@@ -12,7 +12,6 @@
   import Sidebar from './lib/Sidebar.svelte';
   import StatusBar from './lib/StatusBar.svelte';
   import TitleBar from './lib/TitleBar.svelte';
-  import Icon from './lib/ui/Icon.svelte';
   import Button from './lib/ui/Button.svelte';
   import {
     exportActiveNoteHtml,
@@ -488,10 +487,9 @@
               </Editor>
             {:else}
               <div class="no-open-note">
-                <div class="no-note-icon"><Icon name="notebook" size={20} /></div>
-                <div class="no-note-title">No note selected</div>
+                <div class="no-note-title">Nothing open</div>
                 <div class="no-note-desc">
-                  Select a note from the file tree on the left or create a new one.
+                  Pick a note in the sidebar, press <kbd>Ctrl O</kbd> to find one by name, or start a new one.
                 </div>
                 <Button
                   variant="primary"
@@ -504,7 +502,7 @@
                     void vaultStore.createNoteInVault('', `Note ${stamp}`);
                   }}
                 >
-                  New note (Ctrl+N)
+                  New note
                 </Button>
               </div>
             {/if}
@@ -632,10 +630,6 @@
     padding: var(--space-6);
     text-align: center;
     color: var(--text-secondary);
-  }
-
-  .no-note-icon {
-    color: var(--accent);
   }
 
   .no-note-title {

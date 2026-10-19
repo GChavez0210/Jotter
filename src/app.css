@@ -44,6 +44,12 @@ textarea:focus-visible,
   outline-offset: 2px;
 }
 
+/* Thin scrollbars that take their color from the theme. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-control) transparent;
+}
+
 kbd {
   display: inline-block;
   padding: 2px 5px;

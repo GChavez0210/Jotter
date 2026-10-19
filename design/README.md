@@ -24,9 +24,17 @@ All colors, type, spacing, radii and motion live in [`src/styles/design-tokens.c
 
 The scale is 11, 12, 13, 15, 17, 24 and 32 px. Use 11 px only for meta text such as counts and timestamps.
 
-Themes switch with `data-theme` on the root element (`light`, `dark`, or none for the system setting). Accent presets switch with `data-accent`: `ink` (default), `moss`, `plum`, `teal`, `rust`, `graphite`, `amber`, `rose`. Each preset has a light and a dark value.
+Themes switch with `data-theme` on the root element (`light`, `dark`, or none for the system setting). Accent presets switch with `data-accent`: `ink` (default), `moss`, `plum`, `teal`, `rust`, `graphite`, `amber`, `rose`. Each preset has a light and a dark value. The writing font switches with `data-font` (`sans`, `mono`, or none for serif).
 
 Fonts ship with the app through `@fontsource-variable` packages imported in [`src/main.ts`](../src/main.ts). All three use the SIL Open Font License.
+
+### Contrast
+
+Run the contrast check after changing any color token. It checks text, accents, buttons and tag dots against WCAG AA in both themes and for every accent preset:
+
+```bash
+python design/contrast_check.py src/styles/design-tokens.css
+```
 
 ## Components
 
@@ -38,6 +46,8 @@ Shared controls live in [`src/lib/ui/`](../src/lib/ui/). Use them instead of sty
 | `Button` | Text button with an optional icon. Variants: `default`, `primary`, `subtle`, `danger`; `pressed` for toggles. |
 | `IconButton` | Icon-only button. `label` is required and becomes the accessible name. |
 | `Segmented` | Radio group for 2–4 exclusive options, with arrow-key navigation. |
+| `ChoiceCards` | Radio group of cards with a preview, for choices people judge by eye such as theme and font. |
+| `Dialog` | Modal with a scrim. `picker` sits high like a search box; `panel` is centred. Pair `picker` with the classes in `src/styles/picker.css`. |
 
 To add an icon, copy its Regular SVG from `@phosphor-icons/core` into `ui/icons.ts`.
 

@@ -72,11 +72,11 @@
 <div class="onboarding-container">
   <div class="onboarding-card" role="region" aria-label="Welcome to Jotter">
     <div class="hero-header">
-      <div class="hero-logo"><Icon name="notebook" size={20} /></div>
+      <div class="hero-logo" aria-hidden="true">J</div>
       <div class="hero-titles">
         <h1 class="hero-title">Jotter</h1>
         <p class="hero-subtitle">
-          Windows-native Markdown notes compatible with Obsidian vaults.
+          Plain Markdown notes in a folder you own. Opens Obsidian vaults as they are.
         </p>
       </div>
     </div>
@@ -90,7 +90,7 @@
         <div class="action-info">
           <div class="action-title">Open existing vault</div>
           <div class="action-desc">
-            Choose an existing folder of Markdown (<code>.md</code>) files.
+            Pick a folder of Markdown (<code>.md</code>) files.
           </div>
         </div>
         <div class="action-buttons">
@@ -143,7 +143,7 @@
         <div class="action-info">
           <div class="action-title">Create new vault</div>
           <div class="action-desc">
-            Create a fresh folder for your plain-text Markdown notes.
+            Start an empty folder for new notes.
           </div>
         </div>
         <Button
@@ -236,7 +236,7 @@
 
     <div class="scratchpad-footer">
       <button type="button" class="link-btn" onclick={onOpenScratchpad}>
-        Open Clipboard Spike Scratchpad without a vault
+        Try a scratchpad without a vault
       </button>
     </div>
   </div>
@@ -245,76 +245,69 @@
 <style>
   .onboarding-container {
     flex: 1;
+    min-height: 0;
+    overflow-y: auto;
     display: flex;
-    align-items: center;
     justify-content: center;
-    padding: var(--space-6);
-    overflow: auto;
+    padding: var(--space-12) var(--space-6);
   }
 
   .onboarding-card {
     width: 100%;
-    max-width: 580px;
-    background: var(--surface-editor);
-    border: 1px solid var(--line-subtle);
-    border-radius: var(--radius-card);
-    padding: var(--space-6);
+    max-width: 520px;
     display: flex;
     flex-direction: column;
-    gap: var(--space-5);
+    gap: var(--space-8);
   }
 
   .hero-header {
     display: flex;
-    align-items: center;
-    gap: var(--space-3);
+    flex-direction: column;
+    gap: var(--space-4);
   }
 
   .hero-logo {
-    width: 44px;
-    height: 44px;
-    border-radius: var(--radius-card);
-    background: var(--selection);
-    color: var(--accent);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-dialog);
+    background: var(--accent);
+    color: var(--on-accent);
+    font: 600 22px / 1 var(--font-display);
   }
 
   .hero-titles {
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
+    gap: var(--space-2);
   }
 
   .hero-title {
     margin: 0;
-    font-family: var(--font-display);
-    font-size: var(--fs-24);
-    font-weight: 600;
-    line-height: var(--leading-tight);
+    font: 600 var(--fs-32) / 1.15 var(--font-display);
+    letter-spacing: -0.01em;
   }
 
   .hero-subtitle {
     margin: 0;
-    font-size: var(--fs-13);
+    max-width: 44ch;
     color: var(--text-secondary);
+    font: var(--fs-17) / var(--leading-normal) var(--font-display);
   }
 
   .error-banner {
     padding: var(--space-2) var(--space-3);
-    border-radius: var(--radius-control);
-    border: 1px solid var(--status-danger);
+    border-radius: var(--radius-card);
+    background: color-mix(in srgb, var(--status-danger) 12%, transparent);
     color: var(--text-danger);
-    background: var(--surface-subtle);
-    font-size: var(--fs-12);
+    font-size: var(--fs-13);
   }
 
   .primary-actions {
     display: flex;
     flex-direction: column;
-    gap: var(--space-3);
+    border-top: 1px solid var(--line-subtle);
   }
 
   .action-row {
@@ -322,50 +315,43 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--space-4);
-    padding: var(--space-3) var(--space-4);
-    background: var(--surface-subtle);
-    border: 1px solid var(--line-subtle);
-    border-radius: var(--radius-card);
+    padding: var(--space-4) 0;
+    border-bottom: 1px solid var(--line-subtle);
   }
 
   .action-info {
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
+    gap: 2px;
+    min-width: 0;
   }
 
   .action-title {
-    font-size: var(--fs-15);
     font-weight: 600;
   }
 
   .action-desc {
+    color: var(--text-muted);
     font-size: var(--fs-12);
-    color: var(--text-secondary);
   }
 
   .action-desc code {
     font-family: var(--font-mono);
-    background: var(--surface-code);
-    padding: 1px 4px;
-    border-radius: var(--radius-control);
+    font-size: 0.95em;
   }
 
   .action-buttons {
     display: flex;
-    align-items: center;
     gap: var(--space-2);
-    flex-shrink: 0;
+    flex: none;
   }
 
   .inline-form {
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
-    padding: var(--space-4);
-    background: var(--surface-raised);
-    border: 1px solid var(--line-control);
-    border-radius: var(--radius-card);
+    padding: var(--space-4) 0;
+    border-bottom: 1px solid var(--line-subtle);
   }
 
   .form-field {
@@ -375,9 +361,9 @@
   }
 
   .field-label {
-    font-size: var(--fs-12);
-    font-weight: 600;
     color: var(--text-secondary);
+    font-size: var(--fs-12);
+    font-weight: 500;
   }
 
   .input-with-btn {
@@ -387,13 +373,23 @@
 
   .fluent-input {
     flex: 1;
-    min-height: var(--control-min-height);
+    min-width: 0;
+    height: 32px;
     padding: 0 var(--space-3);
-    border-radius: var(--radius-control);
     border: 1px solid var(--line-control);
+    border-radius: var(--radius-card);
     background: var(--surface-field);
     color: var(--text-primary);
-    font-size: var(--fs-13);
+    font: inherit;
+  }
+
+  .fluent-input:focus {
+    border-color: var(--accent);
+    outline: none;
+  }
+
+  .fluent-input[aria-invalid='true'] {
+    border-color: var(--status-danger);
   }
 
   .form-actions {
@@ -410,41 +406,40 @@
 
   .section-heading {
     margin: 0;
-    font-size: var(--fs-12);
-    font-weight: 600;
+    color: var(--text-muted);
+    font: 600 var(--fs-11) / 1 var(--font-ui);
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--text-secondary);
   }
 
   .recent-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
   }
 
   .recent-item {
     display: flex;
     align-items: center;
-    gap: var(--space-2);
+    gap: var(--space-1);
   }
 
   .recent-open-btn {
     flex: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
     gap: var(--space-3);
-    min-height: 40px;
-    padding: var(--space-2) var(--space-3);
-    border-radius: var(--radius-control);
-    border: 1px solid var(--line-subtle);
-    background: var(--surface-subtle);
+    padding: var(--space-2);
+    border: 0;
+    border-radius: var(--radius-card);
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
     text-align: left;
     cursor: pointer;
-    transition: background-color var(--transition-fast);
   }
 
   .recent-open-btn:hover {
@@ -452,8 +447,8 @@
   }
 
   .recent-icon {
-    color: var(--accent);
     display: inline-flex;
+    color: var(--text-muted);
   }
 
   .recent-text {
@@ -463,40 +458,34 @@
   }
 
   .recent-name {
-    font-size: var(--fs-13);
-    font-weight: 600;
-    color: var(--text-primary);
+    font-weight: 500;
   }
 
   .recent-path {
-    font-size: var(--fs-12);
-    color: var(--text-secondary);
     overflow: hidden;
+    color: var(--text-muted);
+    font-size: var(--fs-12);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .scratchpad-footer {
-    border-top: 1px solid var(--line-subtle);
-    padding-top: var(--space-3);
     display: flex;
-    justify-content: center;
   }
 
   .link-btn {
-    min-height: var(--control-min-height);
-    padding: 0 var(--space-3);
+    padding: 0;
+    border: 0;
     background: transparent;
-    border: 1px solid transparent;
-    border-radius: var(--radius-control);
     color: var(--accent);
-    font-size: var(--fs-12);
-    font-weight: 500;
+    font: inherit;
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+    text-underline-offset: 3px;
     cursor: pointer;
   }
 
   .link-btn:hover {
-    background: var(--surface-hover);
-    text-decoration: underline;
+    text-decoration-color: currentColor;
   }
 </style>
