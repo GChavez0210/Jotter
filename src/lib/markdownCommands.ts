@@ -2,6 +2,7 @@ import { EditorSelection, type TransactionSpec } from '@codemirror/state';
 import type { EditorView, KeyBinding } from '@codemirror/view';
 import { foldAll, unfoldAll } from '@codemirror/language';
 import { toggleZoom } from './outliner';
+import { addDueDate } from './dueDates';
 
 export type MarkdownFormatCommandId =
   | 'bold'
@@ -26,7 +27,8 @@ export type MarkdownFormatCommandId =
   | 'hr'
   | 'zoom_toggle'
   | 'fold_all'
-  | 'unfold_all';
+  | 'unfold_all'
+  | 'due_date';
 
 /**
  * Wraps or unwraps the current selection (or word at cursor) with a symmetric marker
@@ -395,6 +397,8 @@ export function runMarkdownCommand(
       return foldAll(view);
     case 'unfold_all':
       return unfoldAll(view);
+    case 'due_date':
+      return addDueDate(view);
   }
 }
 

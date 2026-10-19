@@ -543,6 +543,17 @@ pub fn build_self_contained_html(
 /// Opens the native Windows Save File dialog (`GetSaveFileNameW`) for exporting an `.html` file.
 #[cfg(target_os = "windows")]
 pub fn pick_save_html_dialog_win32(default_filename: &str) -> Option<PathBuf> {
+    pick_save_file_dialog_win32(default_filename, "html", "HTML Document", "Export Note to HTML")
+}
+
+/// Opens the native Windows Save File dialog for a file with extension `ext` (without the dot).
+#[cfg(target_os = "windows")]
+pub fn pick_save_file_dialog_win32(
+    default_filename: &str,
+    ext: &str,
+    type_label: &str,
+    dialog_title: &str,
+) -> Option<PathBuf> {
     use std::ffi::{c_void, OsString};
     use std::os::windows::ffi::OsStringExt;
     use std::ptr;
@@ -583,11 +594,11 @@ pub fn pick_save_html_dialog_win32(default_filename: &str) -> Option<PathBuf> {
         fn GetSaveFileNameW(lpofn: *mut OpenFileNameW) -> i32;
     }
 
-    let filter: Vec<u16> = "HTML Document (*.html)\0*.html\0All Files (*.*)\0*.*\0\0"
+    let filter: Vec<u16> = format!("{type_label} (*.{ext})\0*.{ext}\0All Files (*.*)\0*.*\0\0")
         .encode_utf16()
         .collect();
-    let title: Vec<u16> = "Export Note to HTML\0".encode_utf16().collect();
-    let def_ext: Vec<u16> = "html\0".encode_utf16().collect();
+    let title: Vec<u16> = format!("{dialog_title}\0").encode_utf16().collect();
+    let def_ext: Vec<u16> = format!("{ext}\0").encode_utf16().collect();
 
     let mut file_buf = [0u16; 260];
     let clean_default: String = default_filename
@@ -600,10 +611,10 @@ pub fn pick_save_html_dialog_win32(default_filename: &str) -> Option<PathBuf> {
             }
         })
         .collect();
-    let initial_name = if clean_default.to_lowercase().ends_with(".html") {
+    let initial_name = if clean_default.to_lowercase().ends_with(&format!(".{ext}")) {
         clean_default
     } else {
-        format!("{clean_default}.html")
+        format!("{clean_default}.{ext}")
     };
     for (idx, code) in initial_name.encode_utf16().take(250).enumerate() {
         file_buf[idx] = code;

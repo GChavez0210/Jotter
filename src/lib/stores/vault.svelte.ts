@@ -169,7 +169,8 @@ class VaultStore {
         // ignore
       }
       await this.refreshRecentVaults();
-      const firstFile = findFirstFileNode(snap.tree);
+      // The Home page is the start screen when it is on; otherwise open the first note.
+      const firstFile = settingsStore.showHomePage ? null : findFirstFileNode(snap.tree);
       if (firstFile) {
         await tabsStore.openNoteInTab(firstFile.relPath);
       }
@@ -201,7 +202,8 @@ class VaultStore {
         // ignore
       }
       await this.refreshRecentVaults();
-      const firstFile = findFirstFileNode(snap.tree);
+      // The Home page is the start screen when it is on; otherwise open the first note.
+      const firstFile = settingsStore.showHomePage ? null : findFirstFileNode(snap.tree);
       if (firstFile) {
         await tabsStore.openNoteInTab(firstFile.relPath);
       }

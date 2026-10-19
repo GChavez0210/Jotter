@@ -1,5 +1,6 @@
 import { syntaxTree } from '@codemirror/language';
 import { createFrontmatterHideExtension } from './frontmatterPreview';
+import { createDueDateExtension } from './dueDates';
 import {
   Compartment,
   StateEffect,
@@ -1135,7 +1136,7 @@ export function createLivePreviewExtension(
   }
 
   if (config.editingMode === 'live') {
-    extensions.push(createRichBlockExtension(), createFrontmatterHideExtension());
+    extensions.push(createRichBlockExtension(), createFrontmatterHideExtension(), createDueDateExtension());
   }
 
   if (config.typewriterScrolling) {

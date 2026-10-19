@@ -6,6 +6,7 @@ pub mod media_export;
 pub mod recycle;
 pub mod search;
 pub mod snippets;
+pub mod tasks;
 pub mod tray;
 pub mod types;
 pub mod vault;
@@ -34,7 +35,7 @@ use crate::search::VaultSearchIndex;
 use crate::types::{
     BackdropState, BacklinkEntry, CalendarDateField, CalendarDaySummary, CalendarNoteEntry,
     ClipboardPayload, CopyRequest, CssSnippet, DeletedEntry, NoteDocument, RecentVault,
-    RenameEntryResult, SearchHit, TagSummary, VaultFsEvent, VaultSnapshot,
+    NoteCard, RenameEntryResult, SearchHit, TagSummary, TaskEntry, VaultFsEvent, VaultSnapshot,
 };
 use crate::vault::{
     create_vault_folder, create_vault_note, delete_vault_entry, load_recent_vaults,
@@ -803,6 +804,79 @@ fn export_active_note_html(title: String, html: String) -> Result<Option<String>
 }
 
 #[tauri::command]
+fn query_due_tasks(state: State<'_, AppState>) -> Result<Vec<TaskEntry>, String> {
+    let conn = state
+        .sqlite_conn
+        .lock()
+        .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+    crate::index::query_due_tasks(&conn)
+}
+
+#[tauri::command]
+fn get_note_cards(state: State<'_, AppState>) -> Result<Vec<NoteCard>, String> {
+    let conn = state
+        .sqlite_conn
+        .lock()
+        .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+    crate::index::query_note_cards(&conn)
+}
+
+/// Asks where to keep the task calendar file. Returns `None` when the user cancels.
+#[tauri::command]
+fn pick_task_calendar_path(default_name: String) -> Result<Option<String>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        Ok(crate::media_export::pick_save_file_dialog_win32(
+            &default_name,
+            "ics",
+            "iCalendar file",
+            "Save task calendar",
+        )
+        .map(|p| p.to_string_lossy().into_owned()))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = default_name;
+        Ok(None)
+    }
+}
+
+/// Writes the open vault's due-dated tasks to an `.ics` file. Skips the write when only the
+/// timestamp would change, so sync clients and subscribed calendars see no churn.
+/// Returns whether the file changed.
+#[tauri::command]
+fn write_task_calendar(state: State<'_, AppState>, target_path: String) -> Result<bool, String> {
+    let vault_root = require_active_vault(&state)?;
+    let target = PathBuf::from(target_path.trim());
+    if target.as_os_str().is_empty() {
+        return Err("Choose a file for the task calendar".to_string());
+    }
+    let tasks = {
+        let conn = state
+            .sqlite_conn
+            .lock()
+            .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+        crate::index::query_due_tasks(&conn)?
+    };
+    let name = vault_root
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "Jotter".to_string());
+    let ics = crate::tasks::build_ics(&format!("{name} tasks"), &tasks, system_time_to_ms(SystemTime::now()));
+    let without_stamp = |text: &str| -> String {
+        text.lines().filter(|l| !l.starts_with("DTSTAMP:")).collect::<Vec<_>>().join("\n")
+    };
+    if let Ok(existing) = std::fs::read_to_string(&target) {
+        if without_stamp(&existing) == without_stamp(&ics) {
+            return Ok(false);
+        }
+    }
+    crate::fs_atomic::atomic_write_str(&target, &ics)
+        .map_err(|e| format!("Cannot write {}: {e}", target.display()))?;
+    Ok(true)
+}
+
+#[tauri::command]
 fn render_note_html_preview(
     state: State<'_, AppState>,
     title: String,
@@ -986,6 +1060,10 @@ pub fn run() {
             read_vault_image_data_url,
             export_active_note_html,
             render_note_html_preview,
+            query_due_tasks,
+            get_note_cards,
+            pick_task_calendar_path,
+            write_task_calendar,
             list_deleted_entries,
             restore_deleted_entry,
             list_css_snippets,

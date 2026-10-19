@@ -77,6 +77,12 @@ class SettingsStore {
   summonEnabled = $state(false);
   summonShortcut = $state('Ctrl+Alt+J');
 
+  // Roadmap phase 2
+  /** The Notes sidebar view lists folders, or tags with each note's links. */
+  notesNavigation = $state<'folders' | 'tags'>('folders');
+  /** Show note cards instead of an empty screen when no note is open. */
+  showHomePage = $state(true);
+
   sidebarWidth = $state<number>(designTokens.layout.sidebarDefaultWidth);
   sidebarCollapsed = $state(false);
   showSettings = $state(false);
@@ -221,6 +227,16 @@ class SettingsStore {
     const root = document.documentElement;
     if (this.writingFont === 'serif') delete root.dataset.font;
     else root.dataset.font = this.writingFont;
+  }
+
+  setNotesNavigation(next: 'folders' | 'tags') {
+    this.notesNavigation = next;
+    this.persist('jotter.notesNavigation', next);
+  }
+
+  setShowHomePage(enabled: boolean) {
+    this.showHomePage = enabled;
+    this.persist('jotter.showHomePage', String(enabled));
   }
 
   setSpellCheck(enabled: boolean) {
@@ -512,6 +528,10 @@ class SettingsStore {
         this.writingFont = savedFont;
       }
       this.applyWritingFontToDocument();
+      const savedNav = localStorage.getItem('jotter.notesNavigation');
+      if (savedNav === 'folders' || savedNav === 'tags') this.notesNavigation = savedNav;
+      const savedHome = localStorage.getItem('jotter.showHomePage');
+      if (savedHome === 'true' || savedHome === 'false') this.showHomePage = savedHome === 'true';
       const savedSpell = localStorage.getItem('jotter.spellCheck');
       if (savedSpell === 'true' || savedSpell === 'false') {
         this.spellCheck = savedSpell === 'true';

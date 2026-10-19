@@ -13,6 +13,7 @@
   import { systemStore } from './stores/system.svelte';
   import { vaultStore } from './stores/vault.svelte';
   import { PROVIDER_NAMES } from './syncConflicts';
+  import { taskCalendarStore } from './stores/taskCalendar.svelte';
   import type { CopyMode } from './types';
 
   interface Props {
@@ -510,6 +511,47 @@
                     Review
                   </Button>
                 {/if}
+              </div>
+            {/if}
+
+            <div class="setting-card">
+              <div class="setting-info">
+                <label for="toggle-home-page" class="setting-label">Home page</label>
+                <div class="setting-desc">
+                  When no note is open, show cards for recent, new, linked, and forgotten notes. Click the gear on the Home page to choose its sections.
+                </div>
+              </div>
+              <input
+                id="toggle-home-page"
+                type="checkbox"
+                class="fluent-toggle"
+                checked={settingsStore.showHomePage}
+                onchange={(e) => settingsStore.setShowHomePage((e.currentTarget as HTMLInputElement).checked)}
+              />
+            </div>
+
+            {#if vaultStore.vaultSnapshot}
+              <div class="setting-card">
+                <div class="setting-info">
+                  <div class="setting-label">Task calendar</div>
+                  <div class="setting-desc">
+                    Writes checklist items with due dates, such as <code>- [ ] Pay rent 📅 2026-11-01</code>, to an <code>.ics</code> file and keeps it up to date. Subscribe to the file in your calendar app. Completed tasks are left out.
+                    {#if taskCalendarStore.path}
+                      <br />Writing to <code>{taskCalendarStore.path}</code>
+                    {/if}
+                    {#if taskCalendarStore.lastError}
+                      <div class="rebuild-status" role="alert">{taskCalendarStore.lastError}</div>
+                    {/if}
+                  </div>
+                </div>
+                <div class="button-row">
+                  <Button icon="calendar-blank" onclick={() => void taskCalendarStore.choosePath()}>
+                    {taskCalendarStore.path ? 'Change file' : 'Choose file'}
+                  </Button>
+                  {#if taskCalendarStore.path}
+                    <Button onclick={() => taskCalendarStore.turnOff()}>Turn off</Button>
+                  {/if}
+                </div>
               </div>
             {/if}
 

@@ -10,11 +10,13 @@ import type {
   CopyRequest,
   CssSnippet,
   DeletedEntry,
+  NoteCard,
   NoteDocument,
   RecentVault,
   RenameEntryResult,
   SearchHit,
   TagSummary,
+  TaskEntry,
   VaultFsEvent,
   VaultSnapshot,
 } from './types';
@@ -216,3 +218,20 @@ export async function listenVaultFsEvents(
 }
 
 
+
+export async function queryDueTasks(): Promise<TaskEntry[]> {
+  return invoke<TaskEntry[]>('query_due_tasks');
+}
+
+export async function getNoteCards(): Promise<NoteCard[]> {
+  return invoke<NoteCard[]>('get_note_cards');
+}
+
+export async function pickTaskCalendarPath(defaultName: string): Promise<string | null> {
+  return invoke<string | null>('pick_task_calendar_path', { defaultName });
+}
+
+/** Rewrites the task calendar file. Resolves to whether the file changed. */
+export async function writeTaskCalendar(targetPath: string): Promise<boolean> {
+  return invoke<boolean>('write_task_calendar', { targetPath });
+}

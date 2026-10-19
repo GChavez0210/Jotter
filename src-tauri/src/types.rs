@@ -214,3 +214,34 @@ pub struct CssSnippet {
     pub name: String,
     pub css: String,
 }
+
+/// A checklist item with a due date, for the calendar file and task lists.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskEntry {
+    pub path: String,
+    pub title: String,
+    pub line_number: usize,
+    pub text: String,
+    pub done: bool,
+    /// `YYYY-MM-DD`.
+    pub due_date: String,
+    /// `HH:MM`, when the task has a time.
+    pub due_time: Option<String>,
+}
+
+/// One note's metadata and link counts, for the Home page and the tags-and-links view.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteCard {
+    pub path: String,
+    pub title: String,
+    pub modified_ms: i64,
+    pub created_ms: i64,
+    pub preview: String,
+    pub tags: Vec<String>,
+    /// Vault paths of the notes this note links to, without duplicates.
+    pub links_to: Vec<String>,
+    /// Number of other notes that link to this note.
+    pub linked_from: usize,
+}
