@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { fluentIcons } from './icons';
+  import Icon from './ui/Icon.svelte';
+  import Button from './ui/Button.svelte';
+  import IconButton from './ui/IconButton.svelte';
+  import Segmented from './ui/Segmented.svelte';
   import { COPY_MODE_LABELS, settingsStore } from './stores/settings.svelte';
   import { tabsStore } from './stores/tabs.svelte';
   import { vaultStore } from './stores/vault.svelte';
@@ -20,6 +23,8 @@
     onExportHtml,
     onExportPdf,
   }: Props = $props();
+
+  const COPY_MODES: CopyMode[] = ['markdown_source', 'plain', 'rich'];
 
   function handleSelectCopyMode(mode: CopyMode) {
     settingsStore.setCopyMode(mode, () => {
@@ -69,18 +74,15 @@
   >
     <div class="brand-group">
       {#if vaultStore.vaultSnapshot && settingsStore.focusMode === 'off'}
-        <button
-          type="button"
-          class="fluent-btn icon-only"
-          aria-pressed={!settingsStore.sidebarCollapsed}
-          title="Toggle file tree sidebar (Ctrl+\)"
-          aria-label="Toggle file tree sidebar"
+        <IconButton
+          icon="sidebar-simple"
+          label="Toggle sidebar"
+          tooltip="Toggle sidebar (Ctrl+\)"
+          pressed={!settingsStore.sidebarCollapsed}
           onclick={() => settingsStore.toggleSidebar()}
-        >
-          {@html fluentIcons.sidebar16}
-        </button>
+        />
       {/if}
-      <span class="brand-icon">{@html fluentIcons.note20}</span>
+      <span class="brand-icon"><Icon name="notebook" size={20} /></span>
       <span class="brand-title">Jotter</span>
       {#if vaultStore.vaultSnapshot}
         <span class="note-pill" title={vaultStore.vaultSnapshot.rootPath}>
@@ -88,138 +90,83 @@
         </span>
       {:else if tabsStore.scratchpadMode}
         <span class="note-pill">Scratchpad</span>
-        <button
-          type="button"
-          class="fluent-btn"
-          onclick={() => (tabsStore.scratchpadMode = false)}
-        >
-          {@html fluentIcons.folderOpen20}
-          <span>Open / Create Vault</span>
-        </button>
+        <Button icon="folder-open" onclick={() => (tabsStore.scratchpadMode = false)}>
+          Open or create vault
+        </Button>
       {/if}
 
       {#if settingsStore.focusMode !== 'off'}
-        <button
-          type="button"
-          class="fluent-btn active-toggle"
+        <Button
+          pressed
           title="Exit {settingsStore.focusMode} focus mode (Esc)"
           onclick={() => settingsStore.exitFocusMode()}
         >
-          <span>Exit {settingsStore.focusMode === 'zen' ? 'Zen' : 'Minimal'} (Esc)</span>
-        </button>
+          Exit {settingsStore.focusMode === 'zen' ? 'Zen' : 'Minimal'} (Esc)
+        </Button>
       {/if}
     </div>
 
     <div class="toolbar-actions">
-      <div class="segmented-group" role="radiogroup" aria-label="Copy mode">
-        <span class="segmented-label">Copy mode:</span>
-        {#each ['markdown_source', 'plain', 'rich'] as const as mode}
-          <button
-            type="button"
-            role="radio"
-            aria-checked={settingsStore.copyMode === mode}
-            class="seg-btn"
-            class:active={settingsStore.copyMode === mode}
-            title={COPY_MODE_LABELS[mode].desc}
-            onclick={() => handleSelectCopyMode(mode)}
-          >
-            {COPY_MODE_LABELS[mode].label}
-          </button>
-        {/each}
-      </div>
+      <span class="segmented-label">Copy as</span>
+      <Segmented
+        label="Copy mode"
+        value={settingsStore.copyMode}
+        options={COPY_MODES.map((mode) => ({
+          value: mode,
+          label: COPY_MODE_LABELS[mode].label,
+          title: COPY_MODE_LABELS[mode].desc,
+        }))}
+        onchange={handleSelectCopyMode}
+      />
 
       <div class="divider" role="separator"></div>
 
-      <button
-        type="button"
-        class="fluent-btn primary-btn"
-        title="Copy selection or note (Ctrl+C)"
-        onclick={onCopyTrigger}
-      >
-        {@html fluentIcons.copy16}
-        <span>Copy</span>
-      </button>
+      <Button variant="primary" icon="copy" title="Copy selection or note (Ctrl+C)" onclick={onCopyTrigger}>Copy</Button>
 
-      <button
-        type="button"
-        class="fluent-btn"
-        title="Paste clipboard contents strictly as plain text (Ctrl+Shift+V)"
-        onclick={onPastePlainTrigger}
-      >
-        {@html fluentIcons.clipboardPaste16}
-        <span>Paste Plain</span>
-      </button>
+      <Button icon="clipboard-text" title="Paste clipboard contents strictly as plain text (Ctrl+Shift+V)" onclick={onPastePlainTrigger}>Paste plain</Button>
 
-      <button
-        type="button"
-        class="fluent-btn"
-        title="Export active note to self-contained HTML"
-        onclick={onExportHtml}
-      >
-        {@html fluentIcons.code16}
-        <span>Export HTML</span>
-      </button>
+      <Button icon="export" title="Export active note to self-contained HTML" onclick={onExportHtml}>Export HTML</Button>
 
-      <button
-        type="button"
-        class="fluent-btn"
-        title="Export active note to PDF via Print to PDF (Ctrl+Shift+P)"
-        onclick={onExportPdf}
-      >
-        {@html fluentIcons.note20}
-        <span>Print / PDF</span>
-      </button>
+      <Button icon="printer" title="Export active note to PDF via Print to PDF (Ctrl+Shift+P)" onclick={onExportPdf}>Print / PDF</Button>
 
-      <button
-        type="button"
-        class="fluent-btn"
+      <Button
+        icon="magnifying-glass"
         title="Open Command Palette (Ctrl+P)"
         onclick={() => (settingsStore.showCommandPalette = true)}
       >
-        {@html fluentIcons.search16}
-        <span>Commands</span>
-      </button>
+        Commands
+      </Button>
 
       {#if vaultStore.vaultSnapshot}
-        <button
-          type="button"
-          class="fluent-btn"
-          class:active-toggle={settingsStore.showRightPanel}
-          aria-pressed={settingsStore.showRightPanel}
+        <Button
+          icon="arrow-bend-up-left"
+          pressed={settingsStore.showRightPanel}
           title="Toggle Backlinks panel"
           onclick={() => settingsStore.toggleRightPanel()}
         >
-          {@html fluentIcons.backlink16}
-          <span>Backlinks</span>
-        </button>
+          Backlinks
+        </Button>
       {/if}
 
-      <button
-        type="button"
-        class="fluent-btn"
-        class:active-toggle={settingsStore.showInspector}
-        aria-pressed={settingsStore.showInspector}
+      <Button
+        icon="code"
+        pressed={settingsStore.showInspector}
         title="Toggle live clipboard payload inspector"
         onclick={() => {
           settingsStore.showInspector = !settingsStore.showInspector;
           if (settingsStore.showInspector) onRefreshInspector();
         }}
       >
-        {@html fluentIcons.code16}
-        <span>Inspector</span>
-      </button>
+        Inspector
+      </Button>
 
-      <button
-        type="button"
-        class="fluent-btn icon-only"
-        class:active-toggle={settingsStore.showSettings}
+      <IconButton
+        icon="gear-six"
+        label="Settings"
+        tooltip="Settings (Ctrl+,)"
         aria-expanded={settingsStore.showSettings}
-        aria-label="Open Settings (Ctrl+,)"
-        title="Settings (Ctrl+,)"
         onclick={() => (settingsStore.showSettings = !settingsStore.showSettings)}
-      >
-        {@html fluentIcons.settings16}
-      </button>
+      />
     </div>
   </header>
 {/if}
@@ -351,48 +298,10 @@
     flex-wrap: wrap;
   }
 
-  .segmented-group {
-    display: inline-flex;
-    align-items: center;
-    background: var(--surface-subtle);
-    border: 1px solid var(--line-subtle);
-    border-radius: var(--radius-control);
-    padding: 2px;
-    gap: 2px;
-  }
-
   .segmented-label {
     font-size: var(--fs-12);
     color: var(--text-secondary);
     padding: 0 var(--space-2);
-  }
-
-  .seg-btn {
-    min-height: 28px;
-    padding: 0 var(--space-3);
-    border: 1px solid transparent;
-    border-radius: var(--radius-control);
-    background: transparent;
-    color: var(--text-secondary);
-    font-size: var(--fs-12);
-    font-weight: 500;
-    cursor: pointer;
-    transition:
-      background-color var(--transition-fast),
-      color var(--transition-fast),
-      border-color var(--transition-fast);
-  }
-
-  .seg-btn:hover {
-    background: var(--surface-hover);
-    color: var(--text-primary);
-  }
-
-  .seg-btn.active {
-    background: var(--surface-raised);
-    color: var(--text-primary);
-    border-color: var(--line-control);
-    font-weight: 600;
   }
 
   .divider {
@@ -402,51 +311,5 @@
     margin: 0 var(--space-1);
   }
 
-  .fluent-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-2);
-    min-height: var(--control-min-height);
-    min-width: var(--control-min-height);
-    padding: 0 var(--space-3);
-    border-radius: var(--radius-control);
-    border: 1px solid var(--line-control);
-    background: var(--surface-field);
-    color: var(--text-primary);
-    font-size: var(--fs-12);
-    font-weight: 500;
-    cursor: pointer;
-    transition:
-      background-color var(--transition-fast),
-      border-color var(--transition-fast);
-  }
-
-  .fluent-btn.icon-only {
-    padding: 0 var(--space-2);
-  }
-
-  .fluent-btn:hover {
-    background: var(--surface-hover);
-  }
-
-  .fluent-btn:active {
-    background: var(--surface-active);
-  }
-
-  .fluent-btn.active-toggle {
-    border-color: var(--accent);
-    background: var(--selection);
-  }
-
-  .fluent-btn.primary-btn {
-    background: var(--accent);
-    color: var(--on-accent);
-    border-color: transparent;
-  }
-
-  .fluent-btn.primary-btn:hover {
-    filter: brightness(1.06);
-  }
 </style>
 

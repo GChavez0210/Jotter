@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fluentIcons } from './icons';
+  import Icon from './ui/Icon.svelte';
   import { clipboardStore } from './stores/clipboard.svelte';
   import { COPY_MODE_LABELS, settingsStore } from './stores/settings.svelte';
 </script>
@@ -12,7 +12,7 @@
   >
     <div class="inspector-header">
       <div class="inspector-title">
-        {@html fluentIcons.checkmark16}
+        <Icon name="check" />
         <span>
           {clipboardStore.lastPayload.mode === 'plain'
             ? 'arboard::Clipboard::set_text Plain-Only Output (Plain)'

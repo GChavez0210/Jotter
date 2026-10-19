@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fluentIcons } from './icons';
+  import Icon from './ui/Icon.svelte';
   import type { MarkdownFormatCommandId } from './markdownCommands';
   import { settingsStore } from './stores/settings.svelte';
   import { tabsStore } from './stores/tabs.svelte';
@@ -479,7 +479,7 @@
     aria-label="Command palette"
   >
     <div class="search-row">
-      <span class="search-icon">{@html fluentIcons.search16}</span>
+      <span class="search-icon"><Icon name="magnifying-glass" /></span>
       <input
         bind:this={searchInputEl}
         type="text"

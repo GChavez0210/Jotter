@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fluentIcons } from './icons';
+  import Icon from './ui/Icon.svelte';
   import { queryCalendarDateNotes, queryCalendarDays } from './ipc';
   import { tabsStore } from './stores/tabs.svelte';
   import { vaultStore } from './stores/vault.svelte';
@@ -391,7 +391,7 @@
                 onclick={() => void tabsStore.openNoteInTab(note.path)}
               >
                 <div class="day-note-top">
-                  <span class="day-note-icon">{@html fluentIcons.document16}</span>
+                  <span class="day-note-icon"><Icon name="file-text" /></span>
                   <span class="day-note-title">{note.title}</span>
                   <span class="day-note-time">
                     {formatTimeShort(

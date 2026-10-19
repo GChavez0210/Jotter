@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fluentIcons } from './icons';
+  import Icon from './ui/Icon.svelte';
   import { getAllTags, getNotesByTag } from './ipc';
   import { settingsStore } from './stores/settings.svelte';
   import { tabsStore } from './stores/tabs.svelte';
@@ -86,7 +86,7 @@
 <div class="tag-browser" aria-label="Tag browser">
   <div class="tag-filter-bar">
     <div class="filter-input-wrap">
-      <span class="filter-icon">{@html fluentIcons.tag16}</span>
+      <span class="filter-icon"><Icon name="tag" /></span>
       <input
         type="search"
         class="filter-input"
@@ -161,7 +161,7 @@
                   onclick={() => void tabsStore.openNoteInTab(note.path)}
                 >
                   <div class="note-row-top">
-                    <span class="note-icon">{@html fluentIcons.document16}</span>
+                    <span class="note-icon"><Icon name="file-text" /></span>
                     <span class="note-title">{note.title}</span>
                   </div>
                   {#if note.path !== `${note.title}.md`}

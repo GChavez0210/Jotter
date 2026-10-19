@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fluentIcons } from './icons';
+  import Icon from './ui/Icon.svelte';
   import { tabsStore } from './stores/tabs.svelte';
   import { vaultStore } from './stores/vault.svelte';
 
@@ -30,7 +30,7 @@
           if (e.button === 1) void tabsStore.closeTab(tab.relPath, e);
         }}
       >
-        <span class="tab-icon">{@html fluentIcons.document16}</span>
+        <span class="tab-icon"><Icon name="file-text" /></span>
         <span class="tab-title">{tab.title}</span>
         {#if tab.dirty}
           <span
@@ -46,7 +46,7 @@
           aria-label="Close {tab.title}"
           onclick={(e) => void tabsStore.closeTab(tab.relPath, e)}
         >
-          {@html fluentIcons.dismiss16}
+          <Icon name="x" />
         </button>
       </div>
     {/each}
@@ -59,7 +59,7 @@
     aria-label="New note"
     onclick={handleQuickCreateNote}
   >
-    {@html fluentIcons.add20}
+    <Icon name="plus" size={20} />
   </button>
 </div>
 

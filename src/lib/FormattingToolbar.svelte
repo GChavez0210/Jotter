@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fluentIcons } from './icons';
+  import Icon from './ui/Icon.svelte';
   import type { MarkdownFormatCommandId } from './markdownCommands';
   import { settingsStore } from './stores/settings.svelte';
 
@@ -23,7 +23,7 @@
         title="Live Preview mode — rendered formatting inline, raw syntax at cursor (Ctrl+/)"
         onclick={() => settingsStore.setEditingMode('live')}
       >
-        {@html fluentIcons.eye16}
+        <Icon name="eye" />
         <span>Live</span>
       </button>
       <button
@@ -35,7 +35,7 @@
         title="Source mode — raw Markdown syntax always visible (Ctrl+/)"
         onclick={() => settingsStore.setEditingMode('source')}
       >
-        {@html fluentIcons.code16}
+        <Icon name="code" />
         <span>Source</span>
       </button>
     </div>
@@ -84,7 +84,7 @@
         aria-label="Bold"
         onclick={() => onFormat('bold')}
       >
-        {@html fluentIcons.bold16}
+        <Icon name="text-b" />
       </button>
       <button
         type="button"
@@ -93,7 +93,7 @@
         aria-label="Italic"
         onclick={() => onFormat('italic')}
       >
-        {@html fluentIcons.italic16}
+        <Icon name="text-italic" />
       </button>
       <button
         type="button"
@@ -102,7 +102,7 @@
         aria-label="Strikethrough"
         onclick={() => onFormat('strikethrough')}
       >
-        {@html fluentIcons.strikethrough16}
+        <Icon name="text-strikethrough" />
       </button>
       <button
         type="button"
@@ -111,7 +111,7 @@
         aria-label="Inline code"
         onclick={() => onFormat('inline_code')}
       >
-        {@html fluentIcons.code16}
+        <Icon name="code" />
       </button>
     </div>
 
@@ -126,7 +126,7 @@
         aria-label="Bullet list"
         onclick={() => onFormat('bullet_list')}
       >
-        {@html fluentIcons.listBullet16}
+        <Icon name="list-bullets" />
       </button>
       <button
         type="button"
@@ -144,7 +144,7 @@
         aria-label="Task list"
         onclick={() => onFormat('task_list')}
       >
-        {@html fluentIcons.taskList16}
+        <Icon name="list-checks" />
       </button>
       <button
         type="button"
@@ -153,7 +153,7 @@
         aria-label="Blockquote"
         onclick={() => onFormat('blockquote')}
       >
-        {@html fluentIcons.quote16}
+        <Icon name="quotes" />
       </button>
       <button
         type="button"
@@ -171,7 +171,7 @@
         aria-label="Insert table"
         onclick={() => onFormat('table')}
       >
-        {@html fluentIcons.table16}
+        <Icon name="table" />
       </button>
       <button
         type="button"
@@ -180,7 +180,7 @@
         aria-label="Insert link"
         onclick={() => onFormat('link')}
       >
-        {@html fluentIcons.link16}
+        <Icon name="link-simple" />
       </button>
       <button
         type="button"
@@ -238,7 +238,7 @@
       title="Zen full-screen focus mode — only the text canvas visible (F11)"
       onclick={() => settingsStore.toggleZenFocus()}
     >
-      {@html fluentIcons.maximize16}
+      <Icon name="arrows-out-simple" />
       <span>Zen</span>
     </button>
   </div>
