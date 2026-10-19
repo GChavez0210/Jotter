@@ -15,10 +15,13 @@ import {
  */
 
 const TASK_RE = /^\s*(?:[-*+]|\d{1,9}[.)])\s+\[([ xX])\]/;
+// Hours 00-23 and minutes 00-59, as the Rust parser checks. An invalid time such as `25:00` is
+// not part of the match, so the date stands alone, and `[due:: 2026-10-30 25:00]` has no date.
+const TIME = '((?:[01]\\d|2[0-3]):[0-5]\\d)';
 const DUE_PATTERNS = [
-  /📅️?\s*(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}))?(?!\d)/u,
-  /\[due::\s*(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}))?\s*\]/i,
-  /(?<![A-Za-z0-9])due:(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}))?(?!\d)/i,
+  new RegExp(`📅️?\\s*(\\d{4}-\\d{2}-\\d{2})(?:[ T]${TIME})?(?!\\d)`, 'u'),
+  new RegExp(`\\[due::\\s*(\\d{4}-\\d{2}-\\d{2})(?:[ T]${TIME})?\\s*\\]`, 'i'),
+  new RegExp(`(?<![A-Za-z0-9])due:(\\d{4}-\\d{2}-\\d{2})(?:[ T]${TIME})?(?!\\d)`, 'i'),
 ];
 
 export interface DueDateMatch {

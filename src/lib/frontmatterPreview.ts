@@ -1,7 +1,9 @@
 import {
+  type ChangeSet,
   EditorState,
   RangeSet,
   StateField,
+  type Text,
   Transaction,
   type Extension,
   type TransactionSpec,
@@ -33,17 +35,38 @@ export function positionAfterFrontmatter(doc: string): number {
   return Math.min(doc[fm.end - 1] === '\n' ? fm.end : fm.end + 1, doc.length);
 }
 
+/**
+ * True when an edit can change what frontmatter hides, so the field must reparse. With hidden
+ * frontmatter (`hiddenTo` is its end), only edits inside it or on the line after it count. With
+ * nothing hidden, only edits to the first line count, or any edit in the first 64 KB while the
+ * note opens with `---`, since typing the closing fence there completes the block.
+ */
+export function frontmatterNeedsReparse(doc: Text, changes: ChangeSet, hiddenTo: number | null): boolean {
+  let limit: number;
+  if (hiddenTo !== null) {
+    const closing = doc.lineAt(hiddenTo);
+    limit = closing.number < doc.lines ? doc.line(closing.number + 1).to : closing.to;
+  } else {
+    const first = doc.line(1);
+    limit = /^---[ \t]*$/.test(first.text) ? MAX_FRONTMATTER : first.to;
+  }
+  let touches = false;
+  changes.iterChangedRanges((fromA) => {
+    if (fromA <= limit) touches = true;
+  });
+  return touches;
+}
+
 export function createFrontmatterHideExtension(): Extension {
   const field = StateField.define<DecorationSet>({
     create: hiddenRange,
     update(value, tr) {
       if (!tr.docChanged) return value;
-      // Only edits that touch the top of the note can change the frontmatter.
-      let touchesTop = false;
-      tr.changes.iterChangedRanges((fromA) => {
-        if (fromA <= MAX_FRONTMATTER) touchesTop = true;
-      });
-      return touchesTop ? hiddenRange(tr.state) : value.map(tr.changes);
+      const hidden = value.iter();
+      const hiddenTo = hidden.value === null ? null : hidden.to;
+      return frontmatterNeedsReparse(tr.startState.doc, tr.changes, hiddenTo)
+        ? hiddenRange(tr.state)
+        : value.map(tr.changes);
     },
     provide: (f) => [
       EditorView.decorations.from(f),

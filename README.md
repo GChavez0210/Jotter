@@ -61,6 +61,8 @@ Markdown lists work as an outline:
 
 - `Alt+↑` and `Alt+↓` move the item at the cursor, with its children, past its neighbor. Outside a list, they move the line.
 - `Tab` nests an item under the item above it, and `Shift+Tab` moves it back out.
+- Numbered lists renumber after a move, indent, or outdent. A list keeps its first number, and an item that starts a new sublist becomes `1.`.
+- These commands skip `- ` lines in code blocks and in YAML frontmatter.
 - Hover over an item with children and click the arrow in the left margin to fold them. `Ctrl+Shift+[` folds and `Ctrl+Shift+]` unfolds at the cursor, including heading sections.
 - `Ctrl+.` shows only the item at the cursor and its children. Press `Ctrl+.` again on that item, or click **Show whole note**, to zoom out.
 
@@ -75,7 +77,7 @@ Give a checklist item a due date in any of three common formats, each with an op
 
 Live mode shows the date as a chip, such as **Tomorrow** or **Nov 1**, which turns red once the date has passed. Move the cursor onto the line to edit the date. **Add Due Date to Task** in the command palette adds today's date to the task at the cursor.
 
-To see due dates in a calendar app, choose a file in **Settings → Vault → Task calendar**. Jotter writes each open task as an event in that `.ics` file and rewrites it a few seconds after you edit, so a calendar subscribed to the file stays current. Tasks without a time are all-day events. Completed tasks are left out. Pick a file outside the vault, or inside a synced folder if your calendar app needs to reach it from another device.
+To see due dates in a calendar app, choose a file in **Settings → Vault → Task calendar**. Jotter writes each open task as an event in that `.ics` file and rewrites it a few seconds after you edit, so a calendar subscribed to the file stays current. Tasks without a time are all-day events. Completed tasks are left out. Pick a file outside the vault, or inside a synced folder if your calendar app needs to reach it from another device. The file picker uses a Windows dialog, so on other systems Settings shows an error instead.
 
 ### Tags and Links
 The Notes sidebar can list notes by tag instead of by folder. Click **Tags & links** above the list. Nested tags such as `#project/alpha` appear under their parent tag, and notes without tags appear under **No tags**. Expand a note to see the notes it links to. Files stay in their folders; switch back with **Folders**.

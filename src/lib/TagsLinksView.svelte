@@ -38,23 +38,23 @@
 
 {#snippet noteRow(card: NoteCard, depth: number, chain: string[], key: string)}
   {@const links = linkedCards(card, chain)}
-  <li role="treeitem" aria-selected={card.path === activeRelPath} aria-expanded={links.length ? !!expanded[key] : undefined}>
+  <li>
     <div class="row" class:active={card.path === activeRelPath} style:padding-left="{depth * 14 + 4}px">
       {#if links.length}
-        <button type="button" class="chevron" aria-label="{expanded[key] ? 'Hide' : 'Show'} links from {card.title}" onclick={() => toggle(key)}>
+        <button type="button" class="chevron" aria-label="Links from {card.title}" aria-expanded={!!expanded[key]} onclick={() => toggle(key)}>
           <Icon name={expanded[key] ? 'caret-down' : 'caret-right'} size={12} />
         </button>
       {:else}
         <span class="chevron"></span>
       {/if}
-      <button type="button" class="label" title={card.path} onclick={() => onSelectFile(card.path)}>
+      <button type="button" class="label" title={card.path} aria-current={card.path === activeRelPath ? 'true' : undefined} onclick={() => onSelectFile(card.path)}>
         <Icon name={depth > 0 && chain.length > 1 ? 'link-simple' : 'file-text'} size={14} />
         <span>{card.title}</span>
       </button>
       {#if card.linkedFrom > 0}<span class="count" title="Notes linking here">{card.linkedFrom}</span>{/if}
     </div>
     {#if links.length && expanded[key]}
-      <ul role="group">
+      <ul>
         {#each links as linked (linked.path)}
           {@render noteRow(linked, depth + 1, [...chain, linked.path], `${key}>${linked.path}`)}
         {/each}
@@ -65,14 +65,14 @@
 
 {#snippet tagRow(node: TagNode, depth: number)}
   {@const key = `#${node.tag}`}
-  <li role="treeitem" aria-selected="false" aria-expanded={!!expanded[key]}>
-    <button type="button" class="row tag-row" style:padding-left="{depth * 14 + 4}px" onclick={() => toggle(key)}>
+  <li>
+    <button type="button" class="row tag-row" style:padding-left="{depth * 14 + 4}px" aria-expanded={!!expanded[key]} onclick={() => toggle(key)}>
       <span class="chevron"><Icon name={expanded[key] ? 'caret-down' : 'caret-right'} size={12} /></span>
       <span class="label static"><Icon name="tag" size={14} /><span>{node.name}</span></span>
       <span class="count">{node.total}</span>
     </button>
     {#if expanded[key]}
-      <ul role="group">
+      <ul>
         {#each node.children as child (child.tag)}
           {@render tagRow(child, depth + 1)}
         {/each}
@@ -84,25 +84,25 @@
   </li>
 {/snippet}
 
-<div class="tags-links" aria-label="Notes by tag and link">
+<div class="tags-links" role="region" aria-label="Notes by tag and link">
   {#if noteCardsStore.error}
     <div class="empty" role="alert">{noteCardsStore.error}</div>
   {:else if noteCardsStore.cards.length === 0}
     <div class="empty">{noteCardsStore.loading ? 'Loading notes…' : 'This vault has no notes yet.'}</div>
   {:else}
-    <ul class="tree" role="tree" aria-label="Tags and links">
+    <ul class="tree">
       {#each tree.roots as node (node.tag)}
         {@render tagRow(node, 0)}
       {/each}
       {#if tree.untagged.length}
-        <li role="treeitem" aria-selected="false" aria-expanded={!!expanded['untagged']}>
-          <button type="button" class="row tag-row" onclick={() => toggle('untagged')}>
+        <li>
+          <button type="button" class="row tag-row" aria-expanded={!!expanded['untagged']} onclick={() => toggle('untagged')}>
             <span class="chevron"><Icon name={expanded['untagged'] ? 'caret-down' : 'caret-right'} size={12} /></span>
             <span class="label static muted"><Icon name="file-text" size={14} /><span>No tags</span></span>
             <span class="count">{tree.untagged.length}</span>
           </button>
           {#if expanded['untagged']}
-            <ul role="group">
+            <ul>
               {#each tree.untagged as card (card.path)}
                 {@render noteRow(card, 1, [card.path], `untagged/${card.path}`)}
               {/each}

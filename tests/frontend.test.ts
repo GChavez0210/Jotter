@@ -10,6 +10,7 @@ import { CalcError, evaluate, evaluateCalcBlock, formatNumber, inlineCalculation
 import { parseFrontmatter, removeProperty, renameProperty, serializeProperty, setProperty } from '../src/lib/frontmatter';
 import {
   createOutlinerExtension,
+  foldCaretAttributes,
   insertZoomChild,
   itemAt,
   itemOnLine,
@@ -19,7 +20,13 @@ import {
   zoomedRange,
   zoomIntoItem,
 } from '../src/lib/outliner';
-import { createFrontmatterHideExtension, positionAfterFrontmatter } from '../src/lib/frontmatterPreview';
+import { createFrontmatterHideExtension, frontmatterNeedsReparse, positionAfterFrontmatter } from '../src/lib/frontmatterPreview';
+import { ChangeSet } from '@codemirror/state';
+import { foldable } from '@codemirror/language';
+import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
+import { readFileSync } from 'node:fs';
+import { calendarControl } from './ipc.mock';
+import { taskCalendarStore } from '../src/lib/stores/taskCalendar.svelte';
 import { noteCardsStore } from '../src/lib/stores/noteCards.svelte';
 import { detectSyncProvider, findConflictCopies } from '../src/lib/syncConflicts';
 import { describeDueDate, findDueDate } from '../src/lib/dueDates';
@@ -214,7 +221,7 @@ test('outliner indents under the previous sibling and outdents to the parent', (
     return spec ? state.update(spec).state.doc.toString() : doc;
   };
   assert.equal(run('- a\n- b\n  - b1', 5, 1), '- a\n  - b\n    - b1');
-  assert.equal(run('1. a\n2. b', 7, 1), '1. a\n   2. b');
+  assert.equal(run('1. a\n2. b', 7, 1), '1. a\n   1. b');
   assert.equal(run('- a\n- b', 1, 1), '- a\n- b');
   assert.equal(run('- a\n  - b\n    - c', 9, -1), '- a\n- b\n  - c');
   assert.equal(run('- a\n\t- b', 6, -1), '- a\n- b');
@@ -398,4 +405,101 @@ test('note cards load a new vault at once and coalesce reloads while editing', a
   } finally {
     mock.timers.reset();
   }
+});
+
+// Regression tests for the low-severity Phase 2 review findings.
+
+test('inline calculation skips dates and phone numbers but still subtracts', () => {
+  assert.equal(inlineCalculation('Meeting 2026-10-19 ='), null);
+  assert.equal(inlineCalculation('call 555-1234 ='), null);
+  assert.equal(inlineCalculation('call 1-800-555-0100 ='), null);
+  assert.equal(inlineCalculation('see 10-5 =')?.result, '5');
+  assert.equal(inlineCalculation('100-25 =')?.result, '75');
+  assert.equal(inlineCalculation('2*3-1 =')?.result, '5');
+  assert.equal(inlineCalculation('555 - 1234 =')?.result, '-679');
+});
+
+test('frontmatter reads comment-only values, comments after quotes, and leading zeros', () => {
+  const doc = '---\ntags: # topics\n  - a\n  - b\ntitle: "Hello" # c\nnick: \'it\'\'s\' # d\nzip: 02134\nzero: 0\nhalf: -0.5\n---\n';
+  const byKey = Object.fromEntries(parseFrontmatter(doc)!.properties.map((p) => [p.key, p]));
+  assert.equal(byKey.tags.editable, true);
+  assert.deepEqual(byKey.tags.value, ['a', 'b']);
+  assert.equal(byKey.title.value, 'Hello');
+  assert.equal(byKey.nick.value, "it's");
+  assert.deepEqual([byKey.zip.type, byKey.zip.value], ['text', '02134']);
+  assert.equal(byKey.zero.value, 0);
+  assert.equal(byKey.half.value, -0.5);
+});
+
+test('outliner commands ignore list syntax in code blocks and frontmatter', () => {
+  const at = (doc: string, text: string) =>
+    EditorState.create({doc, selection:{anchor:doc.indexOf(text)}, extensions:[markdown({base:markdownLanguage}), createOutlinerExtension()]});
+  const code = at('```\n- a\n  - b\n- c\n```\n', '- c');
+  assert.equal(moveItem(code, -1), null);
+  assert.equal(shiftItem(code, 1), null);
+  assert.equal(foldable(code, code.doc.line(2).from, code.doc.line(2).to), null);
+  const indented = at('Text\n\n    - a\n    - b\n', '- b');
+  assert.equal(moveItem(indented, -1), null);
+  const yaml = at('---\ntags:\n- a\n- b\n---\n- x\n- y\n', '- b');
+  assert.equal(moveItem(yaml, -1), null);
+  assert.equal(shiftItem(yaml, 1), null);
+  const body = at('---\ntags:\n- a\n---\n- x\n- y\n', '- y');
+  assert.equal(body.update(moveItem(body, -1)!).state.doc.toString(), '---\ntags:\n- a\n---\n- y\n- x\n');
+});
+
+test('outliner renumbers ordered lists after moves and indents', () => {
+  const run = (doc: string, text: string, fn: (s: EditorState) => any) => {
+    const state = EditorState.create({doc, selection:{anchor:doc.indexOf(text)}});
+    const next = state.update(fn(state)).state;
+    return {doc:next.doc.toString(), at:next.doc.sliceString(next.selection.main.head, next.selection.main.head + 1)};
+  };
+  assert.deepEqual(run('1. a\n2. b\n3. c', 'c', (s) => moveItem(s, -1)), {doc:'1. a\n2. c\n3. b', at:'c'});
+  assert.equal(run('5) a\n6) b', 'b', (s) => moveItem(s, -1)).doc, '5) b\n6) a');
+  assert.equal(run('1. a\n2. b\n3. c', 'b', (s) => shiftItem(s, 1)).doc, '1. a\n   1. b\n2. c');
+  assert.equal(run('1. a\n   1. x\n2. b\n3. c', 'b', (s) => shiftItem(s, 1)).doc, '1. a\n   1. x\n   2. b\n2. c');
+  assert.equal(run('1. a\n   1. x\n   2. y\n2. b', 'x', (s) => shiftItem(s, -1)).doc, '1. a\n2. x\n   1. y\n3. b');
+  assert.equal(run('- a\n- b', 'b', (s) => moveItem(s, -1)).doc, '- b\n- a');
+});
+
+test('due date times use the same 24-hour range as the indexer', () => {
+  assert.deepEqual([findDueDate('- [ ] Late due:2026-10-20 25:00')?.date, findDueDate('- [ ] Late due:2026-10-20 25:00')?.time], ['2026-10-20', null]);
+  assert.equal(findDueDate('- [ ] Odd 📅 2026-10-20 12:60')?.time, null);
+  assert.equal(findDueDate('- [ ] Bracket [due:: 2026-10-20 24:00]'), null);
+  assert.equal(findDueDate('- [ ] Night 📅 2026-10-20 23:59')?.time, '23:59');
+});
+
+test('fold carets stay out of the accessibility tree, and views drop tree roles', () => {
+  assert.equal(foldCaretAttributes(false)['aria-hidden'], 'true');
+  assert.equal(foldCaretAttributes(true).role, undefined);
+  const source = (name: string) => readFileSync(`src/lib/${name}`, 'utf8');
+  assert.ok(!/role="(tree|treeitem|group)"/.test(source('TagsLinksView.svelte')));
+  for (const name of ['TagsLinksView.svelte', 'HomePage.svelte', 'SyncConflictsPanel.svelte']) {
+    for (const tag of source(name).match(/<div\b[^>]*\baria-label=[^>]*>/g) ?? []) {
+      assert.match(tag, /\brole="/, `${name}: ${tag}`);
+    }
+  }
+});
+
+test('the task calendar shows why the file picker did not open', async () => {
+  vaultStore.vaultSnapshot = {rootPath:'Cal',name:'Cal',tree:[],noteCount:0};
+  calendarControl.pick = async () => { throw new Error('Choosing a task calendar file works only on Windows.'); };
+  await taskCalendarStore.choosePath();
+  assert.equal(taskCalendarStore.lastError, 'Choosing a task calendar file works only on Windows.');
+  assert.equal(taskCalendarStore.path, '');
+  assert.deepEqual(calendarControl.writes, []);
+});
+
+test('hidden frontmatter reparses only for edits near it or on the first line', () => {
+  const check = (doc: string, at: number, hiddenTo: number | null) =>
+    frontmatterNeedsReparse(EditorState.create({doc}).doc, ChangeSet.of({from:at, insert:'x'}, doc.length), hiddenTo);
+  const fm = '---\na: 1\n---\nbody\nmore\n';
+  const closingEnd = fm.indexOf('\nbody');
+  assert.equal(check(fm, fm.indexOf('a:'), closingEnd), true);
+  assert.equal(check(fm, fm.indexOf('body') + 2, closingEnd), true);
+  assert.equal(check(fm, fm.indexOf('more') + 2, closingEnd), false);
+  const plain = 'Title\nbody\n';
+  assert.equal(check(plain, 2, null), true);
+  assert.equal(check(plain, plain.indexOf('body'), null), false);
+  const open = '---\nintro\n\nlater\n';
+  assert.equal(check(open, open.indexOf('later'), null), true);
 });
