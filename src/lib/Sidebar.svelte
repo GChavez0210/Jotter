@@ -4,9 +4,11 @@
   import SearchPanel from './SearchPanel.svelte';
   import TagBrowserPanel from './TagBrowserPanel.svelte';
   import Icon from './ui/Icon.svelte';
+  import Button from './ui/Button.svelte';
   import IconButton from './ui/IconButton.svelte';
+  import type { IconName } from './ui/icons';
   import { settingsStore } from './stores/settings.svelte';
-  import type { RecentVault, VaultNode, VaultSnapshot } from './types';
+  import type { LeftSidebarView, RecentVault, VaultNode, VaultSnapshot } from './types';
   import { validateWindowsEntryName } from './validation';
 
   interface Props {
@@ -61,6 +63,16 @@
   let pendingDeleteNode: VaultNode | null = $state(null);
   let isResizing = $state(false);
   let vaultMenuOpen = $state(false);
+
+  // macOS draws its traffic lights over the top-left corner of the window.
+  const isMac = navigator.userAgent.includes('Mac');
+
+  const VIEWS: { id: LeftSidebarView; label: string; icon: IconName; hint?: string }[] = [
+    { id: 'files', label: 'Notes', icon: 'notebook' },
+    { id: 'search', label: 'Full-text search', icon: 'magnifying-glass', hint: 'Ctrl+Shift+F' },
+    { id: 'tags', label: 'Tags', icon: 'tag' },
+    { id: 'calendar', label: 'Calendar', icon: 'calendar-blank' },
+  ];
 
   function samePath(a: string, b: string): boolean {
     const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
@@ -175,7 +187,7 @@
     aria-label="Vault file tree"
     oncontextmenu={(e) => handleContextMenu(e, null)}
   >
-    <div class="sidebar-header">
+    <div class="sidebar-header" class:mac-inset={isMac} data-tauri-drag-region>
       <button
         type="button"
         class="vault-switcher-btn"
@@ -188,24 +200,17 @@
           vaultMenuOpen = !vaultMenuOpen;
         }}
       >
-        <span class="vault-folder-icon"><Icon name="folder-simple" /></span>
+        <span class="vault-mark" aria-hidden="true">{snapshot.name.slice(0, 1).toUpperCase()}</span>
         <span class="vault-name">{snapshot.name}</span>
-        <span class="vault-chevron"><Icon name="caret-down" /></span>
+        <span class="vault-chevron"><Icon name="caret-down" size={12} /></span>
       </button>
 
-      <div class="sidebar-actions">
-        <IconButton
-          icon="file-plus"
-          label="New note"
-          tooltip="New note (Ctrl+N)"
-          onclick={() => startNewEntry('note', '')}
-        />
-        <IconButton
-          icon="folder-simple-plus"
-          label="New folder"
-          onclick={() => startNewEntry('folder', '')}
-        />
-      </div>
+      <IconButton
+        icon="sidebar-simple"
+        label="Hide sidebar"
+        tooltip="Hide sidebar (Ctrl+\)"
+        onclick={() => settingsStore.toggleSidebar()}
+      />
     </div>
 
     {#if vaultMenuOpen}
@@ -250,58 +255,53 @@
       </div>
     {/if}
 
-    <div class="sidebar-nav-tabs" role="tablist" aria-label="Sidebar views">
-      <button
-        type="button"
-        role="tab"
-        aria-selected={settingsStore.leftSidebarView === 'files'}
-        class="nav-tab-btn"
-        class:active={settingsStore.leftSidebarView === 'files'}
-        title="Files"
-        onclick={() => settingsStore.setLeftSidebarView('files')}
-      >
-        <Icon name="folder-simple" />
-        <span>Files</span>
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={settingsStore.leftSidebarView === 'search'}
-        class="nav-tab-btn"
-        class:active={settingsStore.leftSidebarView === 'search'}
-        title="Full-text search (Ctrl+Shift+F)"
-        onclick={() => settingsStore.setLeftSidebarView('search')}
-      >
-        <Icon name="magnifying-glass" />
-        <span>Search</span>
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={settingsStore.leftSidebarView === 'tags'}
-        class="nav-tab-btn"
-        class:active={settingsStore.leftSidebarView === 'tags'}
-        title="Tag browser"
-        onclick={() => settingsStore.setLeftSidebarView('tags')}
-      >
-        <Icon name="tag" />
-        <span>Tags</span>
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={settingsStore.leftSidebarView === 'calendar'}
-        class="nav-tab-btn"
-        class:active={settingsStore.leftSidebarView === 'calendar'}
-        title="Calendar view"
-        onclick={() => settingsStore.setLeftSidebarView('calendar')}
-      >
-        <Icon name="calendar-blank" />
-        <span>Calendar</span>
-      </button>
-    </div>
+    <button
+      type="button"
+      class="search-btn"
+      title="Find a note by name (Ctrl+O)"
+      onclick={() => (settingsStore.showQuickSwitcher = true)}
+    >
+      <Icon name="magnifying-glass" />
+      <span>Search notes</span>
+      <kbd>Ctrl O</kbd>
+    </button>
+
+    <nav class="library" aria-label="Sidebar views">
+      {#each VIEWS as view (view.id)}
+        <button
+          type="button"
+          class="nav-row"
+          class:active={settingsStore.leftSidebarView === view.id}
+          aria-current={settingsStore.leftSidebarView === view.id ? 'page' : undefined}
+          title={view.hint ? `${view.label} (${view.hint})` : view.label}
+          onclick={() => settingsStore.setLeftSidebarView(view.id)}
+        >
+          <Icon name={view.icon} />
+          <span class="nav-label">{view.label}</span>
+          {#if view.id === 'files'}
+            <span class="nav-count">{snapshot.noteCount}</span>
+          {/if}
+        </button>
+      {/each}
+    </nav>
 
     {#if settingsStore.leftSidebarView === 'files'}
+      <div class="section-label">
+        <span>Folders</span>
+        <IconButton
+          icon="file-plus"
+          size="sm"
+          label="New note"
+          onclick={() => startNewEntry('note', '')}
+        />
+        <IconButton
+          icon="folder-simple-plus"
+          size="sm"
+          label="New folder"
+          onclick={() => startNewEntry('folder', '')}
+        />
+      </div>
+
       {#if creatingKind}
         <form class="create-entry-bar" onsubmit={submitNewEntry}>
           <div class="create-entry-label">
@@ -415,6 +415,18 @@
       <CalendarView />
     {/if}
 
+    <div class="sidebar-footer">
+      <Button variant="primary" icon="note-pencil" class="new-note" onclick={() => startNewEntry('note', '')}>
+        New note <kbd>Ctrl N</kbd>
+      </Button>
+      <IconButton
+        icon="gear-six"
+        label="Settings"
+        tooltip="Settings (Ctrl+,)"
+        onclick={() => (settingsStore.showSettings = true)}
+      />
+    </div>
+
     <!-- Resize Sash -->
     <div
       class="resize-handle"
@@ -492,8 +504,7 @@
     height: 100%;
     flex-shrink: 0;
     background: var(--surface-app);
-    border: 1px solid var(--line-subtle);
-    border-radius: var(--radius-card);
+    border-right: 1px solid var(--line-subtle);
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -501,54 +512,135 @@
     transition: background-color var(--transition-fast);
   }
 
+  /* Mica, when enabled, shows through the sidebar only. */
+  :global([data-backdrop='mica']) .sidebar-pane {
+    background: var(--surface-mica);
+  }
+
   .sidebar-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: var(--space-1);
-    padding: var(--space-2);
-    border-bottom: 1px solid var(--line-subtle);
+    height: var(--bar-height);
+    flex: none;
+    padding: 0 var(--space-2);
   }
 
-  .sidebar-nav-tabs {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 2px;
-    padding: 4px var(--space-2);
-    border-bottom: 1px solid var(--line-subtle);
-    background: var(--surface-subtle);
+  .sidebar-header.mac-inset {
+    padding-left: 76px;
   }
 
-  .nav-tab-btn {
-    min-height: var(--control-min-height);
-    padding: 0 4px;
+  .search-btn {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: 30px;
+    margin: var(--space-1) var(--space-3) var(--space-2);
+    padding: 0 var(--space-2);
+    border: 1px solid var(--line-control);
+    border-radius: var(--radius-card);
+    background: var(--surface-editor);
+    color: var(--text-muted);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .search-btn:hover {
+    border-color: var(--line-strong);
+  }
+
+  .search-btn span {
+    flex: 1;
+  }
+
+  .library {
+    display: flex;
+    flex-direction: column;
+    padding: 0 var(--space-2) var(--space-2);
+  }
+
+  .nav-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: var(--row-height);
+    padding: 0 var(--space-2);
+    border: 0;
     border-radius: var(--radius-control);
-    border: 1px solid transparent;
     background: transparent;
     color: var(--text-secondary);
-    font-size: var(--fs-11);
-    font-weight: 500;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
+    font: inherit;
+    text-align: left;
     cursor: pointer;
-    transition:
-      background-color var(--transition-fast),
-      color var(--transition-fast),
-      border-color var(--transition-fast);
   }
 
-  .nav-tab-btn:hover {
+  .nav-row:hover {
     background: var(--surface-hover);
     color: var(--text-primary);
   }
 
-  .nav-tab-btn.active {
-    background: var(--surface-raised);
-    color: var(--text-primary);
-    border-color: var(--line-control);
-    font-weight: 600;
+  .nav-row.active {
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 500;
+  }
+
+  .nav-label {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .nav-count {
+    color: var(--text-muted);
+    font-size: var(--fs-12);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .section-label {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: var(--space-2) var(--space-2) var(--space-1) var(--space-4);
+    color: var(--text-muted);
+    font: 600 var(--fs-11) / 1 var(--font-ui);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .section-label span {
+    flex: 1;
+  }
+
+  .sidebar-footer {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex: none;
+    padding: var(--space-2);
+    border-top: 1px solid var(--line-subtle);
+  }
+
+  .sidebar-footer :global(.new-note) {
+    flex: 1;
+    justify-content: flex-start;
+    min-height: 32px;
+  }
+
+  .sidebar-footer :global(.new-note .label) {
+    flex: 1;
+    display: flex;
+    align-items: center;
+  }
+
+  .sidebar-footer kbd {
+    margin-left: auto;
+    border-color: currentColor;
+    background: transparent;
+    color: inherit;
+    opacity: 0.75;
   }
 
   .vault-switcher-btn {
@@ -563,7 +655,7 @@
     border: 1px solid transparent;
     background: transparent;
     color: var(--text-primary);
-    font-size: var(--fs-12);
+    font-size: var(--fs-13);
     font-weight: 600;
     cursor: pointer;
     transition: background-color var(--transition-fast);
@@ -571,12 +663,6 @@
 
   .vault-switcher-btn:hover {
     background: var(--surface-hover);
-  }
-
-  .vault-folder-icon {
-    display: inline-flex;
-    color: var(--accent);
-    flex-shrink: 0;
   }
 
   .vault-name {
@@ -593,9 +679,21 @@
     flex-shrink: 0;
   }
 
+  .vault-mark {
+    display: grid;
+    place-items: center;
+    width: 18px;
+    height: 18px;
+    flex: none;
+    border-radius: 5px;
+    background: var(--accent);
+    color: var(--on-accent);
+    font: 600 var(--fs-11) / 1 var(--font-display);
+  }
+
   .vault-menu {
     position: absolute;
-    top: 52px;
+    top: var(--bar-height);
     left: var(--space-2);
     right: var(--space-2);
     z-index: 20;
@@ -657,12 +755,6 @@
     color: var(--text-secondary);
     font-size: var(--fs-11);
     font-weight: 400;
-  }
-
-  .sidebar-actions {
-    display: flex;
-    align-items: center;
-    gap: 2px;
   }
 
   .delete-confirm-bar {

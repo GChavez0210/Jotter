@@ -49,9 +49,8 @@
     height: 184px;
     flex-shrink: 0;
     background: var(--surface-editor);
-    border: 1px solid var(--line-subtle);
-    border-radius: var(--radius-card);
-    padding: var(--space-3);
+    border-top: 1px solid var(--line-subtle);
+    padding: var(--space-3) var(--space-4);
     display: flex;
     flex-direction: column;
     gap: var(--space-2);

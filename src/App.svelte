@@ -3,7 +3,6 @@
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import BacklinksPanel from './lib/BacklinksPanel.svelte';
   import ClipboardInspector from './lib/ClipboardInspector.svelte';
-  import CommandBar from './lib/CommandBar.svelte';
   import CommandPalette from './lib/CommandPalette.svelte';
   import Editor from './lib/Editor.svelte';
   import FirstRunScreen from './lib/FirstRunScreen.svelte';
@@ -12,7 +11,7 @@
   import SettingsModal from './lib/SettingsModal.svelte';
   import Sidebar from './lib/Sidebar.svelte';
   import StatusBar from './lib/StatusBar.svelte';
-  import TabBar from './lib/TabBar.svelte';
+  import TitleBar from './lib/TitleBar.svelte';
   import Icon from './lib/ui/Icon.svelte';
   import Button from './lib/ui/Button.svelte';
   import {
@@ -33,6 +32,12 @@
     heading?: string;
   } | null>(null);
   let printArticleHtml = $state('');
+
+  let sidebarVisible = $derived(
+    Boolean(vaultStore.vaultSnapshot) &&
+      settingsStore.focusMode === 'off' &&
+      !settingsStore.sidebarCollapsed
+  );
 
   $effect(() => {
     const target = tabsStore.pendingScrollTarget;
@@ -344,101 +349,91 @@
   data-backdrop={settingsStore.effectiveSolidBackdrop ? 'solid' : 'mica'}
   data-focus-mode={settingsStore.focusMode}
 >
-  <CommandBar
-    onCopyTrigger={() => editorRef?.triggerCopyFromToolbar()}
-    onPastePlainTrigger={() => editorRef?.triggerPastePlainFromToolbar()}
-    onRefreshInspector={() => void refreshInspectorPreview()}
-    onExportHtml={() => void handleExportHtml()}
-    onExportPdf={() => void handleExportPdf()}
-  />
-
-  {#if !vaultStore.vaultSnapshot && !tabsStore.scratchpadMode}
-    <FirstRunScreen
+  {#if vaultStore.vaultSnapshot && settingsStore.focusMode === 'off'}
+    <Sidebar
+      snapshot={vaultStore.vaultSnapshot}
       recentVaults={vaultStore.recentVaults}
-      errorMessage={vaultStore.onboardingError}
-      onOpenVaultPath={(path) => void vaultStore.openVaultByPath(path)}
-      onCreateVault={(parent, name) => void vaultStore.createVault(parent, name)}
-      onRemoveRecentVault={(path) => void vaultStore.removeRecent(path)}
-      onOpenScratchpad={() => (tabsStore.scratchpadMode = true)}
+      onOpenVault={(path) => void vaultStore.openVaultByPath(path)}
+      activeRelPath={tabsStore.activeTabPath}
+      width={settingsStore.sidebarWidth}
+      collapsed={settingsStore.sidebarCollapsed}
+      onResize={(w) => settingsStore.setSidebarWidth(w)}
+      onSelectFile={(relPath) => void tabsStore.openNoteInTab(relPath)}
+      onCreateNote={(parent, name) =>
+        void vaultStore.createNoteInVault(parent, name)}
+      onCreateFolder={(parent, name) =>
+        void vaultStore.createFolderInVault(parent, name)}
+      onRenameEntry={(oldRel, newRel) =>
+        void vaultStore.renameEntryInVault(oldRel, newRel)}
+      onDeleteEntry={(rel) => void vaultStore.deleteEntryInVault(rel)}
+      onSwitchVault={() => void vaultStore.switchVault()}
     />
-  {:else}
-    <main class="workspace">
-      <div class="workspace-split">
-        {#if vaultStore.vaultSnapshot && settingsStore.focusMode === 'off'}
-          <Sidebar
-            snapshot={vaultStore.vaultSnapshot}
-            recentVaults={vaultStore.recentVaults}
-            onOpenVault={(path) => void vaultStore.openVaultByPath(path)}
-            activeRelPath={tabsStore.activeTabPath}
-            width={settingsStore.sidebarWidth}
-            collapsed={settingsStore.sidebarCollapsed}
-            onResize={(w) => settingsStore.setSidebarWidth(w)}
-            onSelectFile={(relPath) => void tabsStore.openNoteInTab(relPath)}
-            onCreateNote={(parent, name) =>
-              void vaultStore.createNoteInVault(parent, name)}
-            onCreateFolder={(parent, name) =>
-              void vaultStore.createFolderInVault(parent, name)}
-            onRenameEntry={(oldRel, newRel) =>
-              void vaultStore.renameEntryInVault(oldRel, newRel)}
-            onDeleteEntry={(rel) => void vaultStore.deleteEntryInVault(rel)}
-            onSwitchVault={() => void vaultStore.switchVault()}
-          />
-        {/if}
+  {/if}
 
-        <section class="editor-column" aria-label="Editor workspace">
-          {#if vaultStore.vaultSnapshot && settingsStore.focusMode === 'off'}
-            <TabBar />
-          {/if}
+  <div class="main-column">
+    <TitleBar {sidebarVisible} />
 
-          {#if missingWikiLinkPrompt}
-            <div class="external-reload-banner" role="alertdialog" aria-label="Create missing wiki link note">
-              <span>
-                Note <strong>[[{missingWikiLinkPrompt.noteTarget}]]</strong> does not exist in this vault yet. Would you like to create it?
-              </span>
-              <div class="external-reload-actions">
-                <Button
-                  variant="primary"
-                  onclick={() => void confirmCreateMissingWikiNote()}
-                >
-                  Create & Open
-                </Button>
-                <Button
-                  onclick={() => (missingWikiLinkPrompt = null)}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </div>
-          {/if}
+    {#if !vaultStore.vaultSnapshot && !tabsStore.scratchpadMode}
+      <FirstRunScreen
+        recentVaults={vaultStore.recentVaults}
+        errorMessage={vaultStore.onboardingError}
+        onOpenVaultPath={(path) => void vaultStore.openVaultByPath(path)}
+        onCreateVault={(parent, name) => void vaultStore.createVault(parent, name)}
+        onRemoveRecentVault={(path) => void vaultStore.removeRecent(path)}
+        onOpenScratchpad={() => (tabsStore.scratchpadMode = true)}
+      />
+    {:else}
+      {#if missingWikiLinkPrompt}
+        <div class="external-reload-banner" role="alertdialog" aria-label="Create missing wiki link note">
+          <span>
+            Note <strong>[[{missingWikiLinkPrompt.noteTarget}]]</strong> does not exist in this vault yet. Would you like to create it?
+          </span>
+          <div class="external-reload-actions">
+            <Button
+              variant="primary"
+              onclick={() => void confirmCreateMissingWikiNote()}
+            >
+              Create & Open
+            </Button>
+            <Button
+              onclick={() => (missingWikiLinkPrompt = null)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      {/if}
 
-          {#if tabsStore.activeTab?.externalChangePending}
-            <div class="external-reload-banner" role="alert">
-              <span>
-                <strong>{tabsStore.activeTab.relPath}</strong> was modified outside Jotter while you have unsaved edits.
-              </span>
-              <div class="external-reload-actions">
-                <Button
-                  variant="primary"
-                  onclick={() =>
-                    void tabsStore.reloadTabFromDisk(
-                      tabsStore.activeTab!.relPath,
-                      (newContent) => editorRef?.replaceContentFromDisk(newContent)
-                    )}
-                >
-                  Reload from disk
-                </Button>
-                <Button
-                  onclick={() =>
-                    tabsStore.dismissExternalChangeBanner(
-                      tabsStore.activeTab!.relPath
-                    )}
-                >
-                  Keep my edits
-                </Button>
-              </div>
-            </div>
-          {/if}
+      {#if tabsStore.activeTab?.externalChangePending}
+        <div class="external-reload-banner" role="alert">
+          <span>
+            <strong>{tabsStore.activeTab.relPath}</strong> was modified outside Jotter while you have unsaved edits.
+          </span>
+          <div class="external-reload-actions">
+            <Button
+              variant="primary"
+              onclick={() =>
+                void tabsStore.reloadTabFromDisk(
+                  tabsStore.activeTab!.relPath,
+                  (newContent) => editorRef?.replaceContentFromDisk(newContent)
+                )}
+            >
+              Reload from disk
+            </Button>
+            <Button
+              onclick={() =>
+                tabsStore.dismissExternalChangeBanner(
+                  tabsStore.activeTab!.relPath
+                )}
+            >
+              Keep my edits
+            </Button>
+          </div>
+        </div>
+      {/if}
 
+      <div class="work-row">
+        <section class="editor-column" aria-label="Editor">
           <div class="editor-card">
             {#if (tabsStore.scratchpadMode || tabsStore.activeTab) && settingsStore.focusMode === 'off'}
               <FormattingToolbar onFormat={handleFormatCommand} />
@@ -523,10 +518,10 @@
       {#if settingsStore.focusMode === 'off'}
         <ClipboardInspector />
       {/if}
-    </main>
-  {/if}
+    {/if}
 
-  <StatusBar />
+    <StatusBar />
+  </div>
 
   {#if settingsStore.showQuickSwitcher}
     <QuickSwitcher
@@ -568,41 +563,30 @@
 </div>
 
 <style>
+  /* One flat window: sidebar | (title bar, editor, status bar). Hairlines split regions. */
   .app-shell {
     display: flex;
-    flex-direction: column;
     width: 100vw;
     height: 100vh;
-    background-color: var(--surface-mica);
-    transition: background-color var(--transition-fast);
+    background-color: transparent;
   }
 
   .app-shell.solid-backdrop {
     background-color: var(--surface-app);
   }
 
-  .workspace {
+  .main-column {
     flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--space-3);
-    padding: var(--space-3) var(--space-4);
-    min-height: 0;
-    overflow: hidden;
+    background: var(--surface-editor);
   }
 
-  .app-shell.focus-minimal .workspace,
-  .app-shell.focus-zen .workspace {
-    padding: 0;
-    gap: 0;
-  }
-
-  .workspace-split {
+  .work-row {
     flex: 1;
-    display: flex;
-    gap: var(--space-3);
     min-height: 0;
-    overflow: hidden;
+    display: flex;
   }
 
   .editor-column {
@@ -611,7 +595,6 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
   }
 
   .external-reload-banner {
@@ -619,11 +602,10 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--space-3);
-    padding: var(--space-2) var(--space-3);
-    background: var(--surface-raised);
-    border: 1px solid var(--line-control);
-    border-radius: var(--radius-card);
-    font-size: var(--fs-12);
+    padding: var(--space-2) var(--space-4);
+    border-bottom: 1px solid var(--line-subtle);
+    background: var(--accent-soft);
+    font-size: var(--fs-13);
   }
 
   .external-reload-actions {
@@ -634,23 +616,9 @@
   .editor-card {
     flex: 1;
     min-height: 0;
-    background: var(--surface-editor);
-    border: 1px solid var(--line-subtle);
-    border-radius: var(--radius-card);
-    overflow: hidden;
     display: flex;
     flex-direction: column;
-    transition: background-color var(--transition-fast);
-  }
-
-  .app-shell.focus-minimal .editor-card,
-  .app-shell.focus-zen .editor-card {
-    border: none;
-    border-radius: 0;
-  }
-
-  .solid-backdrop .editor-card {
-    background: var(--surface-editor);
+    overflow: hidden;
   }
 
   .no-open-note {
@@ -670,14 +638,12 @@
   }
 
   .no-note-title {
-    font-size: var(--fs-17);
-    font-weight: 600;
+    font: 600 var(--fs-24) / var(--leading-tight) var(--font-display);
     color: var(--text-primary);
   }
 
   .no-note-desc {
-    font-size: var(--fs-12);
+    font-size: var(--fs-13);
     max-width: 320px;
   }
-
 </style>

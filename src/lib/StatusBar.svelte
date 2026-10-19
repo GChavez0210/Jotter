@@ -2,38 +2,45 @@
   import { clipboardStore } from './stores/clipboard.svelte';
   import { settingsStore } from './stores/settings.svelte';
   import { tabsStore } from './stores/tabs.svelte';
+  import { vaultStore } from './stores/vault.svelte';
+  import Icon from './ui/Icon.svelte';
+
+  // Vault › folders › note, built from the active tab's vault-relative path.
+  let crumbs = $derived.by(() => {
+    const parts: string[] = [];
+    if (vaultStore.vaultSnapshot) parts.push(vaultStore.vaultSnapshot.name);
+    if (tabsStore.activeTab) {
+      const folders = tabsStore.activeTab.relPath.replace(/\\/g, '/').split('/').slice(0, -1);
+      parts.push(...folders, tabsStore.activeTab.title.replace(/\.md$/i, ''));
+    } else if (tabsStore.scratchpadMode) {
+      parts.push('Scratchpad');
+    }
+    return parts;
+  });
 </script>
 
 {#if settingsStore.focusMode === 'off'}
   <footer class="status-bar" aria-label="Status bar">
-    <div class="status-left">
-      <span class="status-indicator">{clipboardStore.statusBanner}</span>
-      {#if clipboardStore.statusTimestamp}
-        <span class="status-time">({clipboardStore.statusTimestamp})</span>
-      {/if}
-    </div>
+    <nav class="crumbs" aria-label="Location">
+      {#each crumbs as crumb, i}
+        {#if i > 0}<Icon name="caret-right" size={10} />{/if}
+        <span class:current={i === crumbs.length - 1}>{crumb}</span>
+      {/each}
+    </nav>
 
-    <div class="status-right">
-      <span class="status-item" title="Active editor rendering mode">
-        Mode: {settingsStore.editingMode === 'live' ? 'Live' : 'Source'}
+    <span class="message" role="status" title={clipboardStore.statusBanner}>
+      {clipboardStore.statusBanner}
+    </span>
+
+    {#if tabsStore.activeTab || tabsStore.scratchpadMode}
+      <span class="item">{settingsStore.editingMode === 'live' ? 'Live' : 'Source'}</span>
+      <span class="item">
+        {#if tabsStore.docStats.selectedChars > 0}
+          {tabsStore.docStats.selectedChars} selected ·
+        {/if}
+        {tabsStore.docStats.words} words
       </span>
-      <span class="status-item" title="Active window backdrop">
-        Backdrop: {settingsStore.effectiveSolidBackdrop
-          ? 'Solid Fallback'
-          : 'Windows 11 Mica'}
-      </span>
-      <span class="status-item" title="Active color theme">
-        Theme: {settingsStore.effectiveDark ? 'Dark' : 'Light'} ({settingsStore.themePref})
-      </span>
-      {#if tabsStore.activeTab || tabsStore.scratchpadMode}
-        <span class="status-item">
-          {#if tabsStore.docStats.selectedChars > 0}
-            Selected: {tabsStore.docStats.selectedLines} ln, {tabsStore.docStats.selectedChars} ch ·
-          {/if}
-          {tabsStore.docStats.lines} ln · {tabsStore.docStats.words} words
-        </span>
-      {/if}
-    </div>
+    {/if}
   </footer>
 {/if}
 
@@ -41,43 +48,48 @@
   .status-bar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 0 var(--space-4);
-    height: 28px;
-    border-top: 1px solid var(--line-subtle);
-    font-size: var(--fs-12);
-    color: var(--text-secondary);
-    user-select: none;
+    gap: var(--space-4);
+    height: 26px;
     flex-shrink: 0;
+    padding: 0 var(--space-3);
+    border-top: 1px solid var(--line-subtle);
+    color: var(--text-muted);
+    font-size: var(--fs-12);
+    font-variant-numeric: tabular-nums;
+    user-select: none;
   }
 
-  .status-left {
+  .crumbs {
     display: flex;
     align-items: center;
-    gap: var(--space-2);
+    gap: var(--space-1);
     min-width: 0;
+    flex-shrink: 1;
     overflow: hidden;
+    white-space: nowrap;
   }
 
-  .status-indicator {
-    white-space: nowrap;
+  .crumbs span {
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
-  .status-time {
-    opacity: 0.75;
-    flex-shrink: 0;
+  .crumbs .current {
+    color: var(--text-secondary);
+    font-weight: 500;
   }
 
-  .status-right {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    flex-shrink: 0;
+  .message {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: right;
   }
 
-  .status-item {
+  .item {
+    flex: none;
     white-space: nowrap;
   }
 </style>
