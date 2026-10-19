@@ -10,6 +10,8 @@
     onCopyTrigger: () => void;
     onPastePlainTrigger: () => void;
     onRefreshInspector: () => void;
+    onExportHtml: () => void;
+    onExportPdf: () => void;
     onClose: () => void;
   }
 
@@ -18,6 +20,8 @@
     onCopyTrigger,
     onPastePlainTrigger,
     onRefreshInspector,
+    onExportHtml,
+    onExportPdf,
     onClose,
   }: Props = $props();
 
@@ -346,6 +350,12 @@
             },
           },
           {
+            id: 'vault-rebuild-index',
+            category: 'Vault',
+            label: 'Rebuild SQLite & Tantivy Vault Index',
+            action: () => void vaultStore.rebuildIndex(),
+          },
+          {
             id: 'vault-switch',
             category: 'Vault',
             label: 'Switch or Close Vault',
@@ -353,6 +363,27 @@
           },
         ]
       : []),
+    // Export & Settings
+    {
+      id: 'export-html',
+      category: 'Export',
+      label: 'Export Active Note to Self-Contained HTML',
+      action: () => onExportHtml(),
+    },
+    {
+      id: 'export-pdf',
+      category: 'Export',
+      label: 'Export Active Note to PDF (Print to PDF)',
+      shortcut: 'Ctrl+Shift+P',
+      action: () => onExportPdf(),
+    },
+    {
+      id: 'open-settings',
+      category: 'Settings',
+      label: 'Open Settings (Editor, Copy, Appearance, Vault)',
+      shortcut: 'Ctrl+,',
+      action: () => (settingsStore.showSettings = true),
+    },
     // Theme
     {
       id: 'theme-system',

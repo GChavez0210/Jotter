@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import BacklinksPanel from './lib/BacklinksPanel.svelte';
   import ClipboardInspector from './lib/ClipboardInspector.svelte';
@@ -9,11 +9,16 @@
   import FirstRunScreen from './lib/FirstRunScreen.svelte';
   import FormattingToolbar from './lib/FormattingToolbar.svelte';
   import QuickSwitcher from './lib/QuickSwitcher.svelte';
+  import SettingsModal from './lib/SettingsModal.svelte';
   import Sidebar from './lib/Sidebar.svelte';
   import StatusBar from './lib/StatusBar.svelte';
   import TabBar from './lib/TabBar.svelte';
   import { fluentIcons } from './lib/icons';
-  import { listenVaultFsEvents } from './lib/ipc';
+  import {
+    exportActiveNoteHtml,
+    listenVaultFsEvents,
+    renderNoteHtmlPreview,
+  } from './lib/ipc';
   import type { MarkdownFormatCommandId } from './lib/markdownCommands';
   import { clipboardStore } from './lib/stores/clipboard.svelte';
   import { settingsStore } from './lib/stores/settings.svelte';
@@ -26,6 +31,7 @@
     noteTarget: string;
     heading?: string;
   } | null>(null);
+  let printArticleHtml = $state('');
 
   $effect(() => {
     const target = tabsStore.pendingScrollTarget;
@@ -46,6 +52,54 @@
       });
     }
   });
+
+  function getActiveNoteTitleAndMarkdown(): { title: string; markdown: string } {
+    if (tabsStore.activeTab) {
+      const name = tabsStore.activeTab.title.replace(/\.md$/i, '');
+      return {
+        title: name || 'Untitled',
+        markdown: tabsStore.activeTab.content,
+      };
+    }
+    return {
+      title: 'Scratchpad',
+      markdown: tabsStore.scratchpadContent,
+    };
+  }
+
+  async function handleExportHtml() {
+    const { title, markdown } = getActiveNoteTitleAndMarkdown();
+    try {
+      const savedPath = await exportActiveNoteHtml(
+        title,
+        markdown,
+        settingsStore.effectiveDark
+      );
+      if (savedPath) {
+        clipboardStore.setStatus(`Exported HTML to ${savedPath}`);
+      }
+    } catch (e) {
+      clipboardStore.setStatus(`HTML export failed: ${String(e)}`);
+    }
+  }
+
+  async function handleExportPdf() {
+    const { title, markdown } = getActiveNoteTitleAndMarkdown();
+    try {
+      const fullHtml = await renderNoteHtmlPreview(
+        title,
+        markdown,
+        settingsStore.effectiveDark
+      );
+      const match = fullHtml.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
+      printArticleHtml = match ? match[0] : fullHtml;
+      await tick();
+      clipboardStore.setStatus('Opening print / Save as PDF dialog...');
+      window.print();
+    } catch (e) {
+      clipboardStore.setStatus(`Print to PDF failed: ${String(e)}`);
+    }
+  }
 
   async function refreshInspectorPreview() {
     const sample =
@@ -117,11 +171,27 @@
     const isMod = e.ctrlKey || e.metaKey;
     const keyLower = e.key.toLowerCase();
 
+    // Settings screen (Ctrl+,)
+    if (isMod && !e.shiftKey && e.key === ',') {
+      e.preventDefault();
+      settingsStore.showCommandPalette = false;
+      settingsStore.showQuickSwitcher = false;
+      settingsStore.showSettings = !settingsStore.showSettings;
+      return;
+    }
+
     // Command Palette (Ctrl+P) — works everywhere, including Zen mode
     if (isMod && !e.shiftKey && keyLower === 'p') {
       e.preventDefault();
       settingsStore.showQuickSwitcher = false;
       settingsStore.showCommandPalette = !settingsStore.showCommandPalette;
+      return;
+    }
+
+    // Print / Export to PDF (Ctrl+Shift+P)
+    if (isMod && e.shiftKey && keyLower === 'p') {
+      e.preventDefault();
+      void handleExportPdf();
       return;
     }
 
@@ -184,6 +254,7 @@
       }
       if (settingsStore.showSettings) {
         settingsStore.showSettings = false;
+        editorRef?.focusEditor();
         return;
       }
       if (settingsStore.focusMode !== 'off') {
@@ -276,6 +347,8 @@
     onCopyTrigger={() => editorRef?.triggerCopyFromToolbar()}
     onPastePlainTrigger={() => editorRef?.triggerPastePlainFromToolbar()}
     onRefreshInspector={() => void refreshInspectorPreview()}
+    onExportHtml={() => void handleExportHtml()}
+    onExportPdf={() => void handleExportPdf()}
   />
 
   {#if !vaultStore.vaultSnapshot && !tabsStore.scratchpadMode}
@@ -385,6 +458,8 @@
                 typewriterScrolling={settingsStore.typewriterScrolling}
                 vaultFiles={vaultStore.allFiles}
                 onWikiLinkClick={handleWikiLinkClick}
+                onImagePasted={(_fileName, relPath) =>
+                  clipboardStore.setStatus(`Saved pasted image to ${relPath}`)}
                 onDocChange={(docId, content) =>
                   tabsStore.handleEditorDocChange(docId, content, () => {
                     if (settingsStore.showInspector) void refreshInspectorPreview();
@@ -407,6 +482,8 @@
                 typewriterScrolling={settingsStore.typewriterScrolling}
                 vaultFiles={vaultStore.allFiles}
                 onWikiLinkClick={handleWikiLinkClick}
+                onImagePasted={(_fileName, relPath) =>
+                  clipboardStore.setStatus(`Saved pasted image to ${relPath}`)}
                 onDocChange={(docId, content) =>
                   tabsStore.handleEditorDocChange(docId, content)}
                 onCopyComplete={(payload, source) =>
@@ -470,12 +547,28 @@
       onCopyTrigger={() => editorRef?.triggerCopyFromToolbar()}
       onPastePlainTrigger={() => editorRef?.triggerPastePlainFromToolbar()}
       onRefreshInspector={() => void refreshInspectorPreview()}
+      onExportHtml={() => void handleExportHtml()}
+      onExportPdf={() => void handleExportPdf()}
       onClose={() => {
         settingsStore.showCommandPalette = false;
         editorRef?.focusEditor();
       }}
     />
   {/if}
+
+  {#if settingsStore.showSettings}
+    <SettingsModal
+      onRefreshInspector={() => void refreshInspectorPreview()}
+      onClose={() => {
+        settingsStore.showSettings = false;
+        editorRef?.focusEditor();
+      }}
+    />
+  {/if}
+</div>
+
+<div class="jotter-print-view" aria-hidden="true">
+  {@html printArticleHtml}
 </div>
 
 <style>

@@ -137,6 +137,46 @@ export async function searchVault(
   return invoke<SearchHit[]>('search_vault', { query, limit });
 }
 
+export async function rebuildVaultIndex(): Promise<number> {
+  return invoke<number>('rebuild_vault_index');
+}
+
+export async function savePastedImage(
+  pngBytes?: number[] | null
+): Promise<[string, string]> {
+  return invoke<[string, string]>('save_pasted_image', {
+    pngBytes: pngBytes ?? null,
+  });
+}
+
+export async function readVaultImageDataUrl(target: string): Promise<string> {
+  return invoke<string>('read_vault_image_data_url', { target });
+}
+
+export async function exportActiveNoteHtml(
+  title: string,
+  markdown: string,
+  darkMode: boolean
+): Promise<string | null> {
+  return invoke<string | null>('export_active_note_html', {
+    title,
+    markdown,
+    darkMode,
+  });
+}
+
+export async function renderNoteHtmlPreview(
+  title: string,
+  markdown: string,
+  darkMode: boolean
+): Promise<string> {
+  return invoke<string>('render_note_html_preview', {
+    title,
+    markdown,
+    darkMode,
+  });
+}
+
 export async function listenVaultFsEvents(
   handler: (payload: VaultFsEvent) => void
 ): Promise<UnlistenFn> {
@@ -144,4 +184,5 @@ export async function listenVaultFsEvents(
     handler(event.payload);
   });
 }
+
 

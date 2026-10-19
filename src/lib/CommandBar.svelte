@@ -9,10 +9,17 @@
     onCopyTrigger: () => void;
     onPastePlainTrigger: () => void;
     onRefreshInspector: () => void;
+    onExportHtml: () => void;
+    onExportPdf: () => void;
   }
 
-  let { onCopyTrigger, onPastePlainTrigger, onRefreshInspector }: Props =
-    $props();
+  let {
+    onCopyTrigger,
+    onPastePlainTrigger,
+    onRefreshInspector,
+    onExportHtml,
+    onExportPdf,
+  }: Props = $props();
 
   function handleSelectCopyMode(mode: CopyMode) {
     settingsStore.setCopyMode(mode, () => {
@@ -146,6 +153,26 @@
       <button
         type="button"
         class="fluent-btn"
+        title="Export active note to self-contained HTML"
+        onclick={onExportHtml}
+      >
+        {@html fluentIcons.code16}
+        <span>Export HTML</span>
+      </button>
+
+      <button
+        type="button"
+        class="fluent-btn"
+        title="Export active note to PDF via Print to PDF (Ctrl+Shift+P)"
+        onclick={onExportPdf}
+      >
+        {@html fluentIcons.note20}
+        <span>Print / PDF</span>
+      </button>
+
+      <button
+        type="button"
+        class="fluent-btn"
         title="Open Command Palette (Ctrl+P)"
         onclick={() => (settingsStore.showCommandPalette = true)}
       >
@@ -182,110 +209,17 @@
         <span>Inspector</span>
       </button>
 
-      <div class="settings-wrapper">
-        <button
-          type="button"
-          class="fluent-btn icon-only"
-          aria-expanded={settingsStore.showSettings}
-          aria-label="Clipboard, editor, and appearance settings"
-          title="Settings"
-          onclick={() => (settingsStore.showSettings = !settingsStore.showSettings)}
-        >
-          {@html fluentIcons.settings16}
-        </button>
-
-        {#if settingsStore.showSettings}
-          <div class="settings-popover" role="dialog" aria-label="Settings">
-            <div class="popover-section">
-              <div class="popover-heading">Copy Format Mode</div>
-              {#each ['markdown_source', 'plain', 'rich'] as const as mode}
-                <label class="radio-row">
-                  <input
-                    type="radio"
-                    name="copy-mode-setting"
-                    checked={settingsStore.copyMode === mode}
-                    onchange={() => handleSelectCopyMode(mode)}
-                  />
-                  <div class="radio-text">
-                    <span class="radio-title">{COPY_MODE_LABELS[mode].label}</span>
-                    <span class="radio-desc">{COPY_MODE_LABELS[mode].desc}</span>
-                  </div>
-                </label>
-              {/each}
-            </div>
-
-            <div class="popover-section">
-              <div class="popover-heading">Editor & Focus Options</div>
-              <label class="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={settingsStore.editingMode === 'live'}
-                  onchange={(e) =>
-                    settingsStore.setEditingMode(
-                      (e.currentTarget as HTMLInputElement).checked
-                        ? 'live'
-                        : 'source'
-                    )}
-                />
-                <span>Live Preview inline formatting (Ctrl+/)</span>
-              </label>
-              <label class="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={settingsStore.typewriterScrolling}
-                  onchange={(e) =>
-                    settingsStore.setTypewriterScrolling(
-                      (e.currentTarget as HTMLInputElement).checked
-                    )}
-                />
-                <span>Typewriter scrolling (center active line)</span>
-              </label>
-              <label class="checkbox-row">
-                <input
-                  type="checkbox"
-                  checked={settingsStore.dimInactiveParagraphs}
-                  onchange={(e) =>
-                    settingsStore.setDimInactiveParagraphs(
-                      (e.currentTarget as HTMLInputElement).checked
-                    )}
-                />
-                <span>Dim all lines except current paragraph</span>
-              </label>
-            </div>
-
-            <div class="popover-section">
-              <div class="popover-heading">Theme</div>
-              <div class="theme-pills">
-                {#each ['system', 'light', 'dark'] as const as pref}
-                  <button
-                    type="button"
-                    class="seg-btn"
-                    class:active={settingsStore.themePref === pref}
-                    onclick={() => settingsStore.setThemePreference(pref)}
-                  >
-                    {pref === 'system'
-                      ? 'System'
-                      : pref === 'light'
-                        ? 'Light'
-                        : 'Dark'}
-                  </button>
-                {/each}
-              </div>
-            </div>
-
-            <div class="popover-section">
-              <div class="popover-heading">Window Backdrop</div>
-              <label class="checkbox-row">
-                <input
-                  type="checkbox"
-                  bind:checked={settingsStore.forceSolidBackdrop}
-                />
-                <span>Use solid-color fallback (Win10 / transparency off)</span>
-              </label>
-            </div>
-          </div>
-        {/if}
-      </div>
+      <button
+        type="button"
+        class="fluent-btn icon-only"
+        class:active-toggle={settingsStore.showSettings}
+        aria-expanded={settingsStore.showSettings}
+        aria-label="Open Settings (Ctrl+,)"
+        title="Settings (Ctrl+,)"
+        onclick={() => (settingsStore.showSettings = !settingsStore.showSettings)}
+      >
+        {@html fluentIcons.settings16}
+      </button>
     </div>
   </header>
 {/if}
@@ -514,84 +448,5 @@
   .fluent-btn.primary-btn:hover {
     filter: brightness(1.06);
   }
-
-  .settings-wrapper {
-    position: relative;
-  }
-
-  .settings-popover {
-    position: absolute;
-    top: calc(100% + var(--space-2));
-    right: 0;
-    width: 340px;
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border-control);
-    border-radius: var(--radius-card);
-    padding: var(--space-4);
-    z-index: 150;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
-  }
-
-  .popover-section {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .popover-heading {
-    font-size: var(--text-xs);
-    font-weight: 600;
-    color: var(--text-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-
-  .radio-row {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--space-2);
-    padding: var(--space-2);
-    border-radius: var(--radius-control);
-    cursor: pointer;
-  }
-
-  .radio-row:hover {
-    background: var(--bg-control-hover);
-  }
-
-  .radio-text {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .radio-title {
-    font-size: var(--text-sm);
-    font-weight: 600;
-  }
-
-  .radio-desc {
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
-  }
-
-  .theme-pills {
-    display: flex;
-    gap: var(--space-1);
-    background: var(--bg-subtle);
-    padding: 2px;
-    border-radius: var(--radius-control);
-    border: 1px solid var(--border-subtle);
-  }
-
-  .checkbox-row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    min-height: var(--control-min-height);
-    font-size: var(--text-xs);
-    cursor: pointer;
-  }
 </style>
+

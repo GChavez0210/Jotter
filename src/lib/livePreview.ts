@@ -13,7 +13,14 @@ import {
   type ViewUpdate,
   WidgetType,
 } from '@codemirror/view';
+import { readVaultImageDataUrl } from './ipc';
 import type { EditingMode } from './types';
+
+const imageDataUrlCache = new Map<string, string>();
+
+export function clearImagePreviewCache() {
+  imageDataUrlCache.clear();
+}
 
 export interface LivePreviewConfig {
   editingMode: EditingMode;
@@ -160,6 +167,74 @@ class HorizontalRuleWidget extends WidgetType {
   }
 
   eq(): boolean {
+    return true;
+  }
+}
+
+class ImageEmbedWidget extends WidgetType {
+  constructor(
+    readonly target: string,
+    readonly altText: string,
+    readonly posFrom: number
+  ) {
+    super();
+  }
+
+  eq(other: ImageEmbedWidget): boolean {
+    return (
+      this.target === other.target &&
+      this.altText === other.altText &&
+      this.posFrom === other.posFrom
+    );
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const container = document.createElement('span');
+    container.className = 'cm-live-image-embed';
+    container.title = `${this.altText || this.target} (Click to edit syntax)`;
+
+    const img = document.createElement('img');
+    img.className = 'cm-live-image-el';
+    img.alt = this.altText || this.target;
+
+    const cleanTarget = this.target.split('|')[0].trim();
+    if (
+      cleanTarget.startsWith('http://') ||
+      cleanTarget.startsWith('https://') ||
+      cleanTarget.startsWith('data:')
+    ) {
+      img.src = cleanTarget;
+    } else {
+      const cached = imageDataUrlCache.get(cleanTarget);
+      if (cached) {
+        img.src = cached;
+      } else {
+        void readVaultImageDataUrl(cleanTarget)
+          .then((dataUrl) => {
+            imageDataUrlCache.set(cleanTarget, dataUrl);
+            img.src = dataUrl;
+          })
+          .catch(() => {
+            container.textContent = `🖼 ${this.altText || cleanTarget}`;
+            container.classList.add('cm-live-image-missing');
+          });
+      }
+    }
+
+    container.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      view.dispatch({
+        selection: { anchor: this.posFrom + 2 },
+      });
+      view.focus();
+    });
+
+    container.appendChild(img);
+    return container;
+  }
+
+  ignoreEvent(): boolean {
     return true;
   }
 }
@@ -679,6 +754,24 @@ function buildLivePreviewDecorations(
             return;
           }
 
+          // Standard Markdown Images ![alt](url)
+          if (name === 'Image') {
+            const lineStart = state.doc.lineAt(node.from);
+            const lineEnd = state.doc.lineAt(node.to);
+            if (lineStart.number === lineEnd.number) {
+              const raw = state.sliceDoc(node.from, node.to);
+              const m = /^!\[([^\]]*)\]\(([^)]+)\)$/.exec(raw);
+              if (m && !isRangeTouchedBySelection(state, node.from, node.to)) {
+                decorations.push(
+                  Decoration.replace({
+                    widget: new ImageEmbedWidget(m[2].trim(), m[1].trim(), node.from),
+                  }).range(node.from, node.to)
+                );
+              }
+            }
+            return;
+          }
+
           // Standard Markdown Links [label](url)
           if (name === 'Link') {
             const lineStart = state.doc.lineAt(node.from);
@@ -862,16 +955,18 @@ function buildLivePreviewDecorations(
       });
     }
 
-    // 3. Scan for Obsidian [[wiki links]] ONLY on visible lines, outside inline/fenced code
+    // 3. Scan for Obsidian ![[image]] embeds and [[wiki links]] ONLY on visible lines, outside inline/fenced code
     for (const win of windows) {
       for (let ln = win.startLine; ln <= win.endLine; ln++) {
         const line = state.doc.line(ln);
         if (!line.text.includes('[[')) continue;
 
         const inlineSpans = findInlineCodeSpansInLine(line.text);
-        const regex = /\[\[([^\][\n]+)\]\]/g;
+        const regex = /(!?)\[\[([^\][\n]+)\]\]/g;
         let match: RegExpExecArray | null;
         while ((match = regex.exec(line.text)) !== null) {
+          const isEmbed = match[1] === '!';
+          const innerContent = match[2];
           const offset = match.index;
           const matchFrom = line.from + offset;
           const matchTo = matchFrom + match[0].length;
@@ -883,19 +978,32 @@ function buildLivePreviewDecorations(
           }
 
           if (!isRangeTouchedBySelection(state, matchFrom, matchTo)) {
-            const parsed = parseWikiLinkInner(match[1]);
-            decorations.push(
-              Decoration.replace({
-                widget: new WikiLinkWidget(
-                  parsed.display,
-                  parsed.rawTarget,
-                  parsed.noteTarget,
-                  parsed.heading,
-                  matchFrom,
-                  config.onWikiLinkClick
-                ),
-              }).range(matchFrom, matchTo)
-            );
+            if (isEmbed) {
+              const parsed = parseWikiLinkInner(innerContent);
+              decorations.push(
+                Decoration.replace({
+                  widget: new ImageEmbedWidget(
+                    parsed.noteTarget,
+                    parsed.display,
+                    matchFrom
+                  ),
+                }).range(matchFrom, matchTo)
+              );
+            } else {
+              const parsed = parseWikiLinkInner(innerContent);
+              decorations.push(
+                Decoration.replace({
+                  widget: new WikiLinkWidget(
+                    parsed.display,
+                    parsed.rawTarget,
+                    parsed.noteTarget,
+                    parsed.heading,
+                    matchFrom,
+                    config.onWikiLinkClick
+                  ),
+                }).range(matchFrom, matchTo)
+              );
+            }
           } else {
             decorations.push(
               Decoration.mark({ class: 'cm-live-wikilink-raw' }).range(
