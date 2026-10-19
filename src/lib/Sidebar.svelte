@@ -480,8 +480,9 @@
         class="ctx-item danger-item"
         role="menuitem"
         onclick={() => {
-          contextMenu = null;
+          // Read before clearing: targetNode derives from contextMenu.
           pendingDeleteNode = targetNode;
+          contextMenu = null;
         }}
       >
         <Icon name="trash" />
