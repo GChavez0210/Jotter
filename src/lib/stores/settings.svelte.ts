@@ -56,6 +56,13 @@ class SettingsStore {
   selectedTag = $state<string | null>(null);
   showRightPanel = $state(true);
 
+  // Milestone 5: Editor Font Size, Accent Color, Vault Hidden Files, Image Paste Format
+  editorFontSize = $state<number>(16);
+  accentColorMode = $state<'system' | 'custom'>('system');
+  customAccentColor = $state<string>('#0067c0');
+  showHiddenFiles = $state<boolean>(false);
+  imageLinkFormat = $state<'wikilink' | 'markdown'>('wikilink');
+
   sidebarWidth = $state<number>(designTokens.layout.sidebarDefaultWidth);
   sidebarCollapsed = $state(false);
   showSettings = $state(false);
@@ -107,6 +114,72 @@ class SettingsStore {
     this.dimInactiveParagraphs = enabled;
     try {
       localStorage.setItem('jotter.dimInactiveParagraphs', String(enabled));
+    } catch {
+      // ignore
+    }
+  }
+
+  setEditorFontSize(sizePx: number) {
+    const allowed = [12, 14, 16, 20];
+    const next = allowed.includes(sizePx) ? sizePx : 16;
+    this.editorFontSize = next;
+    document.documentElement.style.setProperty('--editor-font-size', `${next}px`);
+    try {
+      localStorage.setItem('jotter.editorFontSize', String(next));
+    } catch {
+      // ignore
+    }
+  }
+
+  setForceSolidBackdrop(solid: boolean) {
+    this.forceSolidBackdrop = solid;
+    try {
+      localStorage.setItem('jotter.forceSolidBackdrop', String(solid));
+    } catch {
+      // ignore
+    }
+  }
+
+  setAccentColor(mode: 'system' | 'custom', customHex?: string) {
+    this.accentColorMode = mode;
+    if (customHex) {
+      this.customAccentColor = customHex;
+    }
+    this.applyAccentToDocument();
+    try {
+      localStorage.setItem('jotter.accentColorMode', this.accentColorMode);
+      localStorage.setItem('jotter.customAccentColor', this.customAccentColor);
+    } catch {
+      // ignore
+    }
+  }
+
+  applyAccentToDocument() {
+    const root = document.documentElement;
+    if (this.accentColorMode === 'custom' && this.customAccentColor) {
+      root.style.setProperty('--accent-color', this.customAccentColor);
+      root.style.setProperty('--focus-ring', this.customAccentColor);
+      root.style.setProperty('--accent-text', '#ffffff');
+    } else {
+      root.style.removeProperty('--accent-color');
+      root.style.removeProperty('--focus-ring');
+      root.style.removeProperty('--accent-text');
+    }
+  }
+
+  setShowHiddenFiles(show: boolean) {
+    this.showHiddenFiles = show;
+    try {
+      localStorage.setItem('jotter.showHiddenFiles', String(show));
+    } catch {
+      // ignore
+    }
+  }
+
+  setImageLinkFormat(fmt: 'wikilink' | 'markdown') {
+    this.imageLinkFormat = fmt;
+    try {
+      localStorage.setItem('jotter.imageLinkFormat', fmt);
     } catch {
       // ignore
     }
@@ -322,6 +395,35 @@ class SettingsStore {
       const savedDim = localStorage.getItem('jotter.dimInactiveParagraphs');
       if (savedDim === 'true' || savedDim === 'false') {
         this.dimInactiveParagraphs = savedDim === 'true';
+      }
+      const savedFontSize = Number(localStorage.getItem('jotter.editorFontSize'));
+      if ([12, 14, 16, 20].includes(savedFontSize)) {
+        this.editorFontSize = savedFontSize;
+      }
+      document.documentElement.style.setProperty(
+        '--editor-font-size',
+        `${this.editorFontSize}px`
+      );
+      const savedSolid = localStorage.getItem('jotter.forceSolidBackdrop');
+      if (savedSolid === 'true' || savedSolid === 'false') {
+        this.forceSolidBackdrop = savedSolid === 'true';
+      }
+      const savedAccentMode = localStorage.getItem('jotter.accentColorMode');
+      if (savedAccentMode === 'system' || savedAccentMode === 'custom') {
+        this.accentColorMode = savedAccentMode;
+      }
+      const savedAccentHex = localStorage.getItem('jotter.customAccentColor');
+      if (savedAccentHex && /^#[0-9a-fA-F]{6}$/.test(savedAccentHex)) {
+        this.customAccentColor = savedAccentHex;
+      }
+      this.applyAccentToDocument();
+      const savedHidden = localStorage.getItem('jotter.showHiddenFiles');
+      if (savedHidden === 'true' || savedHidden === 'false') {
+        this.showHiddenFiles = savedHidden === 'true';
+      }
+      const savedImgFormat = localStorage.getItem('jotter.imageLinkFormat');
+      if (savedImgFormat === 'wikilink' || savedImgFormat === 'markdown') {
+        this.imageLinkFormat = savedImgFormat;
       }
       const savedPreFocus = localStorage.getItem('jotter.preFocusLayout');
       if (savedPreFocus) {

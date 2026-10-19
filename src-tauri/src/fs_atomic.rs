@@ -3,9 +3,9 @@ use std::io::Write;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Atomically writes `content` to `target_path` by writing to a uniquely named temporary file
+/// Atomically writes `bytes` to `target_path` by writing to a uniquely named temporary file
 /// in the same parent directory, syncing it to disk, and renaming it over `target_path`.
-pub fn atomic_write_str(target_path: &Path, content: &str) -> Result<(), String> {
+pub fn atomic_write_bytes(target_path: &Path, bytes: &[u8]) -> Result<(), String> {
     let parent = target_path
         .parent()
         .ok_or_else(|| format!("Target path has no parent directory: {}", target_path.display()))?;
@@ -30,7 +30,7 @@ pub fn atomic_write_str(target_path: &Path, content: &str) -> Result<(), String>
 
     let write_res = (|| -> std::io::Result<()> {
         let mut file = File::create(&temp_path)?;
-        file.write_all(content.as_bytes())?;
+        file.write_all(bytes)?;
         file.flush()?;
         file.sync_all()?;
         Ok(())
@@ -54,6 +54,12 @@ pub fn atomic_write_str(target_path: &Path, content: &str) -> Result<(), String>
     }
 
     Ok(())
+}
+
+/// Atomically writes `content` to `target_path` by writing to a uniquely named temporary file
+/// in the same parent directory, syncing it to disk, and renaming it over `target_path`.
+pub fn atomic_write_str(target_path: &Path, content: &str) -> Result<(), String> {
+    atomic_write_bytes(target_path, content.as_bytes())
 }
 
 #[cfg(test)]

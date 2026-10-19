@@ -2,6 +2,7 @@ pub mod clipboard;
 pub mod fs_atomic;
 pub mod index;
 pub mod links;
+pub mod media_export;
 pub mod search;
 pub mod types;
 pub mod vault;
@@ -680,6 +681,100 @@ fn search_vault(
         .search(vault_root.as_deref(), &query, limit.unwrap_or(40))
 }
 
+#[tauri::command]
+fn rebuild_vault_index(state: State<'_, AppState>) -> Result<usize, String> {
+    let vault_root = require_active_vault(&state)?;
+    let scanned_files = scan_dir_files_from_disk(&vault_root, &vault_root)?;
+    {
+        let conn = state
+            .sqlite_conn
+            .lock()
+            .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+        apply_scanned_vault_index(&conn, &scanned_files)?;
+    }
+    state.search_index.rebuild_from_scanned(&scanned_files)?;
+    Ok(scanned_files.len())
+}
+
+#[tauri::command]
+fn save_pasted_image(
+    state: State<'_, AppState>,
+    png_bytes: Option<Vec<u8>>,
+) -> Result<(String, String), String> {
+    let vault_root = require_active_vault(&state)?;
+    let (file_name, rel_path) = match png_bytes {
+        Some(bytes) if !bytes.is_empty() => {
+            crate::media_export::save_png_to_vault_attachments(&vault_root, &bytes, None)?
+        }
+        _ => crate::media_export::paste_clipboard_image_to_vault(&vault_root)?,
+    };
+    mark_self_write(&state.recent_self_writes, &rel_path);
+    Ok((file_name, rel_path))
+}
+
+#[tauri::command]
+fn read_vault_image_data_url(
+    state: State<'_, AppState>,
+    target: String,
+) -> Result<String, String> {
+    let vault_root = require_active_vault(&state)?;
+    crate::media_export::read_vault_image_as_data_url(&vault_root, &target)
+}
+
+#[tauri::command]
+fn export_active_note_html(
+    state: State<'_, AppState>,
+    title: String,
+    markdown: String,
+    dark_mode: bool,
+) -> Result<Option<String>, String> {
+    let vault_root = state
+        .active_vault
+        .lock()
+        .map_err(|e| format!("Failed to lock active vault state: {e}"))?
+        .clone();
+
+    #[cfg(target_os = "windows")]
+    {
+        let Some(target_path) = crate::media_export::pick_save_html_dialog_win32(&title) else {
+            return Ok(None);
+        };
+        let saved = crate::media_export::export_html_to_path(
+            &target_path,
+            &title,
+            &markdown,
+            vault_root.as_deref(),
+            dark_mode,
+        )?;
+        Ok(Some(saved))
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (title, markdown, dark_mode, vault_root);
+        Ok(None)
+    }
+}
+
+#[tauri::command]
+fn render_note_html_preview(
+    state: State<'_, AppState>,
+    title: String,
+    markdown: String,
+    dark_mode: bool,
+) -> Result<String, String> {
+    let vault_root = state
+        .active_vault
+        .lock()
+        .map_err(|e| format!("Failed to lock active vault state: {e}"))?
+        .clone();
+    Ok(crate::media_export::build_self_contained_html(
+        &title,
+        &markdown,
+        vault_root.as_deref(),
+        dark_mode,
+    ))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_data_dir = std::env::var_os("LOCALAPPDATA")
@@ -749,7 +844,12 @@ pub fn run() {
             get_backlinks,
             get_all_tags,
             get_notes_by_tag,
-            search_vault
+            search_vault,
+            rebuild_vault_index,
+            save_pasted_image,
+            read_vault_image_data_url,
+            export_active_note_html,
+            render_note_html_preview
         ])
         .run(tauri::generate_context!())
         .expect("error while running Jotter Tauri application");

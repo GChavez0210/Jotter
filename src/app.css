@@ -34,7 +34,122 @@ button:focus-visible,
 select:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
+[role='button']:focus-visible,
+[role='tab']:focus-visible,
+[role='treeitem']:focus-visible,
+[role='option']:focus-visible,
 [tabindex]:focus-visible {
   outline: 2px solid var(--accent-color, var(--focus-ring));
   outline-offset: 2px;
+}
+
+.jotter-print-view {
+  display: none;
+}
+
+@media (forced-colors: active) {
+  button,
+  select,
+  input,
+  textarea,
+  [role='tab'],
+  [role='radio'] {
+    forced-color-adjust: auto;
+    border: 1px solid ButtonBorder;
+  }
+
+  button:focus-visible,
+  select:focus-visible,
+  input:focus-visible,
+  textarea:focus-visible,
+  [tabindex]:focus-visible {
+    outline: 2px solid Highlight !important;
+    outline-offset: 2px;
+  }
+}
+
+@media print {
+  @page {
+    margin: 18mm;
+  }
+
+  html,
+  body,
+  #app {
+    height: auto !important;
+    overflow: visible !important;
+    background: #ffffff !important;
+    color: #111111 !important;
+  }
+
+  .app-shell {
+    display: none !important;
+  }
+
+  .jotter-print-view {
+    display: block !important;
+    max-width: 700px;
+    margin: 0 auto;
+    padding: 0;
+    color: #111111;
+    background: #ffffff;
+    font-family: var(--font-ui);
+    font-size: 16px;
+    line-height: 1.65;
+  }
+
+  .jotter-print-view h1,
+  .jotter-print-view h2,
+  .jotter-print-view h3,
+  .jotter-print-view h4,
+  .jotter-print-view h5,
+  .jotter-print-view h6 {
+    color: #111111;
+    line-height: 1.25;
+    margin-top: 1.4em;
+    margin-bottom: 0.5em;
+    page-break-after: avoid;
+  }
+
+  .jotter-print-view pre,
+  .jotter-print-view code {
+    font-family: var(--font-mono);
+  }
+
+  .jotter-print-view pre {
+    padding: 12px 14px;
+    border: 1px solid #d4d4d4;
+    border-radius: 6px;
+    background: #f7f7f7;
+    overflow-x: auto;
+    page-break-inside: avoid;
+  }
+
+  .jotter-print-view blockquote {
+    margin: 1em 0;
+    padding: 4px 16px;
+    border-left: 3px solid #005fb8;
+    color: #444444;
+  }
+
+  .jotter-print-view table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1em 0;
+    page-break-inside: avoid;
+  }
+
+  .jotter-print-view th,
+  .jotter-print-view td {
+    border: 1px solid #d4d4d4;
+    padding: 8px 12px;
+    text-align: left;
+  }
+
+  .jotter-print-view img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 6px;
+    page-break-inside: avoid;
+  }
 }

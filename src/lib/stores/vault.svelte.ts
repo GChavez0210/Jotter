@@ -7,6 +7,7 @@ import {
   getRecentVaults,
   getVaultSnapshot,
   openVault,
+  rebuildVaultIndex,
   removeRecentVaultEntry,
   renameEntry,
 } from '../ipc';
@@ -281,6 +282,25 @@ class VaultStore {
       onReplaceActiveEditor
     );
   }
+  async rebuildIndex(): Promise<number | null> {
+    if (!this.vaultSnapshot) return null;
+    try {
+      const count = await rebuildVaultIndex();
+      const snap = await getVaultSnapshot();
+      if (snap) this.vaultSnapshot = snap;
+      this.bumpIndexVersion();
+      clipboardStore.setStatus(
+        `Rebuilt SQLite & Tantivy indexes (${count} notes)`
+      );
+      return count;
+    } catch (err) {
+      clipboardStore.setStatus(
+        `Index rebuild failed: ${err instanceof Error ? err.message : String(err)}`
+      );
+      return null;
+    }
+  }
 }
 
 export const vaultStore = new VaultStore();
+

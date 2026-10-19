@@ -100,6 +100,12 @@ export const fluentIcons = {
   backlink16: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <path d="M6.854 3.146a.5.5 0 0 1 0 .708L4.207 6.5H10a4 4 0 0 1 4 4v2a.5.5 0 0 1-1 0v-2a3 3 0 0 0-3-3H4.207l2.647 2.646a.5.5 0 0 1-.708.708l-3.5-3.5a.5.5 0 0 1 0-.708l3.5-3.5a.5.5 0 0 1 .708 0Z" fill="currentColor"/>
   </svg>`,
+  edit16: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M11.146 2.146a1.5 1.5 0 0 1 2.122 0l.586.586a1.5 1.5 0 0 1 0 2.122L5.707 13H3v-2.707l8.146-8.147Zm1.415.708a.5.5 0 0 0-.708 0L10.5 4.207 11.793 5.5l1.353-1.354a.5.5 0 0 0 0-.708l-.585-.584ZM11.086 6.207 9.793 4.914 4 10.707V12h1.293l5.793-5.793Z" fill="currentColor"/>
+  </svg>`,
+  arrowClockwise16: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M8 2.5A5.5 5.5 0 0 0 3.07 5.5H4.5a.5.5 0 0 1 0 1H2a.5.5 0 0 1-.5-.5V3.5a.5.5 0 0 1 1 0v1.18A6.5 6.5 0 1 1 1.5 8a.5.5 0 0 1 1 0A5.5 5.5 0 1 0 8 2.5Z" fill="currentColor"/>
+  </svg>`,
 };
 
 

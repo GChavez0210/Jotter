@@ -12,7 +12,11 @@
   import { markdown } from '@codemirror/lang-markdown';
   import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
   import { tags } from '@lezer/highlight';
-  import { copyToClipboard, pastePlainFromClipboard } from './ipc';
+  import {
+    copyToClipboard,
+    pastePlainFromClipboard,
+    savePastedImage,
+  } from './ipc';
   import {
     createLivePreviewExtension,
     findInlineCodeSpansInLine,
@@ -24,6 +28,7 @@
     runMarkdownCommand,
     type MarkdownFormatCommandId,
   } from './markdownCommands';
+  import { settingsStore } from './stores/settings.svelte';
   import type {
     ClipboardPayload,
     CopyMode,
@@ -41,6 +46,7 @@
     typewriterScrolling?: boolean;
     vaultFiles?: VaultNode[];
     onWikiLinkClick?: (noteTarget: string, heading?: string) => void;
+    onImagePasted?: (fileName: string, relPath: string) => void;
     onDocChange?: (docId: string, newContent: string) => void;
     onCopyComplete?: (payload: ClipboardPayload, source: 'copy' | 'cut') => void;
     onPastePlainComplete?: (charCount: number, lineCount: number) => void;
@@ -63,6 +69,7 @@
     typewriterScrolling = false,
     vaultFiles = [],
     onWikiLinkClick,
+    onImagePasted,
     onDocChange,
     onCopyComplete,
     onPastePlainComplete,
@@ -135,7 +142,7 @@
   const editorTheme = EditorView.theme({
     '&': {
       height: '100%',
-      fontSize: 'var(--text-base)',
+      fontSize: 'var(--editor-font-size, var(--text-base))',
       fontFamily: 'var(--font-ui)',
       color: 'var(--text-primary)',
       backgroundColor: 'transparent',
@@ -249,6 +256,29 @@
     },
     '.cm-live-wikilink-raw': {
       color: 'var(--syn-link)',
+    },
+    '.cm-live-image-embed': {
+      display: 'inline-block',
+      margin: '4px 0',
+      maxWidth: '100%',
+      cursor: 'pointer',
+    },
+    '.cm-live-image-el': {
+      display: 'block',
+      maxWidth: '100%',
+      maxHeight: '360px',
+      borderRadius: 'var(--radius-card)',
+      border: '1px solid var(--border-subtle)',
+    },
+    '.cm-live-image-missing': {
+      display: 'inline-flex',
+      alignItems: 'center',
+      padding: '2px 8px',
+      borderRadius: 'var(--radius-control)',
+      border: '1px dashed var(--border-control)',
+      backgroundColor: 'var(--bg-subtle)',
+      color: 'var(--text-muted)',
+      fontSize: 'var(--text-xs)',
     },
     '.cm-live-bullet-widget': {
       display: 'inline-block',
@@ -494,6 +524,67 @@
     }
   }
 
+  async function insertSavedImageAtCursor(
+    v: EditorView,
+    pngBytes: number[] | null
+  ): Promise<boolean> {
+    try {
+      const [fileName, relPath] = await savePastedImage(pngBytes);
+      const insertSyntax =
+        settingsStore.imageLinkFormat === 'markdown'
+          ? `![${fileName}](${relPath.replace(/ /g, '%20')})`
+          : `![[${fileName}]]`;
+      const sel = v.state.selection.main;
+      v.dispatch({
+        changes: { from: sel.from, to: sel.to, insert: insertSyntax },
+        selection: { anchor: sel.from + insertSyntax.length },
+        scrollIntoView: true,
+      });
+      onImagePasted?.(fileName, relPath);
+      return true;
+    } catch (err) {
+      onError?.(err instanceof Error ? err.message : String(err));
+      return false;
+    }
+  }
+
+  function tryPasteImageFromEvent(
+    event: ClipboardEvent,
+    v: EditorView
+  ): boolean {
+    const items = event.clipboardData?.items;
+    if (items) {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type.startsWith('image/')) {
+          const blob = item.getAsFile();
+          if (blob) {
+            event.preventDefault();
+            void blob
+              .arrayBuffer()
+              .then((buf) => {
+                const bytes = Array.from(new Uint8Array(buf));
+                return insertSavedImageAtCursor(v, bytes);
+              })
+              .catch(() => {
+                void insertSavedImageAtCursor(v, null);
+              });
+            return true;
+          }
+        }
+      }
+    }
+
+    const plainText = event.clipboardData?.getData('text/plain') ?? '';
+    if (!plainText) {
+      event.preventDefault();
+      void insertSavedImageAtCursor(v, null);
+      return true;
+    }
+
+    return false;
+  }
+
   function tryCtrlClickRawWikiLink(event: MouseEvent, v: EditorView): boolean {
     if (!(event.ctrlKey || event.metaKey) || !onWikiLinkClick) return false;
     const pos = v.posAtCoords({ x: event.clientX, y: event.clientY });
@@ -559,6 +650,9 @@
         EditorView.domEventHandlers({
           mousedown: (event, v) => {
             return tryCtrlClickRawWikiLink(event, v);
+          },
+          paste: (event, v) => {
+            return tryPasteImageFromEvent(event, v);
           },
           copy: (event, v) => {
             event.preventDefault();
