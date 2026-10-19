@@ -62,9 +62,12 @@ class VaultStore {
 
   /**
    * Resolves a wiki-link target (e.g. `Architecture` or `Specs/Architecture` or `Specs/Architecture.md`)
-   * to a matching `VaultNode` in the open vault, or `null` if missing.
+   * to a matching `VaultNode` in the open vault using:
+   * 1. Exact relative path first
+   * 2. Same folder as the source note
+   * 3. Shortest path among notes with that stem
    */
-  resolveWikiTarget(rawTarget: string): VaultNode | null {
+  resolveWikiTarget(rawTarget: string, sourceRelPath?: string): VaultNode | null {
     const clean = stripMdExt(rawTarget.trim().replace(/\\/g, '/')).toLowerCase();
     if (!clean) return null;
 
@@ -75,11 +78,35 @@ class VaultStore {
       }
     }
 
-    // 2. Match by note title / filename stem
-    for (const file of this.allFiles) {
-      if (stripMdExt(file.name).toLowerCase() === clean) {
-        return file;
+    // 2. Same folder as the source note
+    const effectiveSource = (sourceRelPath ?? tabsStore.activeTab?.relPath ?? '').replace(/\\/g, '/');
+    const lastSlash = effectiveSource.lastIndexOf('/');
+    if (lastSlash > 0) {
+      const sourceDir = effectiveSource.slice(0, lastSlash);
+      const sameFolderNorm = stripMdExt(`${sourceDir}/${clean}`).toLowerCase();
+      for (const file of this.allFiles) {
+        if (stripMdExt(file.relPath).toLowerCase() === sameFolderNorm) {
+          return file;
+        }
       }
+    }
+
+    // 3. Shortest path among notes with that stem
+    if (!clean.includes('/')) {
+      let bestMatch: VaultNode | null = null;
+      for (const file of this.allFiles) {
+        if (stripMdExt(file.name).toLowerCase() === clean) {
+          if (
+            !bestMatch ||
+            file.relPath.length < bestMatch.relPath.length ||
+            (file.relPath.length === bestMatch.relPath.length &&
+              file.relPath < bestMatch.relPath)
+          ) {
+            bestMatch = file;
+          }
+        }
+      }
+      return bestMatch;
     }
 
     return null;
