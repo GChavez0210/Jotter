@@ -6,9 +6,9 @@
   import CommandPalette from './lib/CommandPalette.svelte';
   import Editor from './lib/Editor.svelte';
   import FirstRunScreen from './lib/FirstRunScreen.svelte';
-  import FormattingToolbar from './lib/FormattingToolbar.svelte';
   import QuickSwitcher from './lib/QuickSwitcher.svelte';
   import SettingsModal from './lib/SettingsModal.svelte';
+  import NoteHeader from './lib/NoteHeader.svelte';
   import Sidebar from './lib/Sidebar.svelte';
   import StatusBar from './lib/StatusBar.svelte';
   import TitleBar from './lib/TitleBar.svelte';
@@ -435,9 +435,6 @@
       <div class="work-row">
         <section class="editor-column" aria-label="Editor">
           <div class="editor-card">
-            {#if (tabsStore.scratchpadMode || tabsStore.activeTab) && settingsStore.focusMode === 'off'}
-              <FormattingToolbar onFormat={handleFormatCommand} />
-            {/if}
 
             {#if tabsStore.scratchpadMode}
               <Editor
@@ -462,7 +459,9 @@
                   clipboardStore.handlePastePlainComplete(chars, lines)}
                 onStatsChange={(s) => (tabsStore.docStats = s)}
                 onError={(err) => clipboardStore.setStatus(`Clipboard error: ${err}`)}
-              />
+              >
+                {#snippet header()}<NoteHeader />{/snippet}
+              </Editor>
             {:else if tabsStore.activeTab}
               <Editor
                 bind:this={editorRef}
@@ -484,7 +483,9 @@
                   clipboardStore.handlePastePlainComplete(chars, lines)}
                 onStatsChange={(s) => (tabsStore.docStats = s)}
                 onError={(err) => clipboardStore.setStatus(`Clipboard error: ${err}`)}
-              />
+              >
+                {#snippet header()}<NoteHeader />{/snippet}
+              </Editor>
             {:else}
               <div class="no-open-note">
                 <div class="no-note-icon"><Icon name="notebook" size={20} /></div>
