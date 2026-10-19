@@ -196,17 +196,16 @@
     const target = getSelectedOrCurrentLineText(v, fallbackToWholeDoc);
     if (!target.text) return false;
 
-    if (source === 'cut') {
-      v.dispatch({
-        changes: { from: target.from, to: target.to, insert: '' },
-      });
-    }
-
     try {
       const payload = await copyToClipboard({
         text: target.text,
         mode: copyMode,
       });
+      if (source === 'cut') {
+        v.dispatch({
+          changes: { from: target.from, to: target.to, insert: '' },
+        });
+      }
       onCopyComplete?.(payload, source);
       return true;
     } catch (err) {

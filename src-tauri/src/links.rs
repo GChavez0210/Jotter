@@ -136,7 +136,8 @@ pub fn parse_wiki_links(content: &str) -> Vec<WikiLink> {
     links
 }
 
-/// Replaces `[[wiki links]]` in a single line with their human-readable display text:
+/// Replaces `[[wiki links]]` in a single line with their human-readable display text,
+/// while leaving `[[wiki links]]` inside inline code spans (`` `...` ``) untouched:
 /// - `[[Note|Alias]]` -> `Alias`
 /// - `[[Note#Heading|Alias]]` -> `Alias`
 /// - `[[Note#Heading]]` -> `Note > Heading`
@@ -144,46 +145,81 @@ pub fn parse_wiki_links(content: &str) -> Vec<WikiLink> {
 /// - `[[Note]]` -> `Note`
 pub fn replace_wiki_links_with_display(line: &str) -> String {
     let mut out = String::with_capacity(line.len());
-    let mut rest = line;
+    let bytes = line.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
 
-    while let Some(start) = rest.find("[[") {
-        // Check for image/attachment embed `![[...]]`
-        let is_embed = start > 0 && rest.as_bytes()[start - 1] == b'!';
-        if is_embed {
-            out.push_str(&rest[..start - 1]);
-        } else {
-            out.push_str(&rest[..start]);
-        }
-
-        let after_open = &rest[start + 2..];
-        if let Some(close) = after_open.find("]]") {
-            let inner = &after_open[..close];
-            let raw = &rest[start..start + 2 + close + 2];
-            if let Some(link) = parse_wiki_link_inner(raw, inner) {
-                if let Some(alias) = link.alias {
-                    out.push_str(&alias);
-                } else if let Some(heading) = link.heading {
-                    if link.target.is_empty() {
-                        out.push_str(&heading);
-                    } else {
-                        out.push_str(&link.target);
-                        out.push_str(" > ");
-                        out.push_str(&heading);
-                    }
-                } else {
-                    out.push_str(&link.target);
-                }
-            } else {
-                out.push_str(raw);
+    while i < len {
+        // Preserve inline code spans (`...` or ``...``) verbatim
+        if bytes[i] == b'`' {
+            let tick_start = i;
+            while i < len && bytes[i] == b'`' {
+                i += 1;
             }
-            rest = &after_open[close + 2..];
-        } else {
-            out.push_str(&rest[start..]);
-            rest = "";
+            let tick_len = i - tick_start;
+            let ticks = &line[tick_start..i];
+
+            if let Some(rel_close) = line[i..].find(ticks) {
+                let close_end = i + rel_close + tick_len;
+                out.push_str(&line[tick_start..close_end]);
+                i = close_end;
+                continue;
+            } else {
+                out.push_str(&line[tick_start..]);
+                break;
+            }
         }
+
+        // Check for `![[` (embed) or `[[` (wiki link)
+        let is_embed =
+            bytes[i] == b'!' && i + 2 < len && bytes[i + 1] == b'[' && bytes[i + 2] == b'[';
+        let is_wiki = bytes[i] == b'[' && i + 1 < len && bytes[i + 1] == b'[';
+
+        if is_embed || is_wiki {
+            // Check for escaped `\[[` or `\![[`
+            if i > 0 && bytes[i - 1] == b'\\' {
+                out.push(bytes[i] as char);
+                i += 1;
+                continue;
+            }
+
+            let bracket_open = if is_embed { i + 1 } else { i };
+            let inner_start = bracket_open + 2;
+
+            // Only match `]]` that does not cross a backtick
+            let after_open = &line[inner_start..];
+            if let Some(close_rel) = after_open.find("]]") {
+                let inner = &after_open[..close_rel];
+                if !inner.contains('`') {
+                    let raw = &line[bracket_open..inner_start + close_rel + 2];
+                    if let Some(link) = parse_wiki_link_inner(raw, inner) {
+                        if let Some(alias) = link.alias {
+                            out.push_str(&alias);
+                        } else if let Some(heading) = link.heading {
+                            if link.target.is_empty() {
+                                out.push_str(&heading);
+                            } else {
+                                out.push_str(&link.target);
+                                out.push_str(" > ");
+                                out.push_str(&heading);
+                            }
+                        } else {
+                            out.push_str(&link.target);
+                        }
+                    } else {
+                        out.push_str(&line[i..inner_start + close_rel + 2]);
+                    }
+                    i = inner_start + close_rel + 2;
+                    continue;
+                }
+            }
+        }
+
+        let ch = line[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
     }
 
-    out.push_str(rest);
     out
 }
 

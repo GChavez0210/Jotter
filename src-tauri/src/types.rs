@@ -4,13 +4,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum CopyMode {
-    /// Default: plain text only (Markdown syntax stripped), line breaks preserved.
+    /// Default: raw Markdown source with exact line breaks preserved.
     #[default]
+    MarkdownSource,
+    /// Opt-in clean text (Markdown syntax stripped), text/plain only, line breaks preserved.
     Plain,
     /// Rich HTML (via comrak with <br> line breaks) plus plain-text alternative.
     Rich,
-    /// Raw Markdown source with exact line breaks preserved.
-    MarkdownSource,
 }
 
 /// IPC request payload for copying selected text to the system clipboard.
