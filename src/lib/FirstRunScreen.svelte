@@ -22,7 +22,7 @@
     onOpenScratchpad,
   }: Props = $props();
 
-  let mode: 'welcome' | 'create' | 'open_manual' = $state('welcome');
+  let mode = $state<'welcome' | 'create' | 'open_manual'>('welcome');
   let createParentPath = $state('');
   let createVaultName = $state('My Notes');
   let manualOpenPath = $state('');

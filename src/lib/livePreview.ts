@@ -3,13 +3,14 @@ import {
   Compartment,
   EditorState,
   Range,
-  StateField,
   type Extension,
 } from '@codemirror/state';
 import {
   Decoration,
   type DecorationSet,
   EditorView,
+  ViewPlugin,
+  type ViewUpdate,
   WidgetType,
 } from '@codemirror/view';
 import type { EditingMode } from './types';
@@ -18,6 +19,15 @@ export interface LivePreviewConfig {
   editingMode: EditingMode;
   dimInactiveParagraphs: boolean;
   typewriterScrolling: boolean;
+}
+
+const VIEWPORT_MARGIN_LINES = 20;
+
+interface VisibleLineWindow {
+  startLine: number;
+  endLine: number;
+  from: number;
+  to: number;
 }
 
 class BulletPointWidget extends WidgetType {
@@ -233,6 +243,107 @@ function getActiveParagraphLineRange(state: EditorState): {
   return { startLine, endLine };
 }
 
+/**
+ * Computes merged visible line windows from `view.visibleRanges`, expanded by
+ * `VIEWPORT_MARGIN_LINES` (~20 lines) above and below each visible range.
+ */
+function computeVisibleLineWindows(view: EditorView): VisibleLineWindow[] {
+  const { state } = view;
+  const totalLines = state.doc.lines;
+  const rawRanges =
+    view.visibleRanges.length > 0
+      ? view.visibleRanges
+      : [{ from: 0, to: state.doc.length }];
+
+  const windows: VisibleLineWindow[] = [];
+
+  for (const r of rawRanges) {
+    const startLine = Math.max(
+      1,
+      state.doc.lineAt(r.from).number - VIEWPORT_MARGIN_LINES
+    );
+    const endLine = Math.min(
+      totalLines,
+      state.doc.lineAt(r.to).number + VIEWPORT_MARGIN_LINES
+    );
+    const from = state.doc.line(startLine).from;
+    const to = state.doc.line(endLine).to;
+
+    const prev = windows[windows.length - 1];
+    if (prev && startLine <= prev.endLine + 1) {
+      prev.endLine = Math.max(prev.endLine, endLine);
+      prev.to = Math.max(prev.to, to);
+    } else {
+      windows.push({ startLine, endLine, from, to });
+    }
+  }
+
+  return windows;
+}
+
+/**
+ * Returns true if the character at `index` in `text` is escaped by an odd number of preceding `\`.
+ */
+export function isEscapedAt(text: string, index: number): boolean {
+  let backslashes = 0;
+  for (let i = index - 1; i >= 0 && text[i] === '\\'; i--) {
+    backslashes++;
+  }
+  return backslashes % 2 === 1;
+}
+
+/**
+ * Finds inline code spans (delimited by matching backtick runs `` `...` ``) within a single line.
+ * Escaped backticks (`\``) are ignored when opening/closing spans.
+ */
+export function findInlineCodeSpansInLine(
+  lineText: string
+): Array<{ from: number; to: number }> {
+  const spans: Array<{ from: number; to: number }> = [];
+  let i = 0;
+  const n = lineText.length;
+
+  while (i < n) {
+    if (lineText[i] === '`' && !isEscapedAt(lineText, i)) {
+      let openLen = 0;
+      const start = i;
+      while (i < n && lineText[i] === '`') {
+        openLen++;
+        i++;
+      }
+
+      // Find matching closing run of `openLen` backticks
+      let foundClose = -1;
+      let j = i;
+      while (j < n) {
+        if (lineText[j] === '`' && !isEscapedAt(lineText, j)) {
+          let closeLen = 0;
+          const closeStart = j;
+          while (j < n && lineText[j] === '`') {
+            closeLen++;
+            j++;
+          }
+          if (closeLen === openLen) {
+            foundClose = closeStart + closeLen;
+            break;
+          }
+        } else {
+          j++;
+        }
+      }
+
+      if (foundClose !== -1) {
+        spans.push({ from: start, to: foundClose });
+        i = foundClose;
+      }
+    } else {
+      i++;
+    }
+  }
+
+  return spans;
+}
+
 function formatWikiLinkDisplay(inner: string): {
   display: string;
   target: string;
@@ -259,9 +370,11 @@ function formatWikiLinkDisplay(inner: string): {
 }
 
 function buildLivePreviewDecorations(
-  state: EditorState,
+  view: EditorView,
   config: LivePreviewConfig
 ): DecorationSet {
+  const { state } = view;
+  const windows = computeVisibleLineWindows(view);
   const decorations: Range<Decoration>[] = [];
   const lineClasses = new Map<number, string[]>();
 
@@ -274,405 +387,490 @@ function buildLivePreviewDecorations(
     }
   };
 
-  // 1. Optional paragraph dimming in Focus Mode / Editor settings
+  // 1. Optional paragraph dimming — runs ONLY on visible lines
   if (config.dimInactiveParagraphs) {
     const { startLine, endLine } = getActiveParagraphLineRange(state);
-    for (let ln = 1; ln <= state.doc.lines; ln++) {
-      if (ln < startLine || ln > endLine) {
-        const line = state.doc.line(ln);
-        addLineClass(line.from, 'cm-dimmed-paragraph-line');
+    for (const win of windows) {
+      for (let ln = win.startLine; ln <= win.endLine; ln++) {
+        if (ln < startLine || ln > endLine) {
+          const line = state.doc.line(ln);
+          addLineClass(line.from, 'cm-dimmed-paragraph-line');
+        }
       }
     }
   }
 
-  // 2. If in Live Mode, walk syntax tree and build inline/line/widget decorations
+  // 2. If in Live Mode, iterate syntax tree ONLY over visible windows
   if (config.editingMode === 'live') {
     const codeRanges: Array<{ from: number; to: number }> = [];
     const handledTaskItemLines = new Set<number>();
+    const visitedNodes = new Set<string>();
     const tree = syntaxTree(state);
 
-    tree.iterate({
-      enter: (node) => {
-        const name = node.name;
-
-        // ATX Headings (# .. ######)
-        if (name.startsWith('ATXHeading')) {
-          const level = Number(name.replace('ATXHeading', '')) || 1;
-          const line = state.doc.lineAt(node.from);
-          addLineClass(line.from, `cm-live-h${level}`);
-
-          if (!isLineTouchedBySelection(state, line.from, line.to)) {
-            const m = /^(#{1,6})\s+/.exec(line.text);
-            if (m) {
-              decorations.push(
-                Decoration.replace({}).range(
-                  line.from,
-                  line.from + m[0].length
-                )
-              );
-            }
+    // Pre-collect InlineCode and FencedCode ranges within the visible windows so
+    // table pipe replacement and wiki-link scans can check `isInsideCode` accurately.
+    for (const win of windows) {
+      tree.iterate({
+        from: win.from,
+        to: win.to,
+        enter: (node) => {
+          if (node.name === 'InlineCode' || node.name === 'FencedCode') {
+            codeRanges.push({ from: node.from, to: node.to });
           }
-          return;
-        }
+        },
+      });
+    }
 
-        // Blockquotes (> )
-        if (name === 'Blockquote') {
-          const startLine = state.doc.lineAt(node.from).number;
-          const endLine = state.doc.lineAt(node.to).number;
-          for (let ln = startLine; ln <= endLine; ln++) {
-            const line = state.doc.line(ln);
-            addLineClass(line.from, 'cm-live-blockquote-line');
+    const isInsideSyntaxCode = (pos: number) =>
+      codeRanges.some((r) => pos >= r.from && pos < r.to);
+
+    for (const win of windows) {
+      tree.iterate({
+        from: win.from,
+        to: win.to,
+        enter: (node) => {
+          const nodeKey = `${node.name}:${node.from}:${node.to}`;
+          if (visitedNodes.has(nodeKey)) return;
+          visitedNodes.add(nodeKey);
+
+          const name = node.name;
+
+          // ATX Headings (# .. ######)
+          if (name.startsWith('ATXHeading')) {
+            const level = Number(name.replace('ATXHeading', '')) || 1;
+            const line = state.doc.lineAt(node.from);
+            if (line.number < win.startLine || line.number > win.endLine) {
+              return;
+            }
+            addLineClass(line.from, `cm-live-h${level}`);
+
             if (!isLineTouchedBySelection(state, line.from, line.to)) {
-              const m = /^(\s*>+\s?)/.exec(line.text);
+              const m = /^(#{1,6})\s+/.exec(line.text);
               if (m) {
                 decorations.push(
                   Decoration.replace({}).range(
                     line.from,
-                    line.from + m[1].length
+                    line.from + m[0].length
                   )
                 );
               }
             }
-          }
-          return;
-        }
-
-        // Fenced Code Blocks (```lang ... ```)
-        if (name === 'FencedCode') {
-          codeRanges.push({ from: node.from, to: node.to });
-          const startLine = state.doc.lineAt(node.from);
-          const endLine = state.doc.lineAt(node.to);
-
-          for (let ln = startLine.number; ln <= endLine.number; ln++) {
-            const line = state.doc.line(ln);
-            addLineClass(line.from, 'cm-live-codeblock-line');
-            if (ln === startLine.number) {
-              addLineClass(line.from, 'cm-live-codeblock-start');
-            }
-            if (ln === endLine.number) {
-              addLineClass(line.from, 'cm-live-codeblock-end');
-            }
+            return;
           }
 
-          if (!isLineTouchedBySelection(state, startLine.from, startLine.to)) {
-            const fenceMatch = /^(\s*(?:`{3,}|~{3,}))(.*)$/.exec(
-              startLine.text
+          // Blockquotes (> ) — clamped to visible window lines
+          if (name === 'Blockquote') {
+            const startLine = Math.max(
+              win.startLine,
+              state.doc.lineAt(node.from).number
             );
-            if (fenceMatch && startLine.to > startLine.from) {
-              const lang = fenceMatch[2].trim();
-              decorations.push(
-                Decoration.replace({
-                  widget: new CodeBlockHeaderWidget(lang),
-                }).range(startLine.from, startLine.to)
-              );
+            const endLine = Math.min(
+              win.endLine,
+              state.doc.lineAt(node.to).number
+            );
+            for (let ln = startLine; ln <= endLine; ln++) {
+              const line = state.doc.line(ln);
+              addLineClass(line.from, 'cm-live-blockquote-line');
+              if (!isLineTouchedBySelection(state, line.from, line.to)) {
+                const m = /^(\s*>+\s?)/.exec(line.text);
+                if (m) {
+                  decorations.push(
+                    Decoration.replace({}).range(
+                      line.from,
+                      line.from + m[1].length
+                    )
+                  );
+                }
+              }
             }
+            return;
           }
 
-          if (
-            endLine.number > startLine.number &&
-            !isLineTouchedBySelection(state, endLine.from, endLine.to)
-          ) {
-            if (/^\s*(?:`{3,}|~{3,})\s*$/.test(endLine.text) && endLine.to > endLine.from) {
-              decorations.push(
-                Decoration.replace({
-                  widget: new CodeBlockHeaderWidget(''),
-                }).range(endLine.from, endLine.to)
-              );
-            }
-          }
-          return;
-        }
+          // Fenced Code Blocks (```lang ... ```) — clamped to visible window lines
+          if (name === 'FencedCode') {
+            const blockStartLine = state.doc.lineAt(node.from);
+            const blockEndLine = state.doc.lineAt(node.to);
+            const visStart = Math.max(win.startLine, blockStartLine.number);
+            const visEnd = Math.min(win.endLine, blockEndLine.number);
 
-        // Inline Code (`code`)
-        if (name === 'InlineCode') {
-          codeRanges.push({ from: node.from, to: node.to });
-          const lineStart = state.doc.lineAt(node.from);
-          const lineEnd = state.doc.lineAt(node.to);
-          if (lineStart.number === lineEnd.number) {
-            decorations.push(
-              Decoration.mark({ class: 'cm-live-inline-code' }).range(
-                node.from,
-                node.to
+            for (let ln = visStart; ln <= visEnd; ln++) {
+              const line = state.doc.line(ln);
+              addLineClass(line.from, 'cm-live-codeblock-line');
+              if (ln === blockStartLine.number) {
+                addLineClass(line.from, 'cm-live-codeblock-start');
+              }
+              if (ln === blockEndLine.number) {
+                addLineClass(line.from, 'cm-live-codeblock-end');
+              }
+            }
+
+            if (
+              blockStartLine.number >= win.startLine &&
+              blockStartLine.number <= win.endLine &&
+              !isLineTouchedBySelection(
+                state,
+                blockStartLine.from,
+                blockStartLine.to
               )
-            );
-            if (!isRangeTouchedBySelection(state, node.from, node.to)) {
-              const text = state.sliceDoc(node.from, node.to);
-              const openTicks = /^(`+)/.exec(text)?.[1].length ?? 1;
-              const closeTicks = /(`+)$/.exec(text)?.[1].length ?? 1;
-              if (node.to - node.from > openTicks + closeTicks) {
+            ) {
+              const fenceMatch = /^(\s*(?:`{3,}|~{3,}))(.*)$/.exec(
+                blockStartLine.text
+              );
+              if (fenceMatch && blockStartLine.to > blockStartLine.from) {
+                const lang = fenceMatch[2].trim();
                 decorations.push(
-                  Decoration.replace({}).range(
-                    node.from,
-                    node.from + openTicks
-                  )
-                );
-                decorations.push(
-                  Decoration.replace({}).range(
-                    node.to - closeTicks,
-                    node.to
-                  )
+                  Decoration.replace({
+                    widget: new CodeBlockHeaderWidget(lang),
+                  }).range(blockStartLine.from, blockStartLine.to)
                 );
               }
             }
-          }
-          return;
-        }
 
-        // Bold (**text** or __text__)
-        if (name === 'StrongEmphasis') {
-          const lineStart = state.doc.lineAt(node.from);
-          const lineEnd = state.doc.lineAt(node.to);
-          if (lineStart.number === lineEnd.number && node.to - node.from > 4) {
-            decorations.push(
-              Decoration.mark({ class: 'cm-live-bold' }).range(
-                node.from,
-                node.to
+            if (
+              blockEndLine.number > blockStartLine.number &&
+              blockEndLine.number >= win.startLine &&
+              blockEndLine.number <= win.endLine &&
+              !isLineTouchedBySelection(
+                state,
+                blockEndLine.from,
+                blockEndLine.to
               )
-            );
-            if (!isRangeTouchedBySelection(state, node.from, node.to)) {
-              decorations.push(
-                Decoration.replace({}).range(node.from, node.from + 2)
-              );
-              decorations.push(
-                Decoration.replace({}).range(node.to - 2, node.to)
-              );
+            ) {
+              if (
+                /^\s*(?:`{3,}|~{3,})\s*$/.test(blockEndLine.text) &&
+                blockEndLine.to > blockEndLine.from
+              ) {
+                decorations.push(
+                  Decoration.replace({
+                    widget: new CodeBlockHeaderWidget(''),
+                  }).range(blockEndLine.from, blockEndLine.to)
+                );
+              }
             }
+            return;
           }
-          return;
-        }
 
-        // Italic (*text* or _text_)
-        if (name === 'Emphasis') {
-          const lineStart = state.doc.lineAt(node.from);
-          const lineEnd = state.doc.lineAt(node.to);
-          if (lineStart.number === lineEnd.number && node.to - node.from > 2) {
-            decorations.push(
-              Decoration.mark({ class: 'cm-live-italic' }).range(
-                node.from,
-                node.to
-              )
-            );
-            if (!isRangeTouchedBySelection(state, node.from, node.to)) {
+          // Inline Code (`code`)
+          if (name === 'InlineCode') {
+            const lineStart = state.doc.lineAt(node.from);
+            const lineEnd = state.doc.lineAt(node.to);
+            if (lineStart.number === lineEnd.number) {
               decorations.push(
-                Decoration.replace({}).range(node.from, node.from + 1)
+                Decoration.mark({ class: 'cm-live-inline-code' }).range(
+                  node.from,
+                  node.to
+                )
               );
-              decorations.push(
-                Decoration.replace({}).range(node.to - 1, node.to)
-              );
+              if (!isRangeTouchedBySelection(state, node.from, node.to)) {
+                const text = state.sliceDoc(node.from, node.to);
+                const openTicks = /^(`+)/.exec(text)?.[1].length ?? 1;
+                const closeTicks = /(`+)$/.exec(text)?.[1].length ?? 1;
+                if (node.to - node.from > openTicks + closeTicks) {
+                  decorations.push(
+                    Decoration.replace({}).range(
+                      node.from,
+                      node.from + openTicks
+                    )
+                  );
+                  decorations.push(
+                    Decoration.replace({}).range(
+                      node.to - closeTicks,
+                      node.to
+                    )
+                  );
+                }
+              }
             }
+            return;
           }
-          return;
-        }
 
-        // Strikethrough (~~text~~)
-        if (name === 'Strikethrough') {
-          const lineStart = state.doc.lineAt(node.from);
-          const lineEnd = state.doc.lineAt(node.to);
-          if (lineStart.number === lineEnd.number && node.to - node.from > 4) {
-            decorations.push(
-              Decoration.mark({ class: 'cm-live-strike' }).range(
-                node.from,
-                node.to
-              )
-            );
-            if (!isRangeTouchedBySelection(state, node.from, node.to)) {
+          // Bold (**text** or __text__)
+          if (name === 'StrongEmphasis') {
+            const lineStart = state.doc.lineAt(node.from);
+            const lineEnd = state.doc.lineAt(node.to);
+            if (lineStart.number === lineEnd.number && node.to - node.from > 4) {
               decorations.push(
-                Decoration.replace({}).range(node.from, node.from + 2)
-              );
-              decorations.push(
-                Decoration.replace({}).range(node.to - 2, node.to)
-              );
-            }
-          }
-          return;
-        }
-
-        // Standard Markdown Links [label](url)
-        if (name === 'Link') {
-          const lineStart = state.doc.lineAt(node.from);
-          const lineEnd = state.doc.lineAt(node.to);
-          if (lineStart.number === lineEnd.number) {
-            const raw = state.sliceDoc(node.from, node.to);
-            const m = /^\[([^\]]+)\]\(([^)]*)\)$/.exec(raw);
-            if (m) {
-              const labelStart = node.from + 1;
-              const labelEnd = labelStart + m[1].length;
-              decorations.push(
-                Decoration.mark({ class: 'cm-live-link' }).range(
-                  labelStart,
-                  labelEnd
+                Decoration.mark({ class: 'cm-live-bold' }).range(
+                  node.from,
+                  node.to
                 )
               );
               if (!isRangeTouchedBySelection(state, node.from, node.to)) {
                 decorations.push(
-                  Decoration.replace({}).range(node.from, labelStart)
+                  Decoration.replace({}).range(node.from, node.from + 2)
                 );
                 decorations.push(
-                  Decoration.replace({}).range(labelEnd, node.to)
+                  Decoration.replace({}).range(node.to - 2, node.to)
                 );
               }
             }
-          }
-          return;
-        }
-
-        // Task List Marker ([ ] or [x])
-        if (name === 'TaskMarker') {
-          const line = state.doc.lineAt(node.from);
-          handledTaskItemLines.add(line.number);
-          const markerText = state.sliceDoc(node.from, node.to);
-          const checked = /\[[xX]\]/.test(markerText);
-          if (checked) {
-            addLineClass(line.from, 'cm-live-task-done-line');
+            return;
           }
 
-          // Replace from the list bullet (`- [ ]`) through `TaskMarker.to` when cursor isn't inside the prefix
-          const prefixMatch = /^(\s*)([-*+]\s+\[[ xX]\])/.exec(line.text);
-          const replaceFrom = prefixMatch
-            ? line.from + prefixMatch[1].length
-            : node.from;
-          const replaceTo = node.to;
-
-          if (!isRangeTouchedBySelection(state, replaceFrom, replaceTo)) {
-            decorations.push(
-              Decoration.replace({
-                widget: new TaskCheckboxWidget(checked, node.from, node.to),
-              }).range(replaceFrom, replaceTo)
-            );
-          }
-          return;
-        }
-
-        // Unordered / Ordered List Marks (-, *, +, 1.)
-        if (name === 'ListMark') {
-          const line = state.doc.lineAt(node.from);
-          if (handledTaskItemLines.has(line.number)) return;
-          // Check if this line actually has a task marker
-          if (/^\s*[-*+]\s+\[[ xX]\]/.test(line.text)) return;
-
-          const markText = state.sliceDoc(node.from, node.to);
-          if (markText === '-' || markText === '*' || markText === '+') {
-            if (!isRangeTouchedBySelection(state, node.from, node.to + 1)) {
+          // Italic (*text* or _text_)
+          if (name === 'Emphasis') {
+            const lineStart = state.doc.lineAt(node.from);
+            const lineEnd = state.doc.lineAt(node.to);
+            if (lineStart.number === lineEnd.number && node.to - node.from > 2) {
               decorations.push(
-                Decoration.replace({
-                  widget: new BulletPointWidget(),
-                }).range(node.from, node.to)
+                Decoration.mark({ class: 'cm-live-italic' }).range(
+                  node.from,
+                  node.to
+                )
               );
-            }
-          } else {
-            decorations.push(
-              Decoration.mark({ class: 'cm-live-ordered-mark' }).range(
-                node.from,
-                node.to
-              )
-            );
-          }
-          return;
-        }
-
-        // GFM Tables (Table, TableHeader, TableRow, TableDelimiter)
-        if (name === 'Table') {
-          const startLine = state.doc.lineAt(node.from).number;
-          const endLine = state.doc.lineAt(node.to).number;
-
-          for (let ln = startLine; ln <= endLine; ln++) {
-            const line = state.doc.line(ln);
-            const trimmed = line.text.trim();
-            if (!trimmed) continue;
-
-            const isSeparatorLine =
-              /^\|?[\s:]*-{2,}[\s:]*(\|[\s:]*-{2,}[\s:]*)*\|?$/.test(trimmed);
-            const isHeaderLine = ln === startLine;
-
-            addLineClass(line.from, 'cm-live-table-line');
-            if (isHeaderLine) {
-              addLineClass(line.from, 'cm-live-table-header-line');
-            } else if (isSeparatorLine) {
-              addLineClass(line.from, 'cm-live-table-sep-line');
-            } else {
-              addLineClass(line.from, 'cm-live-table-row-line');
-            }
-
-            if (!isLineTouchedBySelection(state, line.from, line.to)) {
-              if (isSeparatorLine && line.to > line.from) {
-                const colCount = Math.max(
-                  1,
-                  trimmed.split('|').filter((c) => c.trim().length > 0).length
+              if (!isRangeTouchedBySelection(state, node.from, node.to)) {
+                decorations.push(
+                  Decoration.replace({}).range(node.from, node.from + 1)
                 );
                 decorations.push(
-                  Decoration.replace({
-                    widget: new TableSeparatorWidget(colCount),
-                  }).range(line.from, line.to)
+                  Decoration.replace({}).range(node.to - 1, node.to)
                 );
+              }
+            }
+            return;
+          }
+
+          // Strikethrough (~~text~~)
+          if (name === 'Strikethrough') {
+            const lineStart = state.doc.lineAt(node.from);
+            const lineEnd = state.doc.lineAt(node.to);
+            if (lineStart.number === lineEnd.number && node.to - node.from > 4) {
+              decorations.push(
+                Decoration.mark({ class: 'cm-live-strike' }).range(
+                  node.from,
+                  node.to
+                )
+              );
+              if (!isRangeTouchedBySelection(state, node.from, node.to)) {
+                decorations.push(
+                  Decoration.replace({}).range(node.from, node.from + 2)
+                );
+                decorations.push(
+                  Decoration.replace({}).range(node.to - 2, node.to)
+                );
+              }
+            }
+            return;
+          }
+
+          // Standard Markdown Links [label](url)
+          if (name === 'Link') {
+            const lineStart = state.doc.lineAt(node.from);
+            const lineEnd = state.doc.lineAt(node.to);
+            if (lineStart.number === lineEnd.number) {
+              const raw = state.sliceDoc(node.from, node.to);
+              const m = /^\[([^\]]+)\]\(([^)]*)\)$/.exec(raw);
+              if (m) {
+                const labelStart = node.from + 1;
+                const labelEnd = labelStart + m[1].length;
+                decorations.push(
+                  Decoration.mark({ class: 'cm-live-link' }).range(
+                    labelStart,
+                    labelEnd
+                  )
+                );
+                if (!isRangeTouchedBySelection(state, node.from, node.to)) {
+                  decorations.push(
+                    Decoration.replace({}).range(node.from, labelStart)
+                  );
+                  decorations.push(
+                    Decoration.replace({}).range(labelEnd, node.to)
+                  );
+                }
+              }
+            }
+            return;
+          }
+
+          // Task List Marker ([ ] or [x])
+          if (name === 'TaskMarker') {
+            const line = state.doc.lineAt(node.from);
+            handledTaskItemLines.add(line.number);
+            const markerText = state.sliceDoc(node.from, node.to);
+            const checked = /\[[xX]\]/.test(markerText);
+            if (checked) {
+              addLineClass(line.from, 'cm-live-task-done-line');
+            }
+
+            const prefixMatch = /^(\s*)([-*+]\s+\[[ xX]\])/.exec(line.text);
+            const replaceFrom = prefixMatch
+              ? line.from + prefixMatch[1].length
+              : node.from;
+            const replaceTo = node.to;
+
+            if (!isRangeTouchedBySelection(state, replaceFrom, replaceTo)) {
+              decorations.push(
+                Decoration.replace({
+                  widget: new TaskCheckboxWidget(checked, node.from, node.to),
+                }).range(replaceFrom, replaceTo)
+              );
+            }
+            return;
+          }
+
+          // Unordered / Ordered List Marks (-, *, +, 1.)
+          if (name === 'ListMark') {
+            const line = state.doc.lineAt(node.from);
+            if (handledTaskItemLines.has(line.number)) return;
+            if (/^\s*[-*+]\s+\[[ xX]\]/.test(line.text)) return;
+
+            const markText = state.sliceDoc(node.from, node.to);
+            if (markText === '-' || markText === '*' || markText === '+') {
+              if (!isRangeTouchedBySelection(state, node.from, node.to + 1)) {
+                decorations.push(
+                  Decoration.replace({
+                    widget: new BulletPointWidget(),
+                  }).range(node.from, node.to)
+                );
+              }
+            } else {
+              decorations.push(
+                Decoration.mark({ class: 'cm-live-ordered-mark' }).range(
+                  node.from,
+                  node.to
+                )
+              );
+            }
+            return;
+          }
+
+          // GFM Tables (Table, TableHeader, TableRow, TableDelimiter) — clamped to visible lines
+          if (name === 'Table') {
+            const tableStartLine = state.doc.lineAt(node.from).number;
+            const tableEndLine = state.doc.lineAt(node.to).number;
+            const visStart = Math.max(win.startLine, tableStartLine);
+            const visEnd = Math.min(win.endLine, tableEndLine);
+
+            for (let ln = visStart; ln <= visEnd; ln++) {
+              const line = state.doc.line(ln);
+              const trimmed = line.text.trim();
+              if (!trimmed) continue;
+
+              const isSeparatorLine =
+                /^\|?[\s:]*-{2,}[\s:]*(\|[\s:]*-{2,}[\s:]*)*\|?$/.test(
+                  trimmed
+                );
+              const isHeaderLine = ln === tableStartLine;
+
+              addLineClass(line.from, 'cm-live-table-line');
+              if (isHeaderLine) {
+                addLineClass(line.from, 'cm-live-table-header-line');
+              } else if (isSeparatorLine) {
+                addLineClass(line.from, 'cm-live-table-sep-line');
               } else {
-                // Replace pipe delimiters on non-active table rows with clean column dividers
-                const text = line.text;
-                const firstPipe = text.indexOf('|');
-                const lastPipe = text.lastIndexOf('|');
-                for (let i = 0; i < text.length; i++) {
-                  if (text[i] === '|') {
-                    const isEdge = i === firstPipe || i === lastPipe;
-                    decorations.push(
-                      Decoration.replace({
-                        widget: new TablePipeWidget(isEdge),
-                      }).range(line.from + i, line.from + i + 1)
+                addLineClass(line.from, 'cm-live-table-row-line');
+              }
+
+              if (!isLineTouchedBySelection(state, line.from, line.to)) {
+                if (isSeparatorLine && line.to > line.from) {
+                  const colCount = Math.max(
+                    1,
+                    trimmed.split('|').filter((c) => c.trim().length > 0).length
+                  );
+                  decorations.push(
+                    Decoration.replace({
+                      widget: new TableSeparatorWidget(colCount),
+                    }).range(line.from, line.to)
+                  );
+                } else {
+                  // Replace only unescaped table delimiter pipes outside inline code spans
+                  const text = line.text;
+                  const inlineSpans = findInlineCodeSpansInLine(text);
+                  const isInsideLineCode = (offset: number) =>
+                    isInsideSyntaxCode(line.from + offset) ||
+                    inlineSpans.some(
+                      (s) => offset >= s.from && offset < s.to
                     );
+
+                  const validPipeIndices: number[] = [];
+                  for (let i = 0; i < text.length; i++) {
+                    if (
+                      text[i] === '|' &&
+                      !isEscapedAt(text, i) &&
+                      !isInsideLineCode(i)
+                    ) {
+                      validPipeIndices.push(i);
+                    }
+                  }
+
+                  if (validPipeIndices.length > 0) {
+                    const firstPipe = validPipeIndices[0];
+                    const lastPipe =
+                      validPipeIndices[validPipeIndices.length - 1];
+                    for (const pipeIdx of validPipeIndices) {
+                      const isEdge =
+                        pipeIdx === firstPipe || pipeIdx === lastPipe;
+                      decorations.push(
+                        Decoration.replace({
+                          widget: new TablePipeWidget(isEdge),
+                        }).range(line.from + pipeIdx, line.from + pipeIdx + 1)
+                      );
+                    }
                   }
                 }
               }
             }
+            return;
           }
-          return;
-        }
 
-        // Horizontal Rule (---, ***, ___)
-        if (name === 'HorizontalRule') {
-          const line = state.doc.lineAt(node.from);
-          addLineClass(line.from, 'cm-live-hr-line');
+          // Horizontal Rule (---, ***, ___)
+          if (name === 'HorizontalRule') {
+            const line = state.doc.lineAt(node.from);
+            if (line.number < win.startLine || line.number > win.endLine) {
+              return;
+            }
+            addLineClass(line.from, 'cm-live-hr-line');
+            if (
+              !isLineTouchedBySelection(state, line.from, line.to) &&
+              line.to > line.from
+            ) {
+              decorations.push(
+                Decoration.replace({
+                  widget: new HorizontalRuleWidget(),
+                }).range(line.from, line.to)
+              );
+            }
+            return;
+          }
+        },
+      });
+    }
+
+    // 3. Scan for Obsidian [[wiki links]] ONLY on visible lines, outside inline/fenced code
+    for (const win of windows) {
+      for (let ln = win.startLine; ln <= win.endLine; ln++) {
+        const line = state.doc.line(ln);
+        if (!line.text.includes('[[')) continue;
+
+        const inlineSpans = findInlineCodeSpansInLine(line.text);
+        const regex = /\[\[([^\][\n]+)\]\]/g;
+        let match: RegExpExecArray | null;
+        while ((match = regex.exec(line.text)) !== null) {
+          const offset = match.index;
+          const matchFrom = line.from + offset;
+          const matchTo = matchFrom + match[0].length;
           if (
-            !isLineTouchedBySelection(state, line.from, line.to) &&
-            line.to > line.from
+            isInsideSyntaxCode(matchFrom) ||
+            inlineSpans.some((s) => offset >= s.from && offset < s.to)
           ) {
+            continue;
+          }
+
+          if (!isRangeTouchedBySelection(state, matchFrom, matchTo)) {
+            const { display, target } = formatWikiLinkDisplay(match[1]);
             decorations.push(
               Decoration.replace({
-                widget: new HorizontalRuleWidget(),
-              }).range(line.from, line.to)
+                widget: new WikiLinkWidget(display, target, matchFrom),
+              }).range(matchFrom, matchTo)
+            );
+          } else {
+            decorations.push(
+              Decoration.mark({ class: 'cm-live-wikilink-raw' }).range(
+                matchFrom,
+                matchTo
+              )
             );
           }
-          return;
-        }
-      },
-    });
-
-    // 3. Scan for Obsidian [[wiki links]] outside inline/fenced code ranges
-    const isInsideCode = (pos: number) =>
-      codeRanges.some((r) => pos >= r.from && pos <= r.to);
-
-    for (let ln = 1; ln <= state.doc.lines; ln++) {
-      const line = state.doc.line(ln);
-      if (!line.text.includes('[[')) continue;
-
-      const regex = /\[\[([^\][\n]+)\]\]/g;
-      let match: RegExpExecArray | null;
-      while ((match = regex.exec(line.text)) !== null) {
-        const matchFrom = line.from + match.index;
-        const matchTo = matchFrom + match[0].length;
-        if (isInsideCode(matchFrom)) continue;
-
-        if (!isRangeTouchedBySelection(state, matchFrom, matchTo)) {
-          const { display, target } = formatWikiLinkDisplay(match[1]);
-          decorations.push(
-            Decoration.replace({
-              widget: new WikiLinkWidget(display, target, matchFrom),
-            }).range(matchFrom, matchTo)
-          );
-        } else {
-          decorations.push(
-            Decoration.mark({ class: 'cm-live-wikilink-raw' }).range(
-              matchFrom,
-              matchTo
-            )
-          );
         }
       }
     }
@@ -689,7 +887,7 @@ function buildLivePreviewDecorations(
 }
 
 /**
- * Creates a CodeMirror 6 extension that provides Live Preview decorations,
+ * Creates a CodeMirror 6 extension that provides viewport-bounded Live Preview decorations,
  * paragraph dimming, and typewriter scrolling according to `config`.
  */
 export function createLivePreviewExtension(
@@ -698,19 +896,32 @@ export function createLivePreviewExtension(
   const extensions: Extension[] = [];
 
   if (config.editingMode === 'live' || config.dimInactiveParagraphs) {
-    const field = StateField.define<DecorationSet>({
-      create(state) {
-        return buildLivePreviewDecorations(state, config);
-      },
-      update(prev, tr) {
-        if (tr.docChanged || tr.selection) {
-          return buildLivePreviewDecorations(tr.state, config);
+    const plugin = ViewPlugin.fromClass(
+      class {
+        decorations: DecorationSet;
+
+        constructor(view: EditorView) {
+          this.decorations = buildLivePreviewDecorations(view, config);
         }
-        return prev;
+
+        update(update: ViewUpdate) {
+          const treeChanged =
+            syntaxTree(update.startState) !== syntaxTree(update.state);
+          if (
+            update.docChanged ||
+            update.selectionSet ||
+            update.viewportChanged ||
+            treeChanged
+          ) {
+            this.decorations = buildLivePreviewDecorations(update.view, config);
+          }
+        }
       },
-      provide: (f) => EditorView.decorations.from(f),
-    });
-    extensions.push(field);
+      {
+        decorations: (v) => v.decorations,
+      }
+    );
+    extensions.push(plugin);
   }
 
   if (config.typewriterScrolling) {
