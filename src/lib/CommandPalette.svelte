@@ -282,6 +282,28 @@
       label: 'Insert Horizontal Rule (---)',
       action: () => onFormat('hr'),
     },
+    // Outliner
+    {
+      id: 'outline-zoom',
+      category: 'Outline',
+      label: 'Zoom Into List Item (or Out of It)',
+      shortcut: 'Ctrl+.',
+      action: () => onFormat('zoom_toggle'),
+    },
+    {
+      id: 'outline-fold-all',
+      category: 'Outline',
+      label: 'Fold All List Items and Sections',
+      shortcut: 'Ctrl+Alt+[',
+      action: () => onFormat('fold_all'),
+    },
+    {
+      id: 'outline-unfold-all',
+      category: 'Outline',
+      label: 'Unfold All',
+      shortcut: 'Ctrl+Alt+]',
+      action: () => onFormat('unfold_all'),
+    },
     // Clipboard & Vault
     {
       id: 'clip-copy',

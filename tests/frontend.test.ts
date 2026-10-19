@@ -8,6 +8,7 @@ import { captureEditorOperation } from '../src/lib/editorOperations';
 import { findRichBlocks } from '../src/lib/livePreviewBlocks';
 import { CalcError, evaluate, evaluateCalcBlock, formatNumber, inlineCalculation } from '../src/lib/calc';
 import { parseFrontmatter, removeProperty, renameProperty, serializeProperty, setProperty } from '../src/lib/frontmatter';
+import { itemAt, itemOnLine, moveItem, shiftItem } from '../src/lib/outliner';
 import { invalidateImagePreviews, cachedImage, rememberImage, imagePreviewEpoch } from '../src/lib/imagePreviewCache';
 
 function dirtyTab() {
@@ -173,4 +174,40 @@ test('frontmatter edits rewrite only the changed property', () => {
   assert.equal(apply('---\ndone: true\n---\nBody', removeProperty('---\ndone: true\n---\nBody', 'done')), 'Body');
   assert.equal(serializeProperty('n', 'text', '42'), 'n: "42"');
   assert.equal(serializeProperty('d', 'date', '2026-10-19'), 'd: 2026-10-19');
+});
+
+test('outliner moves items with their children and stops at the parent', () => {
+  const run = (doc: string, cursor: number, dir: -1 | 1) => {
+    const state = EditorState.create({doc, selection:{anchor:cursor}});
+    const spec = moveItem(state, dir);
+    return spec ? state.update(spec).state : state;
+  };
+  const doc = '- a\n  - a1\n- b\n  - b1\n- c';
+  const up = run(doc, doc.indexOf('b'), -1);
+  assert.equal(up.doc.toString(), '- b\n  - b1\n- a\n  - a1\n- c');
+  assert.equal(up.doc.sliceString(up.selection.main.head, up.selection.main.head + 1), 'b');
+  assert.equal(run(doc, doc.indexOf('b'), 1).doc.toString(), '- a\n  - a1\n- c\n- b\n  - b1');
+  assert.equal(run(doc, doc.indexOf('a1'), -1).doc.toString(), doc);
+  assert.equal(moveItem(EditorState.create({doc:'plain'}), -1), null);
+});
+
+test('outliner indents under the previous sibling and outdents to the parent', () => {
+  const run = (doc: string, cursor: number, dir: -1 | 1) => {
+    const state = EditorState.create({doc, selection:{anchor:cursor}});
+    const spec = shiftItem(state, dir);
+    return spec ? state.update(spec).state.doc.toString() : doc;
+  };
+  assert.equal(run('- a\n- b\n  - b1', 5, 1), '- a\n  - b\n    - b1');
+  assert.equal(run('1. a\n2. b', 7, 1), '1. a\n   2. b');
+  assert.equal(run('- a\n- b', 1, 1), '- a\n- b');
+  assert.equal(run('- a\n  - b\n    - c', 9, -1), '- a\n- b\n  - c');
+  assert.equal(run('- a\n\t- b', 6, -1), '- a\n- b');
+  assert.equal(run('- a\n\t- b', 0, 1), '- a\n\t- b');
+});
+
+test('outliner finds item blocks across blank lines', () => {
+  const doc = EditorState.create({doc:'- a\n\n  more\n- b'}).doc;
+  assert.deepEqual([itemOnLine(doc, 1)?.line, itemOnLine(doc, 1)?.end], [1, 3]);
+  assert.equal(itemAt(doc, 3)?.line, 1);
+  assert.equal(itemOnLine(doc, 3), null);
 });
