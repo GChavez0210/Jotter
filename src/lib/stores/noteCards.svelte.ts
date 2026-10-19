@@ -4,6 +4,7 @@ import { vaultStore } from './vault.svelte';
 
 const OPENED_KEY = 'jotter.recentlyOpened';
 const MAX_OPENED = 50;
+const REFRESH_DELAY_MS = 1500;
 
 /**
  * Note cards from the index, shared by the Home page and the tags-and-links view, plus each
@@ -15,7 +16,9 @@ class NoteCardsStore {
   error = $state('');
   private opened = $state<Record<string, string[]>>({});
   private loadedVersion = -1;
+  private loadedRoot = '';
   private request = 0;
+  private timer: ReturnType<typeof setTimeout> | undefined;
 
   constructor() {
     try {
@@ -44,13 +47,30 @@ class NoteCardsStore {
     }
   }
 
-  /** Reloads the cards when the index changed since the last load. */
+  /**
+   * Reloads the cards when the index changed since the last load. Every autosave bumps the index
+   * version, and each load reads the whole vault, so changes inside the open vault wait until
+   * edits pause. A different vault loads at once.
+   */
   async refresh(indexVersion: number) {
-    if (!vaultStore.vaultSnapshot) {
+    const root = vaultStore.vaultSnapshot?.rootPath;
+    clearTimeout(this.timer);
+    if (!root) {
       this.cards = [];
+      this.loadedRoot = '';
+      return;
+    }
+    if (root !== this.loadedRoot) {
+      this.cards = [];
+      await this.load(indexVersion, root);
       return;
     }
     if (indexVersion === this.loadedVersion) return;
+    this.timer = setTimeout(() => void this.load(indexVersion, root), REFRESH_DELAY_MS);
+  }
+
+  private async load(indexVersion: number, root: string) {
+    this.loadedRoot = root;
     const id = ++this.request;
     this.loading = true;
     try {

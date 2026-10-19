@@ -6,10 +6,14 @@ import {
   foldable,
   foldedRanges,
   unfoldEffect,
+  syntaxTree,
 } from '@codemirror/language';
+import type { SyntaxNode } from '@lezer/common';
 import {
+  ChangeSet,
   EditorSelection,
   EditorState,
+  Prec,
   RangeSet,
   StateEffect,
   StateField,
@@ -23,11 +27,13 @@ import {
   type DecorationSet,
   EditorView,
   type KeyBinding,
+  keymap,
   ViewPlugin,
   type ViewUpdate,
   WidgetType,
 } from '@codemirror/view';
 import { moveLineDown, moveLineUp } from '@codemirror/commands';
+import { parseFrontmatter } from './frontmatter';
 
 /**
  * Outliner commands for Markdown lists: fold an item's children, move an item with its
@@ -137,11 +143,114 @@ function blockRange(doc: Text, item: ListItem) {
   return { from: doc.line(item.line).from, to: doc.line(item.end).to };
 }
 
+/** The line number of the closing frontmatter fence, or 0 when the note has no frontmatter. */
+function frontmatterLastLine(doc: Text): number {
+  if (!/^---[ \t]*$/.test(doc.line(1).text)) return 0;
+  for (let n = 2; n <= Math.min(doc.lines, 2000); n++) {
+    if (/^(---|\.\.\.)[ \t]*$/.test(doc.line(n).text)) {
+      return parseFrontmatter(doc.sliceString(0, doc.line(n).to)) ? n : 0;
+    }
+  }
+  return 0;
+}
+
+/**
+ * True when `- ` on this line is list syntax: not inside a fenced or indented code block, and
+ * not inside YAML frontmatter, where `- a` is a YAML list item.
+ */
+function isListContext(state: EditorState, lineNo: number, fmLastLine = frontmatterLastLine(state.doc)): boolean {
+  if (lineNo <= fmLastLine) return false;
+  const line = state.doc.line(lineNo);
+  for (let node: SyntaxNode | null = syntaxTree(state).resolveInner(line.from, 1); node; node = node.parent) {
+    if (node.name === 'FencedCode' || node.name === 'CodeBlock') return false;
+  }
+  return true;
+}
+
+/** The item at `lineNo` when it is a real list item, outside code and frontmatter. */
+function listItemAt(state: EditorState, lineNo: number): ListItem | null {
+  const item = itemAt(state.doc, lineNo);
+  return item && isListContext(state, item.line) ? item : null;
+}
+
+const ORDERED_RE = /^([ \t]*)(\d{1,9})([.)])/;
+
+type NumberChange = { from: number; to: number; insert: string };
+
+/**
+ * The ordered sibling run that contains the item on `lineNo`, as each item's line and number.
+ * Items with the other delimiter (`.` versus `)`) start a new list in CommonMark, so they end
+ * the run.
+ */
+function orderedRun(doc: Text, lineNo: number): Array<{ line: number; digitsFrom: number; number: number; width: number }> {
+  const item = itemAt(doc, lineNo);
+  const match = item && ORDERED_RE.exec(doc.line(item.line).text);
+  if (!item || !match) return [];
+  const ordered = (it: ListItem | null) => {
+    const m = it && ORDERED_RE.exec(doc.line(it.line).text);
+    return m && m[3] === match[3] ? m : null;
+  };
+  let first = item;
+  for (let prev = previousSibling(doc, first); ordered(prev); prev = previousSibling(doc, prev!)) first = prev!;
+  const run = [];
+  for (let it: ListItem | null = first; it && ordered(it); it = nextSibling(doc, it)) {
+    const m = ordered(it)!;
+    run.push({ line: it.line, digitsFrom: doc.line(it.line).from + m[1].length, number: Number(m[2]), width: m[2].length });
+  }
+  return run;
+}
+
+/** The lowest number in the ordered run at `lineNo`, or undefined when there is none. */
+function runStart(doc: Text, lineNo: number | undefined): number | undefined {
+  const run = lineNo === undefined ? [] : orderedRun(doc, lineNo);
+  return run.length ? Math.min(...run.map((r) => r.number)) : undefined;
+}
+
+/** Renumbers the ordered run at `lineNo` from `start`, or from its lowest number. */
+function renumberRun(doc: Text, lineNo: number, start?: number): NumberChange[] {
+  const run = orderedRun(doc, lineNo);
+  let next = start ?? Math.min(...run.map((r) => r.number));
+  const changes: NumberChange[] = [];
+  for (const r of run) {
+    if (r.number !== next) changes.push({ from: r.digitsFrom, to: r.digitsFrom + r.width, insert: String(next) });
+    next++;
+  }
+  return changes;
+}
+
+/**
+ * Applies `spec`, then renumbers the ordered runs that contain the given lines of the result.
+ * Returns one spec whose changes and selection cover both steps.
+ */
+function withRenumbering(
+  state: EditorState,
+  spec: TransactionSpec,
+  runs: (doc: Text, selectionHead: number) => Array<{ line: number; start?: number }>
+): TransactionSpec {
+  const tr = state.update({ ...spec, filter: false });
+  const doc = tr.state.doc;
+  // Keyed by position: two lines can name the same run, and the first request wins.
+  const changes = new Map<number, NumberChange>();
+  for (const { line, start } of runs(doc, tr.newSelection.main.head)) {
+    if (line < 1 || line > doc.lines) continue;
+    const run = renumberRun(doc, line, start);
+    if (run.some((c) => changes.has(c.from))) continue;
+    for (const change of run) changes.set(change.from, change);
+  }
+  if (changes.size === 0) return spec;
+  const renumber = ChangeSet.of([...changes.values()], doc.length);
+  return {
+    ...spec,
+    changes: tr.changes.compose(renumber),
+    selection: tr.newSelection.map(renumber),
+  };
+}
+
 /** Swaps the item at the cursor with its previous or next sibling, children included. */
 export function moveItem(state: EditorState, direction: -1 | 1): TransactionSpec | null {
   const doc = state.doc;
   const head = state.selection.main.head;
-  const item = itemAt(doc, doc.lineAt(head).number);
+  const item = listItemAt(state, doc.lineAt(head).number);
   if (!item) return null;
   const other = direction < 0 ? previousSibling(doc, item) : nextSibling(doc, item);
   if (!other) return { selection: state.selection };
@@ -152,7 +261,7 @@ export function moveItem(state: EditorState, direction: -1 | 1): TransactionSpec
   const insert = doc.sliceString(b.from, b.to) + between + doc.sliceString(a.from, a.to);
   const moved = blockRange(doc, item);
   const shift = direction < 0 ? a.from - moved.from : b.to - moved.to;
-  return {
+  const spec: TransactionSpec = {
     changes: { from: a.from, to: b.to, insert },
     selection: EditorSelection.create(
       state.selection.ranges.map((r) => EditorSelection.range(r.anchor + shift, r.head + shift))
@@ -160,13 +269,15 @@ export function moveItem(state: EditorState, direction: -1 | 1): TransactionSpec
     scrollIntoView: true,
     userEvent: 'move.line',
   };
+  // The two swapped items share one run, which contains the moved item at the cursor.
+  return withRenumbering(state, spec, (newDoc, newHead) => [{ line: newDoc.lineAt(newHead).number }]);
 }
 
 /** Indents (`1`) or outdents (`-1`) the item at the cursor together with its children. */
 export function shiftItem(state: EditorState, direction: -1 | 1): TransactionSpec | null {
   const doc = state.doc;
   const sel = state.selection.main;
-  const first = itemAt(doc, doc.lineAt(sel.from).number);
+  const first = listItemAt(state, doc.lineAt(sel.from).number);
   if (!first) return null;
   const lastLine = doc.lineAt(sel.to).number;
 
@@ -208,7 +319,25 @@ export function shiftItem(state: EditorState, direction: -1 | 1): TransactionSpe
       if (removeChars > 0) changes.push({ from: line.from, to: line.from + removeChars });
     }
   }
-  return { changes, userEvent: direction > 0 ? 'indent' : 'delete.dedent' };
+  // Shifting changes only indentation, so line numbers stay valid in the new document. Renumber
+  // the run the items join, and the old siblings they leave, which keep their old first number.
+  const oldStart = runStart(doc, first.line);
+  const oldPrevious = previousSibling(doc, first)?.line;
+  const oldNext = nextSibling(doc, { ...first, end })?.line;
+  return withRenumbering(state, { changes, userEvent: direction > 0 ? 'indent' : 'delete.dedent' }, (newDoc) => {
+    const moved = itemOnLine(newDoc, first.line);
+    const joined = moved && previousSibling(newDoc, moved);
+    // An item that becomes the first of its list, such as one indented into a new sublist,
+    // starts it at 1.
+    const startsSublist = !(joined && ORDERED_RE.test(newDoc.line(joined.line).text));
+    const runs: Array<{ line: number; start?: number }> = [{ line: first.line, start: startsSublist ? 1 : undefined }];
+    if (oldPrevious !== undefined) runs.push({ line: oldPrevious, start: oldStart });
+    // After an indent, the next siblings stay in the previous sibling's run, handled above.
+    // After an outdent, they become the moved item's children: a new list, unless they were
+    // the whole run.
+    if (oldNext !== undefined) runs.push({ line: oldNext, start: oldPrevious === undefined ? oldStart : 1 });
+    return runs;
+  });
 }
 
 function runSpec(view: EditorView, spec: TransactionSpec | null): boolean {
@@ -287,9 +416,15 @@ const zoomField = StateField.define<{ zoom: ZoomRange | null; decorations: Decor
     for (const effect of tr.effects) if (effect.is(setZoom)) zoom = effect.value;
     if (zoom === value.zoom) return value;
     // Recompute against the item at the zoom start, so new children typed at the end show.
+    // Never shrink below the mapped range: an edit can turn a child into a sibling (an outdent,
+    // or Enter on the zoomed line), and hiding it would hide text the user is working on.
     if (zoom) {
-      const item = itemOnLine(tr.state.doc, tr.state.doc.lineAt(zoom.from).number);
-      if (item) zoom = blockRange(tr.state.doc, item);
+      const doc = tr.state.doc;
+      const item = itemOnLine(doc, doc.lineAt(zoom.from).number);
+      if (item) {
+        const block = blockRange(doc, item);
+        zoom = { from: block.from, to: Math.max(block.to, doc.lineAt(zoom.to).to) };
+      }
     }
     return { zoom, decorations: zoomDecorations(tr.state, zoom) };
   },
@@ -309,18 +444,49 @@ const clampToZoom = EditorState.transactionFilter.of((tr) => {
   return [tr, { selection: { anchor }, sequential: true }];
 });
 
+/** The zoomed range, or null when the whole note shows. */
+export function zoomedRange(state: EditorState): ZoomRange | null {
+  return state.field(zoomField, false)?.zoom ?? null;
+}
+
+/** Zooms into the item at the cursor, or returns null when the cursor is not in a list. */
+export function zoomIntoItem(state: EditorState): TransactionSpec | null {
+  const item = itemAt(state.doc, state.doc.lineAt(state.selection.main.head).number);
+  if (!item) return null;
+  return { effects: [setZoom.of(blockRange(state.doc, item)), EditorView.scrollIntoView(0)] };
+}
+
+/**
+ * Enter at the end of the zoomed item's line adds a first child instead of a sibling. A
+ * sibling would sit outside the zoomed item, and the existing children would move under it.
+ */
+export function insertZoomChild(state: EditorState): TransactionSpec | null {
+  const zoom = zoomedRange(state);
+  const sel = state.selection.main;
+  if (!zoom || !sel.empty || state.selection.ranges.length > 1) return null;
+  const line = state.doc.lineAt(zoom.from);
+  if (sel.head !== line.to) return null;
+  const item = itemOnLine(state.doc, line.number);
+  if (!item) return null;
+  const marker = ITEM_RE.exec(line.text)![2];
+  const childMarker = /\d/.test(marker) ? `1${marker.slice(-1)}` : marker;
+  const indent = item.indentText.includes('\t') ? `${item.indentText}\t` : ' '.repeat(item.contentColumn);
+  const insert = `\n${indent}${childMarker} `;
+  return {
+    changes: { from: line.to, insert },
+    selection: { anchor: line.to + insert.length },
+    scrollIntoView: true,
+    userEvent: 'input',
+  };
+}
+
 /** Zooms into the item at the cursor. On the zoomed item's own line, zooms out one level. */
 export function toggleZoom(view: EditorView): boolean {
   const { state } = view;
   const zoom = state.field(zoomField, false)?.zoom;
   const cursorLine = state.doc.lineAt(state.selection.main.head);
   if (zoom && state.doc.lineAt(zoom.from).number === cursorLine.number) return zoomOut(view);
-  const item = itemAt(state.doc, cursorLine.number);
-  if (!item) return false;
-  view.dispatch({
-    effects: [setZoom.of(blockRange(state.doc, item)), EditorView.scrollIntoView(0)],
-  });
-  return true;
+  return runSpec(view, zoomIntoItem(state));
 }
 
 export function zoomOut(view: EditorView): boolean {
@@ -342,7 +508,7 @@ export function zoomOut(view: EditorView): boolean {
 
 const listFolding = foldService.of((state, lineStart) => {
   const line = state.doc.lineAt(lineStart);
-  if (!ITEM_RE.test(line.text)) return null;
+  if (!ITEM_RE.test(line.text) || !isListContext(state, line.number)) return null;
   const item = itemOnLine(state.doc, line.number);
   if (!item || item.end === item.line) return null;
   return { from: line.to, to: state.doc.line(item.end).to };
@@ -354,6 +520,15 @@ function isFolded(state: EditorState, from: number, to: number): boolean {
     if (a === from && b === to) found = true;
   });
   return found;
+}
+
+/**
+ * The caret is a mouse shortcut for `Ctrl+Shift+[` and `Ctrl+Shift+]`, which fold at the cursor.
+ * Screen readers skip it: as a button it would need a tab stop inside the editor text, where Tab
+ * indents list items.
+ */
+export function foldCaretAttributes(folded: boolean): Record<string, string> {
+  return { 'aria-hidden': 'true', title: folded ? 'Unfold (Ctrl+Shift+])' : 'Fold (Ctrl+Shift+[)' };
 }
 
 /**
@@ -378,9 +553,7 @@ class FoldCaretWidget extends WidgetType {
     anchor.className = 'cm-fold-anchor';
     const button = document.createElement('span');
     button.className = this.folded ? 'cm-fold-caret cm-fold-closed' : 'cm-fold-caret';
-    button.setAttribute('role', 'button');
-    button.setAttribute('aria-label', this.folded ? 'Unfold list item' : 'Fold list item');
-    button.title = this.folded ? 'Unfold' : 'Fold';
+    for (const [name, value] of Object.entries(foldCaretAttributes(this.folded))) button.setAttribute(name, value);
     button.innerHTML =
       '<svg viewBox="0 0 256 256" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></svg>';
     button.addEventListener('mousedown', (e) => {
@@ -400,10 +573,11 @@ class FoldCaretWidget extends WidgetType {
 function foldCarets(view: EditorView): DecorationSet {
   const ranges: Range<Decoration>[] = [];
   const { state } = view;
+  const fmLastLine = frontmatterLastLine(state.doc);
   for (const { from, to } of view.visibleRanges) {
     for (let pos = from; pos <= to; ) {
       const line = state.doc.lineAt(pos);
-      if (ITEM_RE.test(line.text)) {
+      if (ITEM_RE.test(line.text) && isListContext(state, line.number, fmLastLine)) {
         const range = foldable(state, line.from, line.to);
         if (range) {
           const widget = new FoldCaretWidget(range.from, range.to, isFolded(state, range.from, range.to));
@@ -442,7 +616,9 @@ export const outlinerKeymap: KeyBinding[] = [
   { key: 'Tab', run: (v) => runSpec(v, shiftItem(v.state, 1)) },
   { key: 'Shift-Tab', run: (v) => runSpec(v, shiftItem(v.state, -1)) },
   { key: 'Mod-.', run: toggleZoom },
-  ...foldKeymap,
+  // Windows reports AltGr as Ctrl+Alt, so `Ctrl-Alt-[` would swallow `[` and `]` on German,
+  // French, and other layouts that type brackets with AltGr.
+  ...foldKeymap.filter((b) => !b.key?.startsWith('Ctrl-Alt-')),
 ];
 
 export function createOutlinerExtension(): Extension {
@@ -452,6 +628,8 @@ export function createOutlinerExtension(): Extension {
     foldCaretPlugin,
     zoomField,
     clampToZoom,
+    // Above the Markdown keymap, whose Enter continues the list with a sibling.
+    Prec.highest(keymap.of([{ key: 'Enter', run: (v) => runSpec(v, insertZoomChild(v.state)) }])),
     EditorView.baseTheme({
       '.cm-fold-anchor': { position: 'relative', display: 'inline-block', width: '0' },
       '.cm-fold-caret': {

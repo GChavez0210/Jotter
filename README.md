@@ -61,6 +61,8 @@ Markdown lists work as an outline:
 
 - `Alt+↑` and `Alt+↓` move the item at the cursor, with its children, past its neighbor. Outside a list, they move the line.
 - `Tab` nests an item under the item above it, and `Shift+Tab` moves it back out.
+- Numbered lists renumber after a move, indent, or outdent. A list keeps its first number, and an item that starts a new sublist becomes `1.`.
+- These commands skip `- ` lines in code blocks and in YAML frontmatter.
 - Hover over an item with children and click the arrow in the left margin to fold them. `Ctrl+Shift+[` folds and `Ctrl+Shift+]` unfolds at the cursor, including heading sections.
 - `Ctrl+.` shows only the item at the cursor and its children. Press `Ctrl+.` again on that item, or click **Show whole note**, to zoom out.
 
@@ -75,7 +77,7 @@ Give a checklist item a due date in any of three common formats, each with an op
 
 Live mode shows the date as a chip, such as **Tomorrow** or **Nov 1**, which turns red once the date has passed. Move the cursor onto the line to edit the date. **Add Due Date to Task** in the command palette adds today's date to the task at the cursor.
 
-To see due dates in a calendar app, choose a file in **Settings → Vault → Task calendar**. Jotter writes each open task as an event in that `.ics` file and rewrites it a few seconds after you edit, so a calendar subscribed to the file stays current. Tasks without a time are all-day events. Completed tasks are left out. Pick a file outside the vault, or inside a synced folder if your calendar app needs to reach it from another device.
+To see due dates in a calendar app, choose a file in **Settings → Vault → Task calendar**. Jotter writes each open task as an event in that `.ics` file and rewrites it a few seconds after you edit, so a calendar subscribed to the file stays current. Tasks without a time are all-day events. Completed tasks are left out. Pick a file outside the vault, or inside a synced folder if your calendar app needs to reach it from another device. The file picker uses a Windows dialog, so on other systems Settings shows an error instead.
 
 ### Tags and Links
 The Notes sidebar can list notes by tag instead of by folder. Click **Tags & links** above the list. Nested tags such as `#project/alpha` appear under their parent tag, and notes without tags appear under **No tags**. Expand a note to see the notes it links to. Files stay in their folders; switch back with **Folders**.
@@ -91,7 +93,7 @@ To use a vault on several computers, keep the vault folder inside a folder your 
 3. Open the vault in Jotter on each computer. Indexes and edit history stay in `%LOCALAPPDATA%\Jotter` on each computer, so the sync client never copies them.
 4. Let the sync client finish before you edit the same note on another computer.
 
-When two computers change a note before syncing, the sync client keeps both versions and names one as a conflict copy, such as `Plan (Alex's conflicted copy 2026-10-19).md` (Dropbox), `Plan-DESKTOP-4F2K9.md` (OneDrive), `Plan (1).md` (Google Drive and Box), or `Plan.sync-conflict-20261019-101500-ABCDEFG.md` (Syncthing). Jotter lists these copies in the **Sync conflicts** sidebar view and in the status bar. Open the copy and the original, move the changes you want into the original, and move the copy to the Recycle Bin. **Settings → Vault → Cloud sync** shows which client Jotter detected. Jotter guesses the client from the vault path, and it matches the OneDrive, Google Drive, Box, and iCloud names only in vaults inside those folders, so a note named `Plan (1).md` in a local vault is not flagged.
+When two computers change a note before syncing, the sync client keeps both versions and names one as a conflict copy, such as `Plan (Alex's conflicted copy 2026-10-19).md` (Dropbox), `Plan-DESKTOP-4F2K9.md` (OneDrive), `Plan (1).md` (Google Drive and Box), or `Plan.sync-conflict-20261019-101500-ABCDEFG.md` (Syncthing). Jotter lists these copies in the **Sync conflicts** sidebar view and in the status bar. Open the copy and the original, move the changes you want into the original, and move the copy to the Recycle Bin. **Settings → Vault → Cloud sync** shows which client Jotter detected. Jotter guesses the client from the vault path, and it matches the OneDrive, Google Drive, Box, and iCloud names only in vaults inside those folders, so a note named `Plan (1).md` in a local vault is not flagged. Those names are ambiguous even inside a sync folder, since `Lecture 2.md` can be a real note. Select **Mark as not a conflict** (the check mark) to stop listing it.
 
 ### Daily Notes
 `Ctrl+Shift+D` opens today's note, `Daily/YYYY-MM-DD.md`. If the note does not exist, Jotter creates it from the template note `Templates/Daily.md`, replacing `{{date}}`, `{{title}}` and `{{time}}`. Without a template note, Jotter uses a built-in one. Set the folder and template in **Settings → Vault**.
@@ -158,7 +160,8 @@ Put `.css` files in `%LOCALAPPDATA%\Jotter\snippets`, then turn each one on in *
 | `Alt+↑` / `Alt+↓` | Move the list item, with its children, or the line |
 | `Ctrl+.` | Zoom into the list item at the cursor; again on that item to zoom out |
 | `Ctrl+Shift+[` / `Ctrl+Shift+]` | Fold / unfold the list item or heading section at the cursor |
-| `Ctrl+Alt+[` / `Ctrl+Alt+]` | Fold / unfold everything |
+
+To fold or unfold everything, use **Fold All** and **Unfold All** in the command palette. They have no shortcut, because Windows reports AltGr as `Ctrl+Alt`, and many keyboard layouts type `[` and `]` with AltGr.
 
 ### File Tree & Calendar Keyboard Navigation
 | Shortcut | Context | Action |

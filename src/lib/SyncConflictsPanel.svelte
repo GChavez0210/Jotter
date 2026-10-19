@@ -35,7 +35,7 @@
   }
 </script>
 
-<div class="conflicts-panel" aria-label="Sync conflicts">
+<div class="conflicts-panel" role="region" aria-label="Sync conflicts">
   <div class="section-header"><span>Sync conflicts</span></div>
 
   <div class="list-scroll">
@@ -82,6 +82,14 @@
                 </div>
               {/if}
             </div>
+            {#if copy.ambiguous}
+              <IconButton
+                icon="check"
+                size="sm"
+                label="Mark {stem(copy.copyPath)} as not a conflict"
+                onclick={() => vaultStore.dismissConflict(copy.copyPath)}
+              />
+            {/if}
             {#if copy.originalPath}
               <IconButton
                 icon="copy-simple"
