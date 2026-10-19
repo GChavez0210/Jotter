@@ -176,3 +176,60 @@ kbd {
     page-break-inside: avoid;
   }
 }
+
+/* Math and diagrams in Live Preview and print (src/lib/richBlocks.ts) */
+.cm-rich-block {
+  padding: var(--space-2) 0;
+  overflow-x: auto;
+  cursor: pointer;
+}
+
+.cm-rich-block-preview {
+  margin-top: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-left: 2px solid var(--line-subtle);
+  cursor: default;
+}
+
+.cm-rich-block-loading {
+  min-height: 32px;
+}
+
+.cm-math-block .katex-display {
+  margin: 0;
+}
+
+.cm-diagram-block {
+  text-align: center;
+}
+
+.cm-math-inline {
+  cursor: pointer;
+}
+
+.cm-rich-block .pele,
+.jotter-print-view .pele {
+  /* Edge labels sit on this color, so it must match the page. */
+  --pele-bg: var(--surface-editor);
+  --pele-fg: var(--text-primary);
+  --pele-muted: var(--text-muted);
+  --pele-line: var(--text-secondary);
+  --pele-surface: var(--surface-subtle);
+  --pele-surface-alt: var(--surface-hover);
+  --pele-border: var(--line-control);
+  --pele-accent: var(--accent);
+  --pele-font: var(--font-ui);
+  --pele-font-mono: var(--font-mono);
+}
+
+.jotter-print-view .pele {
+  --pele-bg: #ffffff;
+}
+
+.jotter-render-error {
+  font-family: var(--font-mono);
+  font-size: var(--fs-13);
+  color: var(--text-danger);
+  white-space: pre-wrap;
+  text-align: left;
+}

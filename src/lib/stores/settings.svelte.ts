@@ -69,6 +69,14 @@ class SettingsStore {
   imageLinkFormat = $state<'wikilink' | 'markdown'>('wikilink');
   writingFont = $state<WritingFont>('serif');
 
+  // Roadmap phase 1
+  spellCheck = $state(true);
+  enabledSnippets = $state<string[]>([]);
+  dailyFolder = $state('Daily');
+  dailyTemplatePath = $state('Templates/Daily.md');
+  summonEnabled = $state(false);
+  summonShortcut = $state('Ctrl+Alt+J');
+
   sidebarWidth = $state<number>(designTokens.layout.sidebarDefaultWidth);
   sidebarCollapsed = $state(false);
   showSettings = $state(false);
@@ -213,6 +221,42 @@ class SettingsStore {
     const root = document.documentElement;
     if (this.writingFont === 'serif') delete root.dataset.font;
     else root.dataset.font = this.writingFont;
+  }
+
+  setSpellCheck(enabled: boolean) {
+    this.spellCheck = enabled;
+    this.persist('jotter.spellCheck', String(enabled));
+  }
+
+  setSnippetEnabled(name: string, enabled: boolean) {
+    const rest = this.enabledSnippets.filter((n) => n !== name);
+    this.enabledSnippets = enabled ? [...rest, name] : rest;
+    this.persist('jotter.enabledSnippets', JSON.stringify(this.enabledSnippets));
+  }
+
+  setDailyFolder(folder: string) {
+    this.dailyFolder = folder.trim().replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+    this.persist('jotter.dailyFolder', this.dailyFolder);
+  }
+
+  setDailyTemplatePath(path: string) {
+    this.dailyTemplatePath = path.trim().replace(/\\/g, '/').replace(/^\/+/, '');
+    this.persist('jotter.dailyTemplatePath', this.dailyTemplatePath);
+  }
+
+  setSummon(enabled: boolean, shortcut = this.summonShortcut) {
+    this.summonEnabled = enabled;
+    this.summonShortcut = shortcut.trim() || 'Ctrl+Alt+J';
+    this.persist('jotter.summonEnabled', String(enabled));
+    this.persist('jotter.summonShortcut', this.summonShortcut);
+  }
+
+  private persist(key: string, value: string) {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // ignore storage errors
+    }
   }
 
   setFocusMode(next: FocusMode) {
@@ -404,7 +448,8 @@ class SettingsStore {
         savedLeftView === 'files' ||
         savedLeftView === 'search' ||
         savedLeftView === 'tags' ||
-        savedLeftView === 'calendar'
+        savedLeftView === 'calendar' ||
+        savedLeftView === 'trash'
       ) {
         this.leftSidebarView = savedLeftView;
       }
@@ -467,6 +512,25 @@ class SettingsStore {
         this.writingFont = savedFont;
       }
       this.applyWritingFontToDocument();
+      const savedSpell = localStorage.getItem('jotter.spellCheck');
+      if (savedSpell === 'true' || savedSpell === 'false') {
+        this.spellCheck = savedSpell === 'true';
+      }
+      try {
+        const savedSnippets = JSON.parse(localStorage.getItem('jotter.enabledSnippets') ?? '[]');
+        if (Array.isArray(savedSnippets)) {
+          this.enabledSnippets = savedSnippets.filter((n) => typeof n === 'string');
+        }
+      } catch {
+        this.enabledSnippets = [];
+      }
+      const savedDailyFolder = localStorage.getItem('jotter.dailyFolder');
+      if (savedDailyFolder !== null) this.dailyFolder = savedDailyFolder;
+      const savedDailyTemplate = localStorage.getItem('jotter.dailyTemplatePath');
+      if (savedDailyTemplate !== null) this.dailyTemplatePath = savedDailyTemplate;
+      this.summonEnabled = localStorage.getItem('jotter.summonEnabled') === 'true';
+      const savedShortcut = localStorage.getItem('jotter.summonShortcut');
+      if (savedShortcut) this.summonShortcut = savedShortcut;
       const savedPreFocus = localStorage.getItem('jotter.preFocusLayout');
       if (savedPreFocus) {
         try {

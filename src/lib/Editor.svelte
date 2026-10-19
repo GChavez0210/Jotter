@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, onDestroy, untrack, type Snippet } from 'svelte';
-  import { EditorState } from '@codemirror/state';
+  import { Compartment, EditorState } from '@codemirror/state';
   import {
     EditorView,
     keymap,
@@ -124,6 +124,16 @@
   }
   let view: EditorView | undefined;
   let currentLoadedDocId = '';
+  const spellcheckCompartment = new Compartment();
+
+  // WebView2 and WebKitGTK check spelling against the languages installed in the OS.
+  function spellcheckExtension(enabled: boolean) {
+    return EditorView.contentAttributes.of({
+      spellcheck: enabled ? 'true' : 'false',
+      autocorrect: 'off',
+      autocapitalize: 'off',
+    });
+  }
   let suppressChangeEmit = false;
 
   const markdownHighlight = HighlightStyle.define([
@@ -673,6 +683,7 @@
               onWikiLinkClick?.(target, heading),
           })
         ),
+        spellcheckCompartment.of(spellcheckExtension(settingsStore.spellCheck)),
         editorTheme,
         keymap.of([
           {
@@ -749,6 +760,13 @@
         ),
       });
     }
+  });
+
+  $effect(() => {
+    const enabled = settingsStore.spellCheck;
+    view?.dispatch({
+      effects: spellcheckCompartment.reconfigure(spellcheckExtension(enabled)),
+    });
   });
 
   function normalizeHeadingSlug(text: string): string {

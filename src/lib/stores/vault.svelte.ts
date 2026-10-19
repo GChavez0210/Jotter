@@ -7,12 +7,15 @@ import {
   getRecentVaults,
   getVaultSnapshot,
   openVault,
+  readNote,
   rebuildVaultIndex,
+  restoreDeletedEntry,
   removeRecentVaultEntry,
   renameEntry,
 } from '../ipc';
 import type { RecentVault, VaultNode, VaultSnapshot } from '../types';
 import { clipboardStore } from './clipboard.svelte';
+import { settingsStore } from './settings.svelte';
 import { tabsStore } from './tabs.svelte';
 
 function findFirstFileNode(nodes: VaultNode[]): VaultNode | null {
@@ -35,6 +38,23 @@ function collectAllFiles(nodes: VaultNode[], out: VaultNode[] = []): VaultNode[]
     }
   }
   return out;
+}
+
+const DEFAULT_DAILY_TEMPLATE = '## Today\n\n- [ ] \n\n## Log\n\n';
+
+function formatIsoDate(d: Date): string {
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+export function fillDailyTemplate(template: string, now: Date): string {
+  const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  const date = formatIsoDate(now);
+  return template
+    .replace(/\{\{\s*date\s*\}\}/gi, date)
+    .replace(/\{\{\s*title\s*\}\}/gi, date)
+    .replace(/\{\{\s*time\s*\}\}/gi, time);
 }
 
 export function stripMdExt(pathOrName: string): string {
@@ -265,6 +285,66 @@ class VaultStore {
     } catch (err) {
       clipboardStore.setStatus(
         `Delete failed: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+
+  /** Restores a note or folder from the OS trash and opens it if it is a note. */
+  async restoreDeletedEntry(id: string): Promise<boolean> {
+    try {
+      const [relPath, snap] = await restoreDeletedEntry(id);
+      this.vaultSnapshot = snap;
+      this.bumpIndexVersion();
+      if (relPath.toLowerCase().endsWith('.md')) {
+        await tabsStore.openNoteInTab(relPath);
+      }
+      clipboardStore.setStatus(`Restored ${relPath}`);
+      return true;
+    } catch (err) {
+      clipboardStore.setStatus(err instanceof Error ? err.message : String(err));
+      return false;
+    }
+  }
+
+  /**
+   * Opens today's note in the daily folder, creating it from the template when missing.
+   * The template is any vault note; `{{date}}`, `{{time}}` and `{{title}}` are filled in.
+   */
+  async openDailyNote(now = new Date()) {
+    if (!this.vaultSnapshot) {
+      clipboardStore.setStatus('Open a vault to use daily notes');
+      return;
+    }
+    const title = formatIsoDate(now);
+    const folder = settingsStore.dailyFolder;
+    const relPath = folder ? `${folder}/${title}.md` : `${title}.md`;
+
+    const existing = this.allFiles.find(
+      (f) => f.relPath.toLowerCase() === relPath.toLowerCase()
+    );
+    if (existing) {
+      await tabsStore.openNoteInTab(existing.relPath);
+      return;
+    }
+
+    let template = DEFAULT_DAILY_TEMPLATE;
+    const templatePath = settingsStore.dailyTemplatePath;
+    if (templatePath) {
+      try {
+        template = (await readNote(templatePath)).content;
+      } catch {
+        // No template note: use the built-in one.
+      }
+    }
+    try {
+      const [snap, doc] = await createNote(relPath, fillDailyTemplate(template, now));
+      this.vaultSnapshot = snap;
+      this.bumpIndexVersion();
+      tabsStore.addOrActivateCreatedDoc(doc.relPath, doc.title, doc.content);
+      clipboardStore.setStatus(`Created ${doc.relPath}`);
+    } catch (err) {
+      clipboardStore.setStatus(
+        `Failed to create daily note: ${err instanceof Error ? err.message : String(err)}`
       );
     }
   }

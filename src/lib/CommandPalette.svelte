@@ -137,6 +137,19 @@
             action: () => settingsStore.setLeftSidebarView('calendar'),
           },
           {
+            id: 'daily-note',
+            category: 'Navigation',
+            label: "Open Today's Daily Note",
+            shortcut: 'Ctrl+Shift+D',
+            action: () => void vaultStore.openDailyNote(),
+          },
+          {
+            id: 'view-trash',
+            category: 'Navigation',
+            label: 'Open Recently Deleted Notes',
+            action: () => settingsStore.setLeftSidebarView('trash'),
+          },
+          {
             id: 'view-files',
             category: 'Navigation',
             label: 'Open File Tree View',
