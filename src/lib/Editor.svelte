@@ -39,6 +39,7 @@
   } from './types';
   import { createWikiLinkAutocompleteExtension } from './wikiLinkAutocomplete';
   import { captureEditorOperation } from './editorOperations';
+  import { acceptInlineCalculation, createCalcExtension } from './calcPreview';
 
   interface Props {
     docId: string;
@@ -703,8 +704,10 @@
           })
         ),
         spellcheckCompartment.of(spellcheckExtension(settingsStore.spellCheck)),
+        createCalcExtension(),
         editorTheme,
         keymap.of([
+          { key: 'Tab', run: acceptInlineCalculation },
           {
             key: 'Mod-Shift-v',
             run: (v) => {
