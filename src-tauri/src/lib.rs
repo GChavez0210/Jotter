@@ -3,7 +3,10 @@ pub mod fs_atomic;
 pub mod index;
 pub mod links;
 pub mod media_export;
+pub mod recycle;
 pub mod search;
+pub mod snippets;
+pub mod tray;
 pub mod types;
 pub mod vault;
 
@@ -30,7 +33,7 @@ use crate::index::{
 use crate::search::VaultSearchIndex;
 use crate::types::{
     BackdropState, BacklinkEntry, CalendarDateField, CalendarDaySummary, CalendarNoteEntry,
-    ClipboardPayload, CopyRequest, NoteDocument, RecentVault, RenameEntryResult, SearchHit,
+    ClipboardPayload, CopyRequest, CssSnippet, DeletedEntry, NoteDocument, RecentVault, RenameEntryResult, SearchHit,
     TagSummary, VaultFsEvent, VaultSnapshot,
 };
 use crate::vault::{
@@ -776,36 +779,20 @@ fn read_vault_image_data_url(
     crate::media_export::read_vault_image_as_data_url(&vault_root, &target)
 }
 
+/// Asks where to save and writes `html`, the export built by `render_note_html_preview` with
+/// math and diagrams rendered by the frontend. Returns `None` when the user cancels.
 #[tauri::command]
-fn export_active_note_html(
-    state: State<'_, AppState>,
-    title: String,
-    markdown: String,
-    dark_mode: bool,
-) -> Result<Option<String>, String> {
-    let vault_root = state
-        .active_vault
-        .lock()
-        .map_err(|e| format!("Failed to lock active vault state: {e}"))?
-        .clone();
-
+fn export_active_note_html(title: String, html: String) -> Result<Option<String>, String> {
     #[cfg(target_os = "windows")]
     {
         let Some(target_path) = crate::media_export::pick_save_html_dialog_win32(&title) else {
             return Ok(None);
         };
-        let saved = crate::media_export::export_html_to_path(
-            &target_path,
-            &title,
-            &markdown,
-            vault_root.as_deref(),
-            dark_mode,
-        )?;
-        Ok(Some(saved))
+        crate::media_export::export_html_to_path(&target_path, &html).map(Some)
     }
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = (title, markdown, dark_mode, vault_root);
+        let _ = (title, html);
         Ok(None)
     }
 }
@@ -830,6 +817,72 @@ fn render_note_html_preview(
     ))
 }
 
+#[tauri::command]
+fn list_deleted_entries(state: State<'_, AppState>) -> Result<Vec<DeletedEntry>, String> {
+    let vault_root = require_active_vault(&state)?;
+    crate::recycle::list_deleted(&vault_root)
+}
+
+/// Restores a trashed vault entry to its original path and indexes it. Returns the restored
+/// relative path and a fresh snapshot.
+#[tauri::command]
+fn restore_deleted_entry(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(String, VaultSnapshot), String> {
+    let vault_root = require_active_vault(&state)?;
+    let rel_path = crate::recycle::restore(&vault_root, &id)?;
+    mark_self_write(&state.recent_self_writes, &rel_path);
+
+    let abs = vault_root.join(&rel_path);
+    let scanned = if abs.is_dir() {
+        scan_dir_files_from_disk(&vault_root, &abs)?
+    } else {
+        vec![scan_single_file_from_disk(&vault_root, &abs)?]
+    };
+    {
+        let conn = state
+            .sqlite_conn
+            .lock()
+            .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+        for note in &scanned {
+            upsert_scanned_note(&conn, note, None)?;
+        }
+    }
+    state.search_index.upsert_batch(&scanned)?;
+
+    Ok((rel_path, scan_vault_snapshot(&vault_root)?))
+}
+
+fn snippets_dir(state: &State<'_, AppState>) -> PathBuf {
+    state
+        .recent_vaults_file
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("snippets")
+}
+
+#[tauri::command]
+fn list_css_snippets(state: State<'_, AppState>) -> Result<Vec<CssSnippet>, String> {
+    crate::snippets::list_snippets(&snippets_dir(&state))
+}
+
+#[tauri::command]
+fn open_snippets_folder(state: State<'_, AppState>) -> Result<(), String> {
+    crate::snippets::reveal_folder(&snippets_dir(&state))
+}
+
+#[tauri::command]
+fn configure_summon(app_handle: AppHandle, enabled: bool, shortcut: String) -> Result<(), String> {
+    crate::tray::configure(&app_handle, enabled, &shortcut)
+}
+
+#[tauri::command]
+fn quit_app(app_handle: AppHandle) {
+    app_handle.exit(0);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_data_dir = std::env::var_os("LOCALAPPDATA")
@@ -846,6 +899,8 @@ pub fn run() {
     let search_idx = VaultSearchIndex::new().expect("Failed to initialize Tantivy search index");
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .manage(crate::tray::SummonState::default())
         .manage(AppState {
             backdrop: Mutex::new(BackdropState {
                 mica_applied: false,
@@ -872,7 +927,17 @@ pub fn run() {
                     *guard = applied;
                 };
             }
+            crate::tray::create_tray(app)?;
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let summon = window.state::<crate::tray::SummonState>();
+                if window.label() == "main" && summon.resident.load(Ordering::SeqCst) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
         })
         .invoke_handler(tauri::generate_handler![
             copy_to_clipboard,
@@ -903,7 +968,13 @@ pub fn run() {
             save_pasted_image,
             read_vault_image_data_url,
             export_active_note_html,
-            render_note_html_preview
+            render_note_html_preview,
+            list_deleted_entries,
+            restore_deleted_entry,
+            list_css_snippets,
+            open_snippets_folder,
+            configure_summon,
+            quit_app
         ])
         .run(tauri::generate_context!())
         .expect("error while running Jotter Tauri application");

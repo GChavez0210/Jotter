@@ -193,3 +193,24 @@ pub struct SearchHit {
     pub match_count: usize,
 }
 
+
+/// A vault note or folder that Jotter moved to the OS trash.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeletedEntry {
+    /// Opaque trash identifier passed back to `restore_deleted_entry`.
+    pub id: String,
+    pub name: String,
+    pub original_rel_path: String,
+    pub deleted_ms: i64,
+    pub is_folder: bool,
+}
+
+/// A user stylesheet loaded on top of the theme.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CssSnippet {
+    /// File name without the `.css` extension.
+    pub name: String,
+    pub css: String,
+}

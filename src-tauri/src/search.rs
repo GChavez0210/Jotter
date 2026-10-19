@@ -3,7 +3,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use tantivy::collector::TopDocs;
-use tantivy::query::QueryParser;
+use tantivy::query::{BooleanQuery, BoostQuery, FuzzyTermQuery, Occur, Query, QueryParser};
 use tantivy::schema::{Field, Schema, Value, STORED, STRING, TEXT};
 use tantivy::{Index, IndexReader, IndexWriter, ReloadPolicy, TantivyDocument, Term};
 
@@ -180,9 +180,7 @@ impl VaultSearchIndex {
         }
 
         let searcher = self.reader.searcher();
-        let query_parser =
-            QueryParser::for_index(&self.index, vec![self.title_field, self.body_field]);
-        let (query, _errors) = query_parser.parse_query_lenient(trimmed);
+        let query = self.build_query(trimmed);
 
         let top_docs = searcher
             .search(&query, &TopDocs::with_limit(limit.max(1)))
@@ -237,6 +235,127 @@ impl VaultSearchIndex {
     }
 }
 
+impl VaultSearchIndex {
+    /// Parses `query_str` as a Tantivy query. Plain word queries also match terms within a small
+    /// edit distance, so "recieve" finds "receive". Exact matches get a boost and rank first.
+    /// Queries with operators, field names, or quoted phrases run exactly as written.
+    fn build_query(&self, query_str: &str) -> Box<dyn Query> {
+        let query_parser =
+            QueryParser::for_index(&self.index, vec![self.title_field, self.body_field]);
+        let (exact, _errors) = query_parser.parse_query_lenient(query_str);
+        if uses_query_syntax(query_str) {
+            return exact;
+        }
+
+        let mut clauses: Vec<(Occur, Box<dyn Query>)> =
+            vec![(Occur::Should, Box::new(BoostQuery::new(exact, 4.0)))];
+        for word in self.analyzed_terms(query_str) {
+            let distance = typo_distance(&word);
+            if distance == 0 {
+                continue;
+            }
+            for field in [self.title_field, self.body_field] {
+                let term = Term::from_field_text(field, &word);
+                clauses.push((
+                    Occur::Should,
+                    Box::new(FuzzyTermQuery::new(term, distance, true)),
+                ));
+            }
+        }
+        Box::new(BooleanQuery::new(clauses))
+    }
+
+    /// Runs `text` through the body field's tokenizer, so fuzzy terms match indexed terms.
+    fn analyzed_terms(&self, text: &str) -> Vec<String> {
+        let Ok(mut analyzer) = self.index.tokenizer_for_field(self.body_field) else {
+            return Vec::new();
+        };
+        let mut terms = Vec::new();
+        let mut stream = analyzer.token_stream(text);
+        while stream.advance() {
+            let token = stream.token().text.clone();
+            if !terms.contains(&token) {
+                terms.push(token);
+            }
+        }
+        terms
+    }
+}
+
+fn uses_query_syntax(query: &str) -> bool {
+    query.contains(['"', ':', '(', ')', '*', '~', '^'])
+        || query
+            .split_whitespace()
+            .any(|w| w.starts_with(['+', '-']) || matches!(w, "AND" | "OR" | "NOT"))
+}
+
+/// Edits allowed for a typo match: none for short words, where one edit changes the word,
+/// one for medium words, and two for long words.
+fn typo_distance(word: &str) -> u8 {
+    match word.chars().count() {
+        0..=3 => 0,
+        4..=7 => 1,
+        _ => 2,
+    }
+}
+
+/// Levenshtein distance with adjacent transpositions counted as one edit, capped at `limit + 1`.
+fn edit_distance(a: &str, b: &str, limit: usize) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    if a.len().abs_diff(b.len()) > limit {
+        return limit + 1;
+    }
+    let mut prev2: Vec<usize> = Vec::new();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for i in 1..=a.len() {
+        let mut cur = vec![i; b.len() + 1];
+        for j in 1..=b.len() {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            cur[j] = (prev[j] + 1).min(cur[j - 1] + 1).min(prev[j - 1] + cost);
+            if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
+                cur[j] = cur[j].min(prev2[j - 2] + 1);
+            }
+        }
+        prev2 = std::mem::replace(&mut prev, cur);
+    }
+    prev[b.len()].min(limit + 1)
+}
+
+/// Byte ranges in `line` of words that contain `token` or are a typo away from it.
+fn token_matches_in_line(line: &str, token: &str) -> Vec<(usize, usize)> {
+    let distance = usize::from(typo_distance(token));
+    let check = |start: usize, end: usize| -> Option<(usize, usize)> {
+        let word = line[start..end].to_lowercase();
+        if let Some(idx) = word.find(token) {
+            // Lowercasing keeps byte offsets only when the length is unchanged.
+            if word.len() == end - start {
+                return Some((start + idx, start + idx + token.len()));
+            }
+            return Some((start, end));
+        }
+        (distance > 0 && edit_distance(&word, token, distance) <= distance).then_some((start, end))
+    };
+
+    let mut ranges = Vec::new();
+    let mut word_start: Option<usize> = None;
+    for (idx, ch) in line.char_indices() {
+        let in_word = ch.is_alphanumeric() || ch == '_' || ch == '-';
+        match (in_word, word_start) {
+            (true, None) => word_start = Some(idx),
+            (false, Some(start)) => {
+                ranges.extend(check(start, idx));
+                word_start = None;
+            }
+            _ => {}
+        }
+    }
+    if let Some(start) = word_start {
+        ranges.extend(check(start, line.len()));
+    }
+    ranges
+}
+
 fn normalize_search_rel_path(rel_path: &str) -> String {
     rel_path
         .trim()
@@ -272,21 +391,14 @@ fn escape_html_text(input: &str) -> String {
 
 fn highlight_line_html(line: &str, tokens: &[String]) -> String {
     let trimmed: String = line.trim().chars().take(180).collect();
-    if tokens.is_empty() {
-        return escape_html_text(&trimmed);
-    }
-    let lower = trimmed.to_lowercase();
     for tok in tokens {
-        if let Some(idx) = lower.find(tok.as_str()) {
-            let end = (idx + tok.len()).min(trimmed.len());
-            if trimmed.is_char_boundary(idx) && trimmed.is_char_boundary(end) {
-                return format!(
-                    "{}<mark>{}</mark>{}",
-                    escape_html_text(&trimmed[..idx]),
-                    escape_html_text(&trimmed[idx..end]),
-                    escape_html_text(&trimmed[end..])
-                );
-            }
+        if let Some(&(from, to)) = token_matches_in_line(&trimmed, tok).first() {
+            return format!(
+                "{}<mark>{}</mark>{}",
+                escape_html_text(&trimmed[..from]),
+                escape_html_text(&trimmed[from..to]),
+                escape_html_text(&trimmed[to..])
+            );
         }
     }
     escape_html_text(&trimmed)
@@ -306,10 +418,9 @@ fn compute_line_and_match_stats(
         if first_line_text.is_empty() && !line.trim().is_empty() {
             first_line_text = line.trim().to_string();
         }
-        let lower = line.to_lowercase();
         let mut line_matched = false;
         for tok in tokens {
-            let cnt = lower.matches(tok.as_str()).count();
+            let cnt = token_matches_in_line(line, tok).len();
             if cnt > 0 {
                 total_matches += cnt;
                 line_matched = true;
@@ -323,9 +434,8 @@ fn compute_line_and_match_stats(
     }
 
     if total_matches == 0 {
-        let lower_title = title.to_lowercase();
         for tok in tokens {
-            total_matches += lower_title.matches(tok.as_str()).count();
+            total_matches += token_matches_in_line(title, tok).len();
         }
     }
 
@@ -417,6 +527,49 @@ mod tests {
         let hits_after_delete = search_idx.search(Some(root), "Notepad", 10).unwrap();
         assert_eq!(hits_after_delete.len(), 1);
         assert_eq!(hits_after_delete[0].path, "Daily/2026-10-19.md");
+    }
+
+    #[test]
+    fn typo_in_query_still_finds_the_note_and_ranks_exact_matches_first() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let search_idx = VaultSearchIndex::new().expect("create tantivy index");
+        let docs = vec![
+            sample_scanned_in_dir(root, "Meeting.md", "Meeting", "We receive the budget on Friday."),
+            sample_scanned_in_dir(root, "Typo.md", "Typo", "I always recieve mail late."),
+        ];
+        search_idx.rebuild_from_scanned(&docs).unwrap();
+
+        let hits = search_idx.search(Some(root), "recieve", 10).unwrap();
+        let paths: Vec<&str> = hits.iter().map(|h| h.path.as_str()).collect();
+        assert_eq!(paths, vec!["Typo.md", "Meeting.md"]);
+        assert!(hits[1].snippet_html.contains("<mark>receive</mark>"), "{}", hits[1].snippet_html);
+
+        let hits = search_idx.search(Some(root), "budgte", 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].path, "Meeting.md");
+    }
+
+    #[test]
+    fn short_words_and_query_syntax_stay_exact() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+        let search_idx = VaultSearchIndex::new().expect("create tantivy index");
+        let docs = vec![
+            sample_scanned_in_dir(root, "Cat.md", "Cat", "The cat sat."),
+            sample_scanned_in_dir(root, "Receive.md", "Receive", "receive"),
+        ];
+        search_idx.rebuild_from_scanned(&docs).unwrap();
+
+        assert!(search_idx.search(Some(root), "cot", 10).unwrap().is_empty());
+        assert!(search_idx.search(Some(root), "\"recieve\"", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn edit_distance_counts_transpositions_once() {
+        assert_eq!(edit_distance("recieve", "receive", 2), 1);
+        assert_eq!(edit_distance("kitten", "sitting", 5), 3);
+        assert_eq!(edit_distance("abc", "abcdefgh", 2), 3);
     }
 
     #[test]

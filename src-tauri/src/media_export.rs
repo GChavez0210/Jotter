@@ -351,6 +351,8 @@ pub fn build_self_contained_html(
     options.extension.table = true;
     options.extension.autolink = true;
     options.extension.tasklist = true;
+    // Emits `<span data-math-style>` for `$…$` and `$$…$$`; the frontend renders them with KaTeX.
+    options.extension.math_dollars = true;
     options.render.unsafe_ = false;
 
     let mut html_body = markdown_to_html(&preprocessed, &options);
@@ -646,16 +648,10 @@ pub fn pick_save_html_dialog_win32(default_filename: &str) -> Option<PathBuf> {
     None
 }
 
-/// Writes a self-contained HTML export to `target_path`.
-pub fn export_html_to_path(
-    target_path: &Path,
-    title: &str,
-    markdown: &str,
-    vault_root: Option<&Path>,
-    dark_mode: bool,
-) -> Result<String, String> {
-    let html = build_self_contained_html(title, markdown, vault_root, dark_mode);
-    atomic_write_str(target_path, &html)?;
+/// Writes an HTML export, built by `build_self_contained_html` and finished by the frontend,
+/// to `target_path`.
+pub fn export_html_to_path(target_path: &Path, html: &str) -> Result<String, String> {
+    atomic_write_str(target_path, html)?;
     Ok(target_path.to_string_lossy().into_owned())
 }
 
@@ -707,5 +703,25 @@ mod tests {
         assert!(html.contains("<h1>Export Test</h1>"));
         assert!(html.contains("<strong>bold</strong>"));
         assert!(html.contains("data:image/png;base64,"));
+    }
+
+    #[test]
+    fn marks_math_and_keeps_mermaid_blocks_for_the_frontend() {
+        let md = r"Area is $\pi r^2$, costs $5 and $10.
+
+$$
+E = mc^2
+$$
+
+```mermaid
+flowchart LR
+  A --> B
+```
+";
+        let html = build_self_contained_html("Math", md, None, false);
+        assert!(html.contains(r#"<span data-math-style="inline">\pi r^2</span>"#), "{html}");
+        assert!(html.contains("<span data-math-style=\"display\">"), "{html}");
+        assert!(html.contains("costs $5 and $10"), "{html}");
+        assert!(html.contains("<code class=\"language-mermaid\">"), "{html}");
     }
 }

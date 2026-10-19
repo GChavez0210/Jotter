@@ -15,15 +15,15 @@ Platform work (Linux, Android, Apple) sits in the last phase. Until then, build 
 
 ## Phase 1: Quick wins (hours to a couple of days each)
 
-- [ ] **Recently deleted view.** List notes Jotter sent to the Recycle Bin and restore them in place. The `trash` crate already provides list and restore.
-- [ ] **Daily journal.** One shortcut opens or creates today's note in `Daily/` from a template.
-- [ ] **Global summon hotkey.** Bring Jotter to the front from anywhere with `tauri-plugin-global-shortcut`, and keep it resident in the tray.
-- [ ] **Mermaid diagrams.** Render ```` ```mermaid ```` blocks with [Pele](https://github.com/obsidianmd/pele) (MIT, no dependencies, synchronous SVG output, themed through CSS variables) in Live Preview and in HTML/PDF export.
-- [ ] **Math formatting.** Render `$…$` and `$$…$$` with KaTeX in Live Preview and in export.
-- [ ] **Basic spell check.** Turn on the WebView spell checker in the editor, using the system's installed languages.
-- [ ] **Custom CSS snippets.** Load user `.css` files on top of the theme.
-- [ ] **Typo-tolerant search.** Add fuzzy term matching to full-text search.
-- [ ] **License.** Pick and publish an open-source license.
+- [x] **Recently deleted view.** List notes Jotter sent to the Recycle Bin and restore them in place. The `trash` crate already provides list and restore.
+- [x] **Daily journal.** One shortcut opens or creates today's note in `Daily/` from a template.
+- [x] **Global summon hotkey.** Bring Jotter to the front from anywhere with `tauri-plugin-global-shortcut`, and keep it resident in the tray.
+- [x] **Mermaid diagrams.** Render ```` ```mermaid ```` blocks with [Pele](https://github.com/obsidianmd/pele) (MIT, no dependencies, synchronous SVG output, themed through CSS variables) in Live Preview and in HTML/PDF export.
+- [x] **Math formatting.** Render `$…$` and `$$…$$` with KaTeX in Live Preview and in export.
+- [x] **Basic spell check.** Turn on the WebView spell checker in the editor, using the system's installed languages.
+- [x] **Custom CSS snippets.** Load user `.css` files on top of the theme.
+- [x] **Typo-tolerant search.** Add fuzzy term matching to full-text search.
+- [x] **License.** Pick and publish an open-source license. Jotter is dual licensed under MIT or Apache-2.0.
 
 ## Phase 2: Core features (one to three weeks each)
 
