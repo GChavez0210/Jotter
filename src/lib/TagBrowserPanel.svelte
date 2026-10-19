@@ -1,5 +1,6 @@
 <script lang="ts">
   import Icon from './ui/Icon.svelte';
+  import { tagColor } from './tagColor';
   import { getAllTags, getNotesByTag } from './ipc';
   import { settingsStore } from './stores/settings.svelte';
   import { tabsStore } from './stores/tabs.svelte';
@@ -90,7 +91,7 @@
       <input
         type="search"
         class="filter-input"
-        placeholder="Filter tags…"
+        placeholder="Filter tags"
         aria-label="Filter tags"
         bind:value={filterText}
       />
@@ -99,7 +100,7 @@
 
   <div class="tags-section">
     <div class="section-header">
-      <span>Tags ({filteredTags.length})</span>
+      <span>Tags</span>
       {#if settingsStore.selectedTag}
         <button
           type="button"
@@ -120,17 +121,17 @@
           : 'No tags match your filter.'}
       </div>
     {:else}
-      <div class="tag-pills" role="listbox" aria-label="Vault tags">
+      <div class="tag-list" role="listbox" aria-label="Vault tags">
         {#each filteredTags as item (item.tag)}
           <button
             type="button"
             role="option"
             aria-selected={settingsStore.selectedTag === item.tag}
-            class="tag-pill"
+            class="tag-row"
             class:active={settingsStore.selectedTag === item.tag}
             onclick={() => selectTag(item.tag)}
           >
-            <span class="tag-hash">#</span>
+            <span class="tag-dot" style:background={tagColor(item.tag)}></span>
             <span class="tag-name">{item.tag}</span>
             <span class="tag-count">{item.count}</span>
           </button>
@@ -142,7 +143,7 @@
   {#if settingsStore.selectedTag}
     <div class="filtered-notes-section">
       <div class="section-header">
-        <span>Notes tagged <strong>#{settingsStore.selectedTag}</strong> ({tagNotes.length})</span>
+        <span>#{settingsStore.selectedTag} · {tagNotes.length} {tagNotes.length === 1 ? 'note' : 'notes'}</span>
       </div>
 
       <div class="notes-scroll">
@@ -190,19 +191,19 @@
   }
 
   .tag-filter-bar {
-    padding: var(--space-2);
-    border-bottom: 1px solid var(--line-subtle);
+    padding: var(--space-1) var(--space-3) var(--space-2);
   }
 
   .filter-input-wrap {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    min-height: var(--control-min-height);
+    height: 30px;
     padding: 0 var(--space-2);
-    border-radius: var(--radius-control);
     border: 1px solid var(--line-control);
-    background: var(--surface-raised);
+    border-radius: var(--radius-card);
+    background: var(--surface-editor);
+    color: var(--text-muted);
   }
 
   .filter-input-wrap:focus-within {
@@ -211,101 +212,120 @@
 
   .filter-icon {
     display: inline-flex;
-    color: var(--text-secondary);
   }
 
   .filter-input {
     flex: 1;
     min-width: 0;
     border: none;
+    outline: none;
     background: transparent;
     color: var(--text-primary);
-    font-family: var(--font-ui);
-    font-size: var(--fs-12);
+    font: inherit;
+  }
+
+  /* The surrounding box shows focus with its accent border. */
+  .filter-input:focus-visible {
     outline: none;
   }
 
+  .filter-input::-webkit-search-cancel-button {
+    display: none;
+  }
+
   .tags-section {
-    padding: var(--space-2);
-    overflow-y: auto;
-    max-height: 52%;
-    border-bottom: 1px solid var(--line-subtle);
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
+    max-height: 50%;
+    min-height: 0;
   }
 
   .section-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    font-size: var(--fs-11);
-    font-weight: 600;
-    color: var(--text-secondary);
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-2) var(--space-1) var(--space-4);
+    color: var(--text-muted);
+    font: 600 var(--fs-11) / 1 var(--font-ui);
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+  }
+
+  .section-header span {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .clear-tag-btn {
-    border: none;
+    padding: 2px 6px;
+    border: 0;
+    border-radius: var(--radius-control);
     background: transparent;
     color: var(--accent);
-    font-size: var(--fs-11);
-    font-weight: 500;
-    cursor: pointer;
+    font: 500 var(--fs-12) var(--font-ui);
+    letter-spacing: 0;
     text-transform: none;
+    cursor: pointer;
   }
 
   .clear-tag-btn:hover {
-    text-decoration: underline;
-  }
-
-  .tag-pills {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-1);
-  }
-
-  .tag-pill {
-    min-height: 28px;
-    padding: 2px 8px;
-    border-radius: var(--radius-control);
-    border: 1px solid var(--line-subtle);
-    background: var(--surface-subtle);
-    color: var(--text-primary);
-    font-size: var(--fs-12);
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    cursor: pointer;
-    transition:
-      background-color var(--transition-fast),
-      border-color var(--transition-fast);
-  }
-
-  .tag-pill:hover {
     background: var(--surface-hover);
-    border-color: var(--line-control);
   }
 
-  .tag-pill.active {
-    background: var(--selection);
-    border-color: var(--accent);
-    font-weight: 600;
+  .tag-list {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 0 var(--space-2) var(--space-2);
   }
 
-  .tag-hash {
+  .tag-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: var(--row-height);
+    padding: 0 var(--space-2);
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .tag-row:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+
+  .tag-row.active {
+    background: var(--accent-soft);
     color: var(--accent);
-    font-weight: 600;
+    font-weight: 500;
+  }
+
+  .tag-dot {
+    width: 8px;
+    height: 8px;
+    flex: none;
+    margin: 0 4px;
+    border-radius: 50%;
+  }
+
+  .tag-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .tag-count {
-    font-family: var(--font-mono);
-    font-size: var(--fs-11);
     color: var(--text-muted);
-    background: var(--surface-raised);
-    padding: 0 5px;
-    border-radius: 999px;
+    font-size: var(--fs-12);
+    font-variant-numeric: tabular-nums;
   }
 
   .filtered-notes-section {
@@ -313,89 +333,87 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    padding: var(--space-2);
-    gap: var(--space-2);
-    overflow: hidden;
+    border-top: 1px solid var(--line-subtle);
   }
 
   .notes-scroll {
     flex: 1;
     overflow-y: auto;
+    padding: 0 var(--space-2) var(--space-2);
+  }
+
+  .empty-msg {
+    padding: var(--space-2) var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--fs-13);
   }
 
   .tag-note-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
   }
 
   .tag-note-item {
-    width: 100%;
-    text-align: left;
-    padding: var(--space-2);
-    border-radius: var(--radius-control);
-    border: 1px solid var(--line-subtle);
-    background: var(--surface-subtle);
-    color: var(--text-primary);
-    cursor: pointer;
     display: flex;
     flex-direction: column;
     gap: 2px;
+    width: 100%;
+    padding: var(--space-2);
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
   }
 
   .tag-note-item:hover {
     background: var(--surface-hover);
-    border-color: var(--line-control);
   }
 
   .tag-note-item.active {
-    background: var(--selection);
-    border-color: var(--accent);
+    background: var(--accent-soft);
   }
 
   .note-row-top {
     display: flex;
     align-items: center;
-    gap: var(--space-1);
+    gap: var(--space-2);
+    min-width: 0;
   }
 
   .note-icon {
     display: inline-flex;
-    color: var(--accent);
     flex-shrink: 0;
+    color: var(--text-muted);
   }
 
   .note-title {
-    font-size: var(--fs-12);
-    font-weight: 600;
     overflow: hidden;
+    font-weight: 500;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .note-path {
-    font-size: var(--fs-11);
-    color: var(--text-muted);
+  .tag-note-item.active .note-title {
+    color: var(--accent);
+  }
+
+  .note-path,
+  .note-preview {
     overflow: hidden;
+    padding-left: 24px;
+    color: var(--text-muted);
+    font-size: var(--fs-12);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .note-preview {
-    font-size: var(--fs-11);
-    color: var(--text-secondary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .empty-msg {
-    padding: var(--space-3) var(--space-2);
-    text-align: center;
-    font-size: var(--fs-12);
     color: var(--text-secondary);
   }
 </style>

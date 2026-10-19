@@ -3,11 +3,11 @@
   import { tabsStore } from './stores/tabs.svelte';
   import { vaultStore } from './stores/vault.svelte';
   import Icon from './ui/Icon.svelte';
+  import { tagColor } from './tagColor';
 
   // Same rule as the indexer (links.rs): '#' at line start or after whitespace,
   // then letters, digits, '_', '-' or '/', with at least one non-digit.
   const INLINE_TAG_RE = /(?<=^|\s)#([\p{L}\p{N}_/-]+)/gu;
-  const TAG_COLORS = ['var(--tag-1)', 'var(--tag-2)', 'var(--tag-3)', 'var(--tag-4)', 'var(--tag-5)'];
 
   let tab = $derived(tabsStore.activeTab);
   let title = $derived(tab ? tab.title.replace(/\.md$/i, '') : 'Scratchpad');
@@ -52,12 +52,6 @@
     }
     return [...found];
   });
-
-  function tagColor(tag: string): string {
-    let hash = 0;
-    for (const ch of tag) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-    return TAG_COLORS[hash % TAG_COLORS.length];
-  }
 
   function showTag(tag: string) {
     settingsStore.selectedTag = tag;

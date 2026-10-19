@@ -4,6 +4,7 @@
   import Button from './ui/Button.svelte';
   import IconButton from './ui/IconButton.svelte';
   import Segmented from './ui/Segmented.svelte';
+  import Dialog from './ui/Dialog.svelte';
   import { COPY_MODE_LABELS, settingsStore } from './stores/settings.svelte';
   import { ACCENT_PRESETS } from './designTokens';
   import { vaultStore } from './stores/vault.svelte';
@@ -71,36 +72,10 @@
   });
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-  class="settings-backdrop"
-  onmousedown={(e) => {
-    if (e.target === e.currentTarget) onClose();
-  }}
->
-  <div
-    class="settings-dialog"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="settings-dialog-title"
-  >
-    <header class="settings-header">
-      <div class="header-title-group">
-        <span class="header-icon"><Icon name="gear-six" /></span>
-        <h2 id="settings-dialog-title" class="header-title">Settings</h2>
-        <span class="shortcut-pill">Ctrl+,</span>
-      </div>
-      <IconButton
-        bind:ref={closeBtnRef}
-        icon="x"
-        label="Close settings"
-        tooltip="Close settings (Esc)"
-        onclick={onClose}
-      />
-    </header>
-
+<Dialog label="Settings" variant="panel" {onClose}>
     <div class="settings-body">
       <nav class="settings-nav" aria-label="Settings categories">
+        <h2 class="nav-title">Settings</h2>
         <button
           type="button"
           class="nav-item"
@@ -144,6 +119,15 @@
       </nav>
 
       <div class="settings-content">
+        <div class="close-btn">
+          <IconButton
+            bind:ref={closeBtnRef}
+            icon="x"
+            label="Close settings"
+            tooltip="Close settings (Esc)"
+            onclick={onClose}
+          />
+        </div>
         {#if activeSection === 'editor'}
           <section class="settings-section" aria-labelledby="sec-editor">
             <h3 id="sec-editor" class="section-title">Editor</h3>
@@ -440,104 +424,44 @@
         {/if}
       </div>
     </div>
-  </div>
-</div>
+</Dialog>
 
 <style>
-  .settings-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 220;
-    background: rgba(0, 0, 0, 0.42);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: var(--space-4);
-  }
-
-  .settings-dialog {
-    width: min(760px, 100%);
-    height: min(560px, 90vh);
-    background: var(--surface-raised);
-    border: 1px solid var(--line-control);
-    border-radius: var(--radius-card);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  .settings-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: var(--space-3) var(--space-4);
-    border-bottom: 1px solid var(--line-subtle);
-    flex-shrink: 0;
-  }
-
-  .header-title-group {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-  }
-
-  .header-icon {
-    display: inline-flex;
-    color: var(--accent);
-  }
-
-  .header-title {
-    margin: 0;
-    font-family: var(--font-display);
-    font-size: var(--fs-15);
-    font-weight: 600;
-  }
-
-  .shortcut-pill {
-    font-family: var(--font-mono);
-    font-size: var(--fs-12);
-    color: var(--text-muted);
-    background: var(--surface-subtle);
-    border: 1px solid var(--line-subtle);
-    border-radius: var(--radius-control);
-    padding: 1px 6px;
-  }
-
   .settings-body {
+    display: flex;
     flex: 1;
     min-height: 0;
-    display: flex;
-    overflow: hidden;
   }
 
   .settings-nav {
-    width: 180px;
-    flex-shrink: 0;
-    border-right: 1px solid var(--line-subtle);
-    background: var(--surface-subtle);
-    padding: var(--space-3);
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
+    gap: 2px;
+    width: 188px;
+    flex: none;
+    padding: var(--space-4) var(--space-2);
+    border-right: 1px solid var(--line-subtle);
+    background: var(--surface-app);
+  }
+
+  .nav-title {
+    margin: var(--space-1) var(--space-2) var(--space-3);
+    font: 600 var(--fs-17) / 1.2 var(--font-display);
   }
 
   .nav-item {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    min-height: var(--control-min-height);
-    padding: 0 var(--space-3);
-    border: 1px solid transparent;
+    height: var(--row-height);
+    padding: 0 var(--space-2);
+    border: 0;
     border-radius: var(--radius-control);
     background: transparent;
     color: var(--text-secondary);
-    font-size: var(--fs-13);
-    font-weight: 500;
-    cursor: pointer;
+    font: inherit;
     text-align: left;
-    transition:
-      background-color var(--transition-fast),
-      color var(--transition-fast);
+    cursor: pointer;
   }
 
   .nav-item:hover {
@@ -546,133 +470,181 @@
   }
 
   .nav-item.active {
-    background: var(--surface-raised);
-    color: var(--text-primary);
-    border-color: var(--line-control);
-    font-weight: 600;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 500;
   }
 
   .settings-content {
+    position: relative;
     flex: 1;
     min-width: 0;
     overflow-y: auto;
-    padding: var(--space-5);
+    padding: var(--space-5) var(--space-6) var(--space-8);
+  }
+
+  .close-btn {
+    position: absolute;
+    top: var(--space-3);
+    right: var(--space-3);
   }
 
   .settings-section {
     display: flex;
     flex-direction: column;
-    gap: var(--space-3);
   }
 
   .section-title {
-    margin: 0;
-    font-family: var(--font-display);
-    font-size: var(--fs-17);
-    font-weight: 600;
+    margin: 0 0 var(--space-1);
+    font: 600 var(--fs-24) / 1.25 var(--font-display);
   }
 
   .section-subtitle {
-    margin: 0 0 var(--space-2) 0;
-    font-size: var(--fs-12);
-    color: var(--text-secondary);
+    margin: 0 0 var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--fs-13);
   }
 
   .setting-card {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-4);
-    padding: var(--space-3) var(--space-4);
-    background: var(--surface-subtle);
-    border: 1px solid var(--line-subtle);
-    border-radius: var(--radius-card);
+    gap: var(--space-6);
+    padding: var(--space-4) 0;
+    border-bottom: 1px solid var(--line-subtle);
+  }
+
+  .setting-card:last-child {
+    border-bottom: 0;
   }
 
   .setting-card.column-card {
     flex-direction: column;
     align-items: stretch;
+    gap: var(--space-3);
   }
 
   .setting-row-top {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-4);
+    gap: var(--space-6);
   }
 
   .setting-info {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
     min-width: 0;
   }
 
   .setting-label {
-    font-size: var(--fs-13);
-    font-weight: 600;
     color: var(--text-primary);
+    font-weight: 600;
   }
 
   .setting-desc {
+    color: var(--text-muted);
     font-size: var(--fs-12);
-    color: var(--text-secondary);
     line-height: var(--leading-normal);
+  }
+
+  .setting-desc code {
+    font-family: var(--font-mono);
+    font-size: 0.95em;
   }
 
   .rebuild-status {
     margin-top: var(--space-1);
-    font-size: var(--fs-12);
     color: var(--status-ok);
-    font-weight: 500;
+    font-size: var(--fs-12);
   }
 
+  /* Switch built on a native checkbox so keyboard and screen readers work unchanged. */
   .fluent-toggle {
-    width: 18px;
-    height: 18px;
-    accent-color: var(--accent);
+    appearance: none;
+    position: relative;
+    width: 36px;
+    height: 20px;
+    flex: none;
+    margin: 0;
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    background: var(--surface-field);
     cursor: pointer;
-    flex-shrink: 0;
+    transition:
+      background-color var(--transition-fast),
+      border-color var(--transition-fast);
+  }
+
+  .fluent-toggle::before {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text-secondary);
+    transition: transform var(--transition-fast);
+  }
+
+  .fluent-toggle:checked {
+    border-color: var(--accent);
+    background: var(--accent);
+  }
+
+  .fluent-toggle:checked::before {
+    transform: translateX(16px);
+    background: var(--on-accent);
+  }
+
+  @media (forced-colors: active) {
+    .fluent-toggle {
+      appearance: auto;
+    }
+
+    .fluent-toggle::before {
+      display: none;
+    }
   }
 
   .copy-modes-list {
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
+    margin-top: var(--space-3);
   }
 
   .copy-mode-card {
     display: flex;
     align-items: flex-start;
     gap: var(--space-3);
-    padding: var(--space-3) var(--space-4);
-    background: var(--surface-subtle);
+    padding: var(--space-3);
     border: 1px solid var(--line-subtle);
     border-radius: var(--radius-card);
     cursor: pointer;
-    transition:
-      border-color var(--transition-fast),
-      background-color var(--transition-fast);
   }
 
   .copy-mode-card:hover {
-    background: var(--surface-hover);
+    border-color: var(--line-control);
   }
 
   .copy-mode-card.selected {
     border-color: var(--accent);
-    background: var(--selection);
+    box-shadow: 0 0 0 1px var(--accent);
   }
 
-  .copy-mode-card input[type='radio'] {
-    margin-top: 4px;
+  .copy-mode-card input {
+    margin-top: 3px;
     accent-color: var(--accent);
   }
 
   .copy-mode-body {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
+    min-width: 0;
   }
 
   .copy-mode-header {
@@ -682,61 +654,58 @@
   }
 
   .copy-mode-title {
-    font-size: var(--fs-13);
     font-weight: 600;
-    color: var(--text-primary);
   }
 
   .copy-mode-badge {
-    font-size: var(--fs-12);
     padding: 1px 6px;
-    border-radius: var(--radius-control);
-    background: var(--surface-raised);
-    border: 1px solid var(--line-subtle);
-    color: var(--text-secondary);
+    border-radius: 9px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: var(--fs-11);
+    font-weight: 500;
   }
 
   .copy-mode-formats {
+    color: var(--text-secondary);
     font-family: var(--font-mono);
     font-size: var(--fs-12);
-    color: var(--syn-code);
   }
 
   .copy-mode-desc {
+    color: var(--text-muted);
     font-size: var(--fs-12);
-    color: var(--text-secondary);
     line-height: var(--leading-normal);
   }
 
   .accent-swatches {
     display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding-top: var(--space-2);
-    border-top: 1px solid var(--line-subtle);
     flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
   }
 
   .swatch-btn {
     width: 28px;
     height: 28px;
-    border-radius: var(--radius-control);
-    border: 2px solid transparent;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px var(--line-subtle);
     cursor: pointer;
   }
 
   .swatch-btn.active {
-    border-color: var(--text-primary);
-    box-shadow: 0 0 0 2px var(--surface-raised);
+    box-shadow:
+      0 0 0 2px var(--surface-raised),
+      0 0 0 4px var(--text-primary);
   }
 
   .color-picker-label {
     display: inline-flex;
     align-items: center;
-    gap: var(--space-1);
-    font-size: var(--fs-12);
+    gap: var(--space-2);
     color: var(--text-secondary);
-    margin-left: auto;
+    font-size: var(--fs-13);
   }
-
 </style>

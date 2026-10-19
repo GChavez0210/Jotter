@@ -1,0 +1,107 @@
+/**
+ * Shared layout for search-and-pick lists: the command palette, quick switcher,
+ * full-text search results and tag lists. Use these classes instead of restyling
+ * rows per component.
+ */
+.picker-search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
+  padding: 0 var(--space-4);
+  border-bottom: 1px solid var(--line-subtle);
+  color: var(--text-muted);
+}
+
+.picker-input {
+  flex: 1;
+  min-width: 0;
+  height: 48px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font: 400 var(--fs-15) var(--font-ui);
+}
+
+/* The search row is the field: the caret marks focus, so skip the global focus ring
+   that would draw past the dialog edges. */
+.picker-input:focus-visible {
+  outline: none;
+}
+
+.picker-input::placeholder {
+  color: var(--text-muted);
+}
+
+.picker-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-1) 6px 6px;
+}
+
+.picker-group {
+  padding: var(--space-3) var(--space-2) 6px;
+  color: var(--text-muted);
+  font: 600 var(--fs-11) / 1 var(--font-ui);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.picker-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-card);
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.picker-row.selected {
+  background: var(--accent-soft);
+}
+
+.picker-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-row.selected .picker-label {
+  color: var(--accent);
+}
+
+.picker-hint {
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--fs-12);
+  white-space: nowrap;
+}
+
+.picker-empty {
+  padding: var(--space-4);
+  color: var(--text-muted);
+  font-size: var(--fs-13);
+}
+
+.picker-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  flex: none;
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--line-subtle);
+  color: var(--text-muted);
+  font-size: var(--fs-12);
+}
