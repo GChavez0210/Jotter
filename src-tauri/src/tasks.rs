@@ -68,7 +68,29 @@ fn parse_date_at(s: &str) -> Option<(String, Option<String>, usize)> {
     Some((date, None, 10))
 }
 
+/// Blanks the text inside backtick code spans with spaces of the same byte length, so a due date
+/// written as code, such as `` `due:2026-01-01` ``, is not read and offsets stay valid. Each
+/// backtick pairs with the next one, as `/`[^`]*`/g` pairs them in `src/lib/dueDates.ts`.
+fn mask_code_spans(line: &str) -> String {
+    let mut out = String::with_capacity(line.len());
+    let mut rest = line;
+    while let Some(open) = rest.find('`') {
+        let Some(close) = rest[open + 1..].find('`') else { break };
+        let close = open + 1 + close;
+        out.push_str(&rest[..=open]);
+        out.extend(std::iter::repeat(' ').take(close - open - 1));
+        out.push('`');
+        rest = &rest[close + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
 fn find_due(line: &str) -> Option<DueMatch> {
+    find_due_unmasked(&mask_code_spans(line))
+}
+
+fn find_due_unmasked(line: &str) -> Option<DueMatch> {
     // 📅 2026-10-30
     if let Some(pos) = line.find('📅') {
         let after = pos + '📅'.len_utf8();
@@ -341,6 +363,16 @@ mod tests {
         assert!(ics.contains("SUMMARY:Pay rent\\, now\\; really"));
         assert!(!ics.contains("SUMMARY:Old"));
         assert!(ics.lines().all(|l| l.len() <= 75));
+    }
+
+    #[test]
+    fn due_dates_inside_code_spans_are_ignored() {
+        // The same cases as the due-date test in tests/frontend.test.ts.
+        let doc = "- [ ] Read `due:2026-01-01` docs\n- [ ] Run `📅 2026-01-02` then ship 📅 2026-11-03\n- [ ] Odd `é` text due:2026-11-04\n- [ ] Unclosed ` tick due:2026-11-05\n";
+        let tasks = parse_due_tasks(doc);
+        let dates: Vec<_> = tasks.iter().map(|t| t.due_date.as_str()).collect();
+        assert_eq!(dates, ["2026-11-03", "2026-11-04", "2026-11-05"]);
+        assert_eq!(tasks[0].text, "Run 📅 2026-01-02 then ship");
     }
 
     #[test]

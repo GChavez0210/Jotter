@@ -143,10 +143,13 @@ function blockRange(doc: Text, item: ListItem) {
   return { from: doc.line(item.line).from, to: doc.line(item.end).to };
 }
 
+// Frontmatter longer than this is not looked for; nobody writes that much YAML.
+const MAX_FRONTMATTER_LINES = 2000;
+
 /** The line number of the closing frontmatter fence, or 0 when the note has no frontmatter. */
 function frontmatterLastLine(doc: Text): number {
   if (!/^---[ \t]*$/.test(doc.line(1).text)) return 0;
-  for (let n = 2; n <= Math.min(doc.lines, 2000); n++) {
+  for (let n = 2; n <= Math.min(doc.lines, MAX_FRONTMATTER_LINES); n++) {
     if (/^(---|\.\.\.)[ \t]*$/.test(doc.line(n).text)) {
       return parseFrontmatter(doc.sliceString(0, doc.line(n).to)) ? n : 0;
     }
@@ -155,10 +158,37 @@ function frontmatterLastLine(doc: Text): number {
 }
 
 /**
+ * The closing fence's line, kept per state so the fold service, which runs for every visible
+ * list line, does not rescan the top of the note each time. An edit can change it only when it
+ * touches the frontmatter or the line after it, or, while a note opens with `---` and has no
+ * closing fence yet, any of the lines where that fence could be typed.
+ */
+const frontmatterEndField = StateField.define<number>({
+  create: (state) => frontmatterLastLine(state.doc),
+  update(value, tr) {
+    if (!tr.docChanged) return value;
+    const doc = tr.startState.doc;
+    const opensWithFence = /^---[ \t]*$/.test(doc.line(1).text);
+    const lastLine = value > 0 ? value + 1 : opensWithFence ? MAX_FRONTMATTER_LINES : 1;
+    const limit = doc.line(Math.min(lastLine, doc.lines)).to;
+    let touches = false;
+    tr.changes.iterChangedRanges((fromA) => {
+      if (fromA <= limit) touches = true;
+    });
+    return touches ? frontmatterLastLine(tr.state.doc) : value;
+  },
+});
+
+/** The closing frontmatter fence's line, from the cache when the outliner extension is loaded. */
+export function frontmatterEndLine(state: EditorState): number {
+  return state.field(frontmatterEndField, false) ?? frontmatterLastLine(state.doc);
+}
+
+/**
  * True when `- ` on this line is list syntax: not inside a fenced or indented code block, and
  * not inside YAML frontmatter, where `- a` is a YAML list item.
  */
-function isListContext(state: EditorState, lineNo: number, fmLastLine = frontmatterLastLine(state.doc)): boolean {
+function isListContext(state: EditorState, lineNo: number, fmLastLine = frontmatterEndLine(state)): boolean {
   if (lineNo <= fmLastLine) return false;
   const line = state.doc.line(lineNo);
   for (let node: SyntaxNode | null = syntaxTree(state).resolveInner(line.from, 1); node; node = node.parent) {
@@ -573,7 +603,7 @@ class FoldCaretWidget extends WidgetType {
 function foldCarets(view: EditorView): DecorationSet {
   const ranges: Range<Decoration>[] = [];
   const { state } = view;
-  const fmLastLine = frontmatterLastLine(state.doc);
+  const fmLastLine = frontmatterEndLine(state);
   for (const { from, to } of view.visibleRanges) {
     for (let pos = from; pos <= to; ) {
       const line = state.doc.lineAt(pos);
@@ -623,6 +653,7 @@ export const outlinerKeymap: KeyBinding[] = [
 
 export function createOutlinerExtension(): Extension {
   return [
+    frontmatterEndField,
     listFolding,
     codeFolding({ placeholderText: '…' }),
     foldCaretPlugin,
