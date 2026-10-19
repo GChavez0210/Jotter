@@ -92,6 +92,10 @@
   --shadow-popover: 0 1px 2px rgb(40 34 20 / 0.06), 0 12px 32px rgb(40 34 20 / 0.14);
   --scrim: rgb(31 29 26 / 0.28);
 
+  /* Window close button hover, matching the Windows caption button in both themes */
+  --win-close: #c42b1c;
+  --on-win-close: #ffffff;
+
   --tag-1: #7a5cc4;
   --tag-2: #2f8a6a;
   --tag-3: #c27a12;

@@ -12,36 +12,6 @@
 
 <div class="formatting-toolbar" role="toolbar" aria-label="Markdown formatting toolbar">
   <div class="toolbar-left">
-    <!-- Source / Live Mode Toggle -->
-    <div class="mode-switch" role="radiogroup" aria-label="Editor rendering mode">
-      <button
-        type="button"
-        role="radio"
-        aria-checked={settingsStore.editingMode === 'live'}
-        class="mode-btn"
-        class:active={settingsStore.editingMode === 'live'}
-        title="Live Preview mode — rendered formatting inline, raw syntax at cursor (Ctrl+/)"
-        onclick={() => settingsStore.setEditingMode('live')}
-      >
-        <Icon name="eye" />
-        <span>Live</span>
-      </button>
-      <button
-        type="button"
-        role="radio"
-        aria-checked={settingsStore.editingMode === 'source'}
-        class="mode-btn"
-        class:active={settingsStore.editingMode === 'source'}
-        title="Source mode — raw Markdown syntax always visible (Ctrl+/)"
-        onclick={() => settingsStore.setEditingMode('source')}
-      >
-        <Icon name="code" />
-        <span>Source</span>
-      </button>
-    </div>
-
-    <div class="sep" role="separator"></div>
-
     <!-- Headings -->
     <div class="btn-group" aria-label="Headings">
       <button
@@ -265,46 +235,6 @@
     align-items: center;
     gap: var(--space-1);
     flex-shrink: 0;
-  }
-
-  .mode-switch {
-    display: inline-flex;
-    align-items: center;
-    background: var(--surface-field);
-    border: 1px solid var(--line-subtle);
-    border-radius: var(--radius-control);
-    padding: 2px;
-    gap: 2px;
-  }
-
-  .mode-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1);
-    min-height: 28px;
-    padding: 0 var(--space-2);
-    border: 1px solid transparent;
-    border-radius: var(--radius-control);
-    background: transparent;
-    color: var(--text-secondary);
-    font-size: var(--fs-12);
-    font-weight: 500;
-    cursor: pointer;
-    transition:
-      background-color var(--transition-fast),
-      color var(--transition-fast);
-  }
-
-  .mode-btn:hover {
-    background: var(--surface-hover);
-    color: var(--text-primary);
-  }
-
-  .mode-btn.active {
-    background: var(--surface-raised);
-    color: var(--text-primary);
-    border-color: var(--line-control);
-    font-weight: 600;
   }
 
   .btn-group {

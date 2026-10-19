@@ -106,12 +106,11 @@
 
 <style>
   .right-panel {
-    width: 268px;
+    width: 248px;
     height: 100%;
     flex-shrink: 0;
     background: var(--surface-editor);
-    border: 1px solid var(--line-subtle);
-    border-radius: var(--radius-card);
+    border-left: 1px solid var(--line-subtle);
     display: flex;
     flex-direction: column;
     overflow: hidden;
