@@ -6,6 +6,7 @@ import type {
   CopyMode,
   EditingMode,
   FocusMode,
+  LeftSidebarView,
   ThemePreference,
 } from '../types';
 
@@ -27,6 +28,7 @@ export const COPY_MODE_LABELS: Record<CopyMode, { label: string; desc: string }>
 interface SavedPreFocusLayout {
   sidebarCollapsed: boolean;
   showInspector: boolean;
+  showRightPanel: boolean;
 }
 
 class SettingsStore {
@@ -46,7 +48,13 @@ class SettingsStore {
   typewriterScrolling = $state(false);
   dimInactiveParagraphs = $state(false);
   showCommandPalette = $state(false);
+  showQuickSwitcher = $state(false);
   topHoverReveal = $state(false);
+
+  // Milestone 4: Left Sidebar Views & Right Backlinks Panel
+  leftSidebarView = $state<LeftSidebarView>('files');
+  selectedTag = $state<string | null>(null);
+  showRightPanel = $state(true);
 
   sidebarWidth = $state<number>(designTokens.layout.sidebarDefaultWidth);
   sidebarCollapsed = $state(false);
@@ -109,6 +117,7 @@ class SettingsStore {
       this.preFocusLayout = {
         sidebarCollapsed: this.sidebarCollapsed,
         showInspector: this.showInspector,
+        showRightPanel: this.showRightPanel,
       };
       try {
         localStorage.setItem(
@@ -121,11 +130,16 @@ class SettingsStore {
     } else if (next === 'off' && this.preFocusLayout) {
       this.sidebarCollapsed = this.preFocusLayout.sidebarCollapsed;
       this.showInspector = this.preFocusLayout.showInspector;
+      this.showRightPanel = this.preFocusLayout.showRightPanel ?? true;
       this.preFocusLayout = null;
       try {
         localStorage.setItem(
           'jotter.sidebarCollapsed',
           String(this.sidebarCollapsed)
+        );
+        localStorage.setItem(
+          'jotter.showRightPanel',
+          String(this.showRightPanel)
         );
         localStorage.removeItem('jotter.preFocusLayout');
       } catch {
@@ -199,6 +213,38 @@ class SettingsStore {
     }
   }
 
+  setLeftSidebarView(view: LeftSidebarView) {
+    if (this.focusMode !== 'off') {
+      this.exitFocusMode();
+    }
+    this.leftSidebarView = view;
+    if (this.sidebarCollapsed) {
+      this.sidebarCollapsed = false;
+      try {
+        localStorage.setItem('jotter.sidebarCollapsed', 'false');
+      } catch {
+        // ignore
+      }
+    }
+    try {
+      localStorage.setItem('jotter.leftSidebarView', view);
+    } catch {
+      // ignore
+    }
+  }
+
+  toggleRightPanel() {
+    this.showRightPanel = !this.showRightPanel;
+    try {
+      localStorage.setItem(
+        'jotter.showRightPanel',
+        String(this.showRightPanel)
+      );
+    } catch {
+      // ignore
+    }
+  }
+
   applyThemeToDocument(pref: ThemePreference, sysDark: boolean) {
     const root = document.documentElement;
     if (pref === 'system') {
@@ -247,6 +293,21 @@ class SettingsStore {
       const savedCollapsed = localStorage.getItem('jotter.sidebarCollapsed');
       if (savedCollapsed === 'true' || savedCollapsed === 'false') {
         this.sidebarCollapsed = savedCollapsed === 'true';
+      }
+      const savedLeftView = localStorage.getItem(
+        'jotter.leftSidebarView'
+      ) as LeftSidebarView | null;
+      if (
+        savedLeftView === 'files' ||
+        savedLeftView === 'search' ||
+        savedLeftView === 'tags' ||
+        savedLeftView === 'calendar'
+      ) {
+        this.leftSidebarView = savedLeftView;
+      }
+      const savedRightPanel = localStorage.getItem('jotter.showRightPanel');
+      if (savedRightPanel === 'true' || savedRightPanel === 'false') {
+        this.showRightPanel = savedRightPanel === 'true';
       }
       const savedEditingMode = localStorage.getItem(
         'jotter.editingMode'

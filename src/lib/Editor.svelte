@@ -15,14 +15,22 @@
   import { copyToClipboard, pastePlainFromClipboard } from './ipc';
   import {
     createLivePreviewExtension,
+    findInlineCodeSpansInLine,
     livePreviewCompartment,
+    parseWikiLinkInner,
   } from './livePreview';
   import {
     markdownFormattingKeymap,
     runMarkdownCommand,
     type MarkdownFormatCommandId,
   } from './markdownCommands';
-  import type { ClipboardPayload, CopyMode, EditingMode } from './types';
+  import type {
+    ClipboardPayload,
+    CopyMode,
+    EditingMode,
+    VaultNode,
+  } from './types';
+  import { createWikiLinkAutocompleteExtension } from './wikiLinkAutocomplete';
 
   interface Props {
     docId: string;
@@ -31,6 +39,8 @@
     editingMode?: EditingMode;
     dimInactiveParagraphs?: boolean;
     typewriterScrolling?: boolean;
+    vaultFiles?: VaultNode[];
+    onWikiLinkClick?: (noteTarget: string, heading?: string) => void;
     onDocChange?: (docId: string, newContent: string) => void;
     onCopyComplete?: (payload: ClipboardPayload, source: 'copy' | 'cut') => void;
     onPastePlainComplete?: (charCount: number, lineCount: number) => void;
@@ -51,6 +61,8 @@
     editingMode = 'live',
     dimInactiveParagraphs = false,
     typewriterScrolling = false,
+    vaultFiles = [],
+    onWikiLinkClick,
     onDocChange,
     onCopyComplete,
     onPastePlainComplete,
@@ -349,6 +361,38 @@
     '.cm-line.cm-dimmed-paragraph-line': {
       opacity: '0.32',
     },
+    '.cm-tooltip.cm-tooltip-autocomplete': {
+      backgroundColor: 'var(--bg-card-solid)',
+      border: '1px solid var(--border-control)',
+      borderRadius: 'var(--radius-card)',
+      fontFamily: 'var(--font-ui)',
+      fontSize: 'var(--text-xs)',
+      color: 'var(--text-primary)',
+      padding: 'var(--space-1)',
+      overflow: 'hidden',
+    },
+    '.cm-tooltip.cm-tooltip-autocomplete > ul': {
+      fontFamily: 'var(--font-ui)',
+      maxHeight: '220px',
+    },
+    '.cm-tooltip.cm-tooltip-autocomplete > ul > li': {
+      padding: '4px 8px',
+      borderRadius: 'var(--radius-control)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 'var(--space-2)',
+    },
+    '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': {
+      backgroundColor: 'var(--selection-bg)',
+      color: 'var(--text-primary)',
+    },
+    '.cm-completionDetail': {
+      color: 'var(--text-muted)',
+      fontSize: '11px',
+      fontStyle: 'normal',
+      marginLeft: 'auto',
+    },
   });
 
   function emitStats(state: EditorState) {
@@ -450,6 +494,34 @@
     }
   }
 
+  function tryCtrlClickRawWikiLink(event: MouseEvent, v: EditorView): boolean {
+    if (!(event.ctrlKey || event.metaKey) || !onWikiLinkClick) return false;
+    const pos = v.posAtCoords({ x: event.clientX, y: event.clientY });
+    if (pos === null) return false;
+    const line = v.state.doc.lineAt(pos);
+    if (!line.text.includes('[[')) return false;
+
+    const inlineSpans = findInlineCodeSpansInLine(line.text);
+    const offsetInLine = pos - line.from;
+    if (inlineSpans.some((s) => offsetInLine >= s.from && offsetInLine < s.to)) {
+      return false;
+    }
+
+    const regex = /\[\[([^\][\n]+)\]\]/g;
+    let match: RegExpExecArray | null;
+    while ((match = regex.exec(line.text)) !== null) {
+      const start = match.index;
+      const end = start + match[0].length;
+      if (offsetInLine >= start && offsetInLine <= end) {
+        event.preventDefault();
+        const parsed = parseWikiLinkInner(match[1]);
+        onWikiLinkClick(parsed.noteTarget, parsed.heading);
+        return true;
+      }
+    }
+    return false;
+  }
+
   function createEditorState(content: string): EditorState {
     return EditorState.create({
       doc: content,
@@ -461,11 +533,14 @@
         placeholder('Write your Markdown note here...'),
         markdown(),
         syntaxHighlighting(markdownHighlight),
+        createWikiLinkAutocompleteExtension(() => vaultFiles),
         livePreviewCompartment.of(
           createLivePreviewExtension({
             editingMode,
             dimInactiveParagraphs,
             typewriterScrolling,
+            onWikiLinkClick: (target, heading) =>
+              onWikiLinkClick?.(target, heading),
           })
         ),
         editorTheme,
@@ -482,6 +557,9 @@
           ...historyKeymap,
         ]),
         EditorView.domEventHandlers({
+          mousedown: (event, v) => {
+            return tryCtrlClickRawWikiLink(event, v);
+          },
           copy: (event, v) => {
             event.preventDefault();
             void performCustomCopy(v, 'copy', false);
@@ -526,11 +604,53 @@
             editingMode: mode,
             dimInactiveParagraphs: dim,
             typewriterScrolling: typewriter,
+            onWikiLinkClick: (target, heading) =>
+              onWikiLinkClick?.(target, heading),
           })
         ),
       });
     }
   });
+
+  function normalizeHeadingSlug(text: string): string {
+    return text
+      .trim()
+      .replace(/^#{1,6}\s+/, '')
+      .replace(/\s+#+\s*$/, '')
+      .trim()
+      .toLowerCase();
+  }
+
+  export function scrollToHeading(heading: string) {
+    if (!view || !heading.trim()) return;
+    const targetNorm = normalizeHeadingSlug(heading);
+    const doc = view.state.doc;
+
+    for (let ln = 1; ln <= doc.lines; ln++) {
+      const line = doc.line(ln);
+      const m = /^#{1,6}\s+(.+)$/.exec(line.text.trim());
+      if (m && normalizeHeadingSlug(m[1]) === targetNorm) {
+        view.dispatch({
+          selection: { anchor: line.from },
+          effects: EditorView.scrollIntoView(line.from, { y: 'center' }),
+        });
+        view.focus();
+        return;
+      }
+    }
+  }
+
+  export function scrollToLine(lineNumber: number) {
+    if (!view) return;
+    const doc = view.state.doc;
+    const clamped = Math.max(1, Math.min(doc.lines, Math.floor(lineNumber)));
+    const line = doc.line(clamped);
+    view.dispatch({
+      selection: { anchor: line.from },
+      effects: EditorView.scrollIntoView(line.from, { y: 'center' }),
+    });
+    view.focus();
+  }
 
   export function replaceContentFromDisk(newContent: string) {
     if (!view) return;

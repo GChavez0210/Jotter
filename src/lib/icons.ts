@@ -91,5 +91,15 @@ export const fluentIcons = {
   search16: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <path d="M6.5 2a4.5 4.5 0 1 0 2.81 8.02l3.33 3.33a.5.5 0 0 0 .71-.7l-3.33-3.34A4.5 4.5 0 0 0 6.5 2ZM3 6.5a3.5 3.5 0 1 1 7 0 3.5 3.5 0 0 1-7 0Z" fill="currentColor"/>
   </svg>`,
+  calendar16: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M5 1.5a.5.5 0 0 1 .5.5v.5h5V2a.5.5 0 0 1 1 0v.5h.5A2 2 0 0 1 14 4.5v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h.5V2a.5.5 0 0 1 .5-.5ZM4 3.5a1 1 0 0 0-1 1v1h10v-1a1 1 0 0 0-1-1H4Zm9 3H3v6a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-6Z" fill="currentColor"/>
+  </svg>`,
+  tag16: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M2.5 4A1.5 1.5 0 0 1 4 2.5h3.586a1.5 1.5 0 0 1 1.06.44l5.415 5.414a1.5 1.5 0 0 1 0 2.122l-3.586 3.585a1.5 1.5 0 0 1-2.122 0L2.94 8.646a1.5 1.5 0 0 1-.44-1.06V4Zm1.5-.5a.5.5 0 0 0-.5.5v3.586a.5.5 0 0 0 .146.353l5.415 5.415a.5.5 0 0 0 .707 0l3.586-3.586a.5.5 0 0 0 0-.707L7.939 3.646A.5.5 0 0 0 7.586 3.5H4ZM5.5 6.5a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z" fill="currentColor"/>
+  </svg>`,
+  backlink16: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M6.854 3.146a.5.5 0 0 1 0 .708L4.207 6.5H10a4 4 0 0 1 4 4v2a.5.5 0 0 1-1 0v-2a3 3 0 0 0-3-3H4.207l2.647 2.646a.5.5 0 0 1-.708.708l-3.5-3.5a.5.5 0 0 1 0-.708l3.5-3.5a.5.5 0 0 1 .708 0Z" fill="currentColor"/>
+  </svg>`,
 };
+
 

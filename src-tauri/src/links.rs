@@ -1,4 +1,4 @@
-use crate::types::WikiLink;
+use crate::types::{IndexedLink, WikiLink};
 
 /// Splits optional leading YAML frontmatter (`---\n...\n---\n`) from a Markdown document.
 /// Returns `(body, Some(frontmatter_inner))` if valid frontmatter is present at byte 0,
@@ -77,6 +77,84 @@ pub fn parse_wiki_link_inner(raw: &str, inner: &str) -> Option<WikiLink> {
         heading,
         alias,
     })
+}
+
+/// Extracts all `[[wiki links]]` from Markdown content with their 1-based line number
+/// and surrounding line context, skipping YAML frontmatter, fenced code blocks, and inline code.
+pub fn parse_wiki_links_with_lines(source_path: &str, content: &str) -> Vec<IndexedLink> {
+    let (body, frontmatter) = split_yaml_frontmatter(content);
+    let frontmatter_line_offset = match frontmatter {
+        Some(fm) => {
+            // Opening `---` line + lines inside frontmatter + closing `---` line
+            let inner_lines = if fm.is_empty() { 0 } else { fm.lines().count() };
+            inner_lines + 2
+        }
+        None => 0,
+    };
+
+    let mut indexed = Vec::new();
+    let mut in_fence = false;
+
+    for (idx, line) in body.lines().enumerate() {
+        let line_number = frontmatter_line_offset + idx + 1;
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence {
+            continue;
+        }
+
+        let bytes = line.as_bytes();
+        let len = bytes.len();
+        let mut i = 0;
+        let mut in_inline_code = false;
+
+        while i < len {
+            if bytes[i] == b'`' {
+                in_inline_code = !in_inline_code;
+                i += 1;
+                continue;
+            }
+            if in_inline_code {
+                i += 1;
+                continue;
+            }
+            if i + 1 < len && bytes[i] == b'[' && bytes[i + 1] == b'[' {
+                // Skip escaped `\[[`
+                if i > 0 && bytes[i - 1] == b'\\' {
+                    i += 2;
+                    continue;
+                }
+                let start = i;
+                let inner_start = i + 2;
+                if let Some(rel_end) = line[inner_start..].find("]]") {
+                    let inner_end = inner_start + rel_end;
+                    let raw = &line[start..inner_end + 2];
+                    let inner = &line[inner_start..inner_end];
+                    if let Some(parsed) = parse_wiki_link_inner(raw, inner) {
+                        if !parsed.target.is_empty() {
+                            let context: String = line.trim().chars().take(160).collect();
+                            indexed.push(IndexedLink {
+                                source_path: source_path.to_string(),
+                                target: parsed.target,
+                                heading: parsed.heading,
+                                alias: parsed.alias,
+                                line_number,
+                                line_context: context,
+                            });
+                        }
+                    }
+                    i = inner_end + 2;
+                    continue;
+                }
+            }
+            i += 1;
+        }
+    }
+
+    indexed
 }
 
 /// Extracts all `[[wiki links]]` from Markdown content, skipping fenced code blocks and inline code.
@@ -223,10 +301,85 @@ pub fn replace_wiki_links_with_display(line: &str) -> String {
     out
 }
 
-/// Extracts unique `#tags` from Markdown content (ignoring YAML frontmatter, code blocks, and headings).
-pub fn extract_tags(content: &str) -> Vec<String> {
-    let (body, _) = split_yaml_frontmatter(content);
+fn push_normalized_tag(tags: &mut Vec<String>, raw_token: &str) {
+    let cleaned = raw_token
+        .trim()
+        .trim_matches(|c: char| c == '"' || c == '\'' || c == '[' || c == ']')
+        .trim()
+        .trim_start_matches('#');
+
+    if cleaned.is_empty() {
+        return;
+    }
+
+    let valid_chars = cleaned
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '/');
+    let has_alpha = cleaned.chars().any(|c| c.is_alphabetic());
+
+    if valid_chars && has_alpha && !tags.iter().any(|existing| existing == cleaned) {
+        tags.push(cleaned.to_string());
+    }
+}
+
+/// Extracts tags from YAML frontmatter (`tags: [a, b]` or `tags:\n  - a\n  - b`).
+pub fn extract_frontmatter_tags(frontmatter: &str) -> Vec<String> {
     let mut tags = Vec::new();
+    let mut in_tags_list = false;
+
+    for line in frontmatter.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+
+        if in_tags_list {
+            if let Some(item) = trimmed.strip_prefix('-') {
+                push_normalized_tag(&mut tags, item);
+                continue;
+            } else if line.starts_with(' ') || line.starts_with('\t') {
+                for token in trimmed.split([',', ' ']) {
+                    push_normalized_tag(&mut tags, token);
+                }
+                continue;
+            } else {
+                in_tags_list = false;
+            }
+        }
+
+        if let Some((key, val)) = trimmed.split_once(':') {
+            let key_norm = key.trim().to_ascii_lowercase();
+            if key_norm == "tags" || key_norm == "tag" {
+                let val_trimmed = val.trim();
+                if val_trimmed.is_empty() {
+                    in_tags_list = true;
+                } else if let Some(inner) = val_trimmed
+                    .strip_prefix('[')
+                    .and_then(|s| s.strip_suffix(']'))
+                {
+                    for part in inner.split(',') {
+                        push_normalized_tag(&mut tags, part);
+                    }
+                } else {
+                    for part in val_trimmed.split([',', ' ']) {
+                        push_normalized_tag(&mut tags, part);
+                    }
+                }
+            }
+        }
+    }
+
+    tags
+}
+
+/// Extracts unique tags from both YAML frontmatter (`tags:`) and `#tags` in the Markdown body
+/// (skipping fenced code blocks, inline code, and headings).
+pub fn extract_tags(content: &str) -> Vec<String> {
+    let (body, frontmatter) = split_yaml_frontmatter(content);
+    let mut tags = match frontmatter {
+        Some(fm) => extract_frontmatter_tags(fm),
+        None => Vec::new(),
+    };
     let mut in_fence = false;
 
     for line in body.lines() {
@@ -267,12 +420,7 @@ pub fn extract_tags(content: &str) -> Vec<String> {
                     }
                     if j > i + 1 {
                         let candidate: String = chars[i + 1..j].iter().collect();
-                        // Obsidian requirement: tag cannot be purely numeric (e.g. #123)
-                        if candidate.chars().any(|c| c.is_alphabetic())
-                            && !tags.contains(&candidate)
-                        {
-                            tags.push(candidate);
-                        }
+                        push_normalized_tag(&mut tags, &candidate);
                         i = j;
                         continue;
                     }
@@ -358,6 +506,56 @@ mod tests {
         assert!(body.starts_with("# Heading"));
 
         let tags = extract_tags(doc);
-        assert_eq!(tags, vec!["work".to_string(), "project/v2".to_string()]);
+        assert_eq!(
+            tags,
+            vec![
+                "meta".to_string(),
+                "work".to_string(),
+                "project/v2".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn extracts_yaml_multiline_list_and_inline_tags_without_duplicates() {
+        let doc = "---\ntags:\n  - roadmap\n  - \"#windows11\"\n---\nBody mentions #roadmap and #fluent_ui.";
+        let tags = extract_tags(doc);
+        assert_eq!(
+            tags,
+            vec![
+                "roadmap".to_string(),
+                "windows11".to_string(),
+                "fluent_ui".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn parses_wiki_links_with_accurate_line_numbers_and_context() {
+        let doc = "---\ntags: [spec]\n---\n# Title\nRefer to [[Architecture#Storage|Storage Layer]] here.\n```\n[[IgnoredInFence]]\n```\nAnd [[Second Target]] on line 9.";
+        let indexed = parse_wiki_links_with_lines("notes/Overview.md", doc);
+        assert_eq!(indexed.len(), 2);
+        assert_eq!(
+            indexed[0],
+            IndexedLink {
+                source_path: "notes/Overview.md".to_string(),
+                target: "Architecture".to_string(),
+                heading: Some("Storage".to_string()),
+                alias: Some("Storage Layer".to_string()),
+                line_number: 5,
+                line_context: "Refer to [[Architecture#Storage|Storage Layer]] here.".to_string(),
+            }
+        );
+        assert_eq!(
+            indexed[1],
+            IndexedLink {
+                source_path: "notes/Overview.md".to_string(),
+                target: "Second Target".to_string(),
+                heading: None,
+                alias: None,
+                line_number: 9,
+                line_context: "And [[Second Target]] on line 9.".to_string(),
+            }
+        );
     }
 }

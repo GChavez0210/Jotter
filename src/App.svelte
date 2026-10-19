@@ -1,12 +1,14 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import type { UnlistenFn } from '@tauri-apps/api/event';
+  import BacklinksPanel from './lib/BacklinksPanel.svelte';
   import ClipboardInspector from './lib/ClipboardInspector.svelte';
   import CommandBar from './lib/CommandBar.svelte';
   import CommandPalette from './lib/CommandPalette.svelte';
   import Editor from './lib/Editor.svelte';
   import FirstRunScreen from './lib/FirstRunScreen.svelte';
   import FormattingToolbar from './lib/FormattingToolbar.svelte';
+  import QuickSwitcher from './lib/QuickSwitcher.svelte';
   import Sidebar from './lib/Sidebar.svelte';
   import StatusBar from './lib/StatusBar.svelte';
   import TabBar from './lib/TabBar.svelte';
@@ -20,6 +22,30 @@
 
   let editorRef: Editor | undefined = $state();
   let unlistenFsEvents: UnlistenFn | null = null;
+  let missingWikiLinkPrompt = $state<{
+    noteTarget: string;
+    heading?: string;
+  } | null>(null);
+
+  $effect(() => {
+    const target = tabsStore.pendingScrollTarget;
+    const activeRel = tabsStore.activeTabPath;
+    if (
+      target &&
+      activeRel &&
+      target.relPath.toLowerCase() === activeRel.toLowerCase() &&
+      editorRef
+    ) {
+      requestAnimationFrame(() => {
+        if (target.heading) {
+          editorRef?.scrollToHeading(target.heading);
+        } else if (target.lineNumber) {
+          editorRef?.scrollToLine(target.lineNumber);
+        }
+        tabsStore.clearPendingScrollTarget();
+      });
+    }
+  });
 
   async function refreshInspectorPreview() {
     const sample =
@@ -31,6 +57,51 @@
 
   function handleFormatCommand(cmd: MarkdownFormatCommandId) {
     editorRef?.executeMarkdownCommand(cmd);
+  }
+
+  function handleWikiLinkClick(noteTarget: string, heading?: string) {
+    const cleanNote = noteTarget.trim();
+    if (!cleanNote && heading) {
+      editorRef?.scrollToHeading(heading);
+      return;
+    }
+
+    if (!vaultStore.vaultSnapshot) {
+      if (heading) {
+        editorRef?.scrollToHeading(heading);
+      } else {
+        clipboardStore.setStatus(
+          `Open a vault to navigate to [[${cleanNote}]]`
+        );
+      }
+      return;
+    }
+
+    const found = vaultStore.resolveWikiTarget(cleanNote);
+    if (found) {
+      void tabsStore.openNoteInTab(found.relPath, { heading });
+      return;
+    }
+
+    missingWikiLinkPrompt = {
+      noteTarget: cleanNote,
+      heading,
+    };
+  }
+
+  async function confirmCreateMissingWikiNote() {
+    const prompt = missingWikiLinkPrompt;
+    missingWikiLinkPrompt = null;
+    if (!prompt) return;
+
+    const normalized = prompt.noteTarget.replace(/\\/g, '/');
+    const slashIdx = normalized.lastIndexOf('/');
+    const parentFolder = slashIdx >= 0 ? normalized.slice(0, slashIdx) : '';
+    const noteName = slashIdx >= 0 ? normalized.slice(slashIdx + 1) : normalized;
+    const createdRel = await vaultStore.createNoteInVault(parentFolder, noteName);
+    if (createdRel && prompt.heading) {
+      await tabsStore.openNoteInTab(createdRel, { heading: prompt.heading });
+    }
   }
 
   function handleGlobalMouseMove(e: MouseEvent) {
@@ -49,7 +120,27 @@
     // Command Palette (Ctrl+P) — works everywhere, including Zen mode
     if (isMod && !e.shiftKey && keyLower === 'p') {
       e.preventDefault();
+      settingsStore.showQuickSwitcher = false;
       settingsStore.showCommandPalette = !settingsStore.showCommandPalette;
+      return;
+    }
+
+    // Quick Switcher (Ctrl+O)
+    if (isMod && !e.shiftKey && keyLower === 'o') {
+      if (vaultStore.vaultSnapshot) {
+        e.preventDefault();
+        settingsStore.showCommandPalette = false;
+        settingsStore.showQuickSwitcher = !settingsStore.showQuickSwitcher;
+      }
+      return;
+    }
+
+    // Full-Text Vault Search (Ctrl+Shift+F)
+    if (isMod && e.shiftKey && keyLower === 'f') {
+      if (vaultStore.vaultSnapshot) {
+        e.preventDefault();
+        settingsStore.setLeftSidebarView('search');
+      }
       return;
     }
 
@@ -74,8 +165,18 @@
       return;
     }
 
-    // Escape exits Focus Mode (Minimal or Zen) to the previous layout
+    // Escape exits modals or Focus Mode (Minimal or Zen) to the previous layout
     if (e.key === 'Escape') {
+      if (missingWikiLinkPrompt) {
+        missingWikiLinkPrompt = null;
+        editorRef?.focusEditor();
+        return;
+      }
+      if (settingsStore.showQuickSwitcher) {
+        settingsStore.showQuickSwitcher = false;
+        editorRef?.focusEditor();
+        return;
+      }
       if (settingsStore.showCommandPalette) {
         settingsStore.showCommandPalette = false;
         editorRef?.focusEditor();
@@ -213,6 +314,30 @@
             <TabBar />
           {/if}
 
+          {#if missingWikiLinkPrompt}
+            <div class="external-reload-banner" role="alertdialog" aria-label="Create missing wiki link note">
+              <span>
+                Note <strong>[[{missingWikiLinkPrompt.noteTarget}]]</strong> does not exist in this vault yet. Would you like to create it?
+              </span>
+              <div class="external-reload-actions">
+                <button
+                  type="button"
+                  class="fluent-btn primary-btn"
+                  onclick={() => void confirmCreateMissingWikiNote()}
+                >
+                  Create & Open
+                </button>
+                <button
+                  type="button"
+                  class="fluent-btn"
+                  onclick={() => (missingWikiLinkPrompt = null)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          {/if}
+
           {#if tabsStore.activeTab?.externalChangePending}
             <div class="external-reload-banner" role="alert">
               <span>
@@ -258,6 +383,8 @@
                 editingMode={settingsStore.editingMode}
                 dimInactiveParagraphs={settingsStore.dimInactiveParagraphs}
                 typewriterScrolling={settingsStore.typewriterScrolling}
+                vaultFiles={vaultStore.allFiles}
+                onWikiLinkClick={handleWikiLinkClick}
                 onDocChange={(docId, content) =>
                   tabsStore.handleEditorDocChange(docId, content, () => {
                     if (settingsStore.showInspector) void refreshInspectorPreview();
@@ -278,6 +405,8 @@
                 editingMode={settingsStore.editingMode}
                 dimInactiveParagraphs={settingsStore.dimInactiveParagraphs}
                 typewriterScrolling={settingsStore.typewriterScrolling}
+                vaultFiles={vaultStore.allFiles}
+                onWikiLinkClick={handleWikiLinkClick}
                 onDocChange={(docId, content) =>
                   tabsStore.handleEditorDocChange(docId, content)}
                 onCopyComplete={(payload, source) =>
@@ -312,6 +441,10 @@
             {/if}
           </div>
         </section>
+
+        {#if vaultStore.vaultSnapshot && settingsStore.focusMode === 'off'}
+          <BacklinksPanel />
+        {/if}
       </div>
 
       {#if settingsStore.focusMode === 'off'}
@@ -321,6 +454,15 @@
   {/if}
 
   <StatusBar />
+
+  {#if settingsStore.showQuickSwitcher}
+    <QuickSwitcher
+      onClose={() => {
+        settingsStore.showQuickSwitcher = false;
+        editorRef?.focusEditor();
+      }}
+    />
+  {/if}
 
   {#if settingsStore.showCommandPalette}
     <CommandPalette

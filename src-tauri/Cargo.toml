@@ -23,6 +23,7 @@ window-vibrancy = "0.8"
 notify = "7.0"
 rusqlite = { version = "0.32", features = ["bundled"] }
 trash = "5.2"
+tantivy = { version = "0.22", default-features = false, features = ["mmap"] }
 
 [dev-dependencies]
 tempfile = "3.14"

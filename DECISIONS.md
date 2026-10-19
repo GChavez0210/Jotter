@@ -43,5 +43,17 @@
   - **Zen (`F11`)** enters native window fullscreen (`getCurrentWindow().setFullscreen(true)`) with only the text canvas visible.
   - Moving the mouse to the top edge (`clientY <= 12`) temporarily reveals the command bar and menu; pressing `Esc` exits back to the previous layout (`preFocusLayout`). All layout and focus preferences (`editingMode`, `focusMode`, `typewriterScrolling`, `dimInactiveParagraphs`, `sidebarWidth`, `sidebarCollapsed`) persist per window in `localStorage`.
 
-
-
+## 8. Links, Backlinks, Full-Text Search (`tantivy`), Tags, Quick Switcher, & Calendar View (Milestone 4)
+- **SQLite `links` & `note_tags` Tables (`src-tauri/src/index.rs`, `src-tauri/src/links.rs`)**:
+  - `links (source_path, target, target_norm, heading, alias, line_number, line_context)` stores every outgoing `[[wiki link]]` outside inline/fenced code blocks with its 1-based line number (accounting for YAML frontmatter lines) and trimmed line context.
+  - `note_tags (path, tag)` stores unique normalized tags extracted from both YAML frontmatter (`tags: [a, b]` and multiline YAML list `- a`) and inline `#tags`.
+  - Both tables are rebuilt on vault open and updated incrementally via `upsert_scanned_note` and `delete_indexed_path` on in-app saves, renames, deletes, and debounced watcher batches.
+- **Full-Text Search (`tantivy` in `src-tauri/src/search.rs`)**:
+  - `VaultSearchIndex` maintains an in-memory `tantivy` index (`path` STRING, `title` TEXT, `body` TEXT). It performs a full rebuild **only** on vault open (`rebuild_from_scanned`) and updates incrementally (`upsert_scanned_note`, `upsert_batch`, `delete_path_or_prefix`) on note creations, saves, renames, deletions, and watcher batches.
+  - Search queries use `tantivy::SnippetGenerator` to produce `<mark>`-highlighted HTML snippets alongside 1-based line numbers and total match counts.
+- **Wiki-Link Autocomplete & Click-Through Navigation (`src/lib/wikiLinkAutocomplete.ts`, `src/lib/livePreview.ts`, `src/lib/Editor.svelte`)**:
+  - Typing `[[` triggers a CodeMirror 6 completion list of vault notes matching on both note title and relative path.
+  - Clicking a rendered `[[wiki link]]` in Live mode (or `Ctrl+Click` on raw syntax in Source mode) resolves the target note in the vault and opens it in a tab; if `[[Note#Heading]]` is specified, the editor scrolls directly to the matching Markdown heading (`scrollToHeading`). If the target note does not exist yet, a prompt offers to create and open it.
+- **Calendar View (`src/lib/CalendarView.svelte`)**:
+  - Displays a month grid with dot + count indicators and heat-style shading for notes touched each day, with a `Modified` / `Created` toggle (`Modified` uses `edit_log` when present and falls back to filesystem `mtime`).
+  - Supports full keyboard navigation on the month grid: `ArrowLeft`/`ArrowRight`/`ArrowUp`/`ArrowDown` move between days (automatically crossing month boundaries), `Enter` opens the focused day's note list, and `T` jumps to today.
