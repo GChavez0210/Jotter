@@ -366,6 +366,8 @@
         {#if vaultStore.vaultSnapshot && settingsStore.focusMode === 'off'}
           <Sidebar
             snapshot={vaultStore.vaultSnapshot}
+            recentVaults={vaultStore.recentVaults}
+            onOpenVault={(path) => void vaultStore.openVaultByPath(path)}
             activeRelPath={tabsStore.activeTabPath}
             width={settingsStore.sidebarWidth}
             collapsed={settingsStore.sidebarCollapsed}

@@ -5,11 +5,13 @@
   import TagBrowserPanel from './TagBrowserPanel.svelte';
   import { fluentIcons } from './icons';
   import { settingsStore } from './stores/settings.svelte';
-  import type { VaultNode, VaultSnapshot } from './types';
+  import type { RecentVault, VaultNode, VaultSnapshot } from './types';
   import { validateWindowsEntryName } from './validation';
 
   interface Props {
     snapshot: VaultSnapshot;
+    recentVaults: RecentVault[];
+    onOpenVault: (path: string) => void;
     activeRelPath: string | null;
     width: number;
     collapsed: boolean;
@@ -24,6 +26,8 @@
 
   let {
     snapshot,
+    recentVaults,
+    onOpenVault,
     activeRelPath,
     width,
     collapsed,
@@ -55,6 +59,19 @@
 
   let pendingDeleteNode: VaultNode | null = $state(null);
   let isResizing = $state(false);
+  let vaultMenuOpen = $state(false);
+
+  function samePath(a: string, b: string): boolean {
+    const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+    return norm(a) === norm(b);
+  }
+
+  function chooseVault(path: string) {
+    vaultMenuOpen = false;
+    if (!samePath(path, snapshot.rootPath)) {
+      onOpenVault(path);
+    }
+  }
 
   function toggleFolder(relPath: string) {
     expandedPaths = {
@@ -141,6 +158,12 @@
 <svelte:window
   onclick={() => {
     if (contextMenu) contextMenu = null;
+    if (vaultMenuOpen) vaultMenuOpen = false;
+  }}
+  onkeydown={(e) => {
+    if (e.key === 'Escape' && vaultMenuOpen) {
+      vaultMenuOpen = false;
+    }
   }}
 />
 
@@ -155,8 +178,14 @@
       <button
         type="button"
         class="vault-switcher-btn"
-        title="Switch or manage vaults ({snapshot.rootPath})"
-        onclick={onSwitchVault}
+        title="Switch vault ({snapshot.rootPath})"
+        aria-haspopup="menu"
+        aria-expanded={vaultMenuOpen}
+        onclick={(e) => {
+          e.stopPropagation();
+          contextMenu = null;
+          vaultMenuOpen = !vaultMenuOpen;
+        }}
       >
         <span class="vault-folder-icon">{@html fluentIcons.folder16}</span>
         <span class="vault-name">{snapshot.name}</span>
@@ -184,6 +213,48 @@
         </button>
       </div>
     </div>
+
+    {#if vaultMenuOpen}
+      <div class="vault-menu" role="menu" aria-label="Switch vault">
+        {#each recentVaults as vault (vault.path)}
+          {@const isCurrent = samePath(vault.path, snapshot.rootPath)}
+          <button
+            type="button"
+            class="vault-menu-item"
+            class:current={isCurrent}
+            role="menuitemradio"
+            aria-checked={isCurrent}
+            title={vault.path}
+            onclick={(e) => {
+              e.stopPropagation();
+              chooseVault(vault.path);
+            }}
+          >
+            <span class="vault-menu-check">{isCurrent ? '✓' : ''}</span>
+            <span class="vault-menu-text">
+              <span class="vault-menu-name">{vault.name}</span>
+              <span class="vault-menu-path">{vault.path}</span>
+            </span>
+          </button>
+        {/each}
+        <div class="ctx-sep" role="separator"></div>
+        <button
+          type="button"
+          class="vault-menu-item"
+          role="menuitem"
+          onclick={(e) => {
+            e.stopPropagation();
+            vaultMenuOpen = false;
+            onSwitchVault();
+          }}
+        >
+          <span class="vault-menu-check"></span>
+          <span class="vault-menu-text">
+            <span class="vault-menu-name">Open or create another vault…</span>
+          </span>
+        </button>
+      </div>
+    {/if}
 
     <div class="sidebar-nav-tabs" role="tablist" aria-label="Sidebar views">
       <button
@@ -526,6 +597,72 @@
     display: inline-flex;
     color: var(--text-secondary);
     flex-shrink: 0;
+  }
+
+  .vault-menu {
+    position: absolute;
+    top: 52px;
+    left: var(--space-2);
+    right: var(--space-2);
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-1);
+    max-height: 60%;
+    overflow-y: auto;
+    background: var(--bg-card-solid);
+    border: 1px solid var(--border-control);
+    border-radius: var(--radius-card);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  }
+
+  .vault-menu-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--control-min-height);
+    padding: var(--space-1) var(--space-2);
+    border: 1px solid transparent;
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--text-primary);
+    font-size: var(--text-xs);
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .vault-menu-item:hover {
+    background: var(--bg-control-hover);
+  }
+
+  .vault-menu-item.current {
+    font-weight: 600;
+  }
+
+  .vault-menu-check {
+    width: 14px;
+    flex-shrink: 0;
+    color: var(--accent-color, var(--accent-fallback));
+  }
+
+  .vault-menu-text {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .vault-menu-name,
+  .vault-menu-path {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .vault-menu-path {
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 400;
   }
 
   .sidebar-actions {
