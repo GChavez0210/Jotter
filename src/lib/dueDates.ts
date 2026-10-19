@@ -42,8 +42,11 @@ function validDate(date: string): boolean {
 export function findDueDate(line: string): DueDateMatch | null {
   const task = TASK_RE.exec(line);
   if (!task) return null;
+  // A date written as code, such as `due:2026-01-01` in backticks, is not a due date. Blanking
+  // the span keeps offsets, and matches `mask_code_spans` in `src-tauri/src/tasks.rs`.
+  const masked = line.replace(/`[^`]*`/g, (span) => `\`${' '.repeat(span.length - 2)}\``);
   for (const re of DUE_PATTERNS) {
-    const m = re.exec(line);
+    const m = re.exec(masked);
     if (m && validDate(m[1])) {
       return { from: m.index, to: m.index + m[0].length, date: m[1], time: m[2] ?? null, done: task[1] !== ' ' };
     }
