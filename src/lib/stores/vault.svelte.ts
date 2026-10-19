@@ -63,6 +63,17 @@ export function stripMdExt(pathOrName: string): string {
   return pathOrName.replace(/\.md$/i, '');
 }
 
+const DISMISSED_CONFLICTS_KEY = 'jotter.dismissedConflicts';
+
+function loadDismissedConflicts(): Record<string, string[]> {
+  try {
+    const saved = JSON.parse(localStorage.getItem(DISMISSED_CONFLICTS_KEY) ?? '{}');
+    return saved && typeof saved === 'object' ? saved : {};
+  } catch {
+    return {};
+  }
+}
+
 class VaultStore {
   vaultSnapshot = $state<VaultSnapshot | null>(null);
   recentVaults = $state<RecentVault[]>([]);
@@ -85,9 +96,30 @@ class VaultStore {
     this.vaultSnapshot ? detectSyncProvider(this.vaultSnapshot.rootPath) : null
   );
 
+  /** Copies the user marked as ordinary notes, per vault root. Local storage keeps them per computer. */
+  private dismissedConflicts = $state<Record<string, string[]>>(loadDismissedConflicts());
+
   syncConflicts = $derived<ConflictCopy[]>(
-    findConflictCopies(this.allFiles.map((f) => f.relPath), this.syncProvider)
+    findConflictCopies(
+      this.allFiles.map((f) => f.relPath),
+      this.syncProvider,
+      new Set(this.vaultSnapshot ? (this.dismissedConflicts[this.vaultSnapshot.rootPath] ?? []) : [])
+    )
   );
+
+  /** Stops listing an ambiguous name, such as `Lecture 2.md`, as a conflict copy. */
+  dismissConflict(copyPath: string) {
+    const root = this.vaultSnapshot?.rootPath;
+    if (!root) return;
+    const list = this.dismissedConflicts[root] ?? [];
+    if (list.includes(copyPath)) return;
+    this.dismissedConflicts = { ...this.dismissedConflicts, [root]: [...list, copyPath] };
+    try {
+      localStorage.setItem(DISMISSED_CONFLICTS_KEY, JSON.stringify(this.dismissedConflicts));
+    } catch {
+      // The choice lasts for this session only.
+    }
+  }
 
   bumpIndexVersion() {
     this.indexVersion += 1;

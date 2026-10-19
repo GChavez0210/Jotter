@@ -1,4 +1,11 @@
-import { EditorState, RangeSet, StateField, type Extension } from '@codemirror/state';
+import {
+  EditorState,
+  RangeSet,
+  StateField,
+  Transaction,
+  type Extension,
+  type TransactionSpec,
+} from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView } from '@codemirror/view';
 import { parseFrontmatter } from './frontmatter';
 
@@ -12,8 +19,7 @@ import { parseFrontmatter } from './frontmatter';
 const MAX_FRONTMATTER = 64 * 1024;
 
 function hiddenRange(state: EditorState): DecorationSet {
-  const head = state.doc.sliceString(0, MAX_FRONTMATTER);
-  const fm = parseFrontmatter(head);
+  const fm = parseFrontmatter(state.doc.sliceString(0, MAX_FRONTMATTER));
   if (!fm) return Decoration.none;
   // Block replacements must span whole lines, so stop before the closing fence's newline.
   const closing = state.doc.lineAt(Math.max(0, fm.end - 1));
@@ -47,6 +53,8 @@ export function createFrontmatterHideExtension(): Extension {
   // Keep the cursor out of the hidden lines, so typing never lands above the closing fence.
   const keepCursorOut = EditorState.transactionFilter.of((tr) => {
     if (!tr.selection && !tr.docChanged) return tr;
+    const typed = typedAfterClosingFence(tr);
+    if (typed) return typed;
     const sel = tr.newSelection.main;
     if (!sel.empty) return tr;
     // Read the field instead of reparsing, since this runs on every cursor move.
@@ -56,5 +64,32 @@ export function createFrontmatterHideExtension(): Extension {
     if (sel.head >= after) return tr;
     return [tr, { selection: { anchor: after }, sequential: true }];
   });
+
+  /**
+   * In a note that is only frontmatter with no final newline, the cursor can only sit at the
+   * end of the closing fence. Typing there would turn `---` into `---text` and break the block,
+   * so the input moves to a new line below the fence.
+   */
+  function typedAfterClosingFence(tr: Transaction): TransactionSpec | null {
+    if (!tr.docChanged || !tr.isUserEvent('input')) return null;
+    const end = tr.startState.doc.length;
+    const hidden = tr.startState.field(field).iter();
+    if (hidden.value === null || hidden.to !== end) return null;
+    let changes = 0;
+    // Asserted so TypeScript does not narrow it to null; the callback below assigns it.
+    let text = null as string | null;
+    tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+      changes++;
+      if (fromA === end && toA === end) text = inserted.toString();
+    });
+    if (changes !== 1 || text === null || text.startsWith('\n')) return null;
+    return {
+      changes: { from: end, insert: `\n${text}` },
+      selection: { anchor: end + 1 + text.length },
+      userEvent: tr.annotation(Transaction.userEvent),
+      scrollIntoView: true,
+    };
+  }
+
   return [field, keepCursorOut];
 }

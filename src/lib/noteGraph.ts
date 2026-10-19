@@ -104,8 +104,12 @@ export const SECTION_KIND_LABELS: Record<HomeSectionKind, string> = {
 export const REDISCOVER_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 
 function hasTag(card: NoteCard, tag: string): boolean {
+  // The index keeps tags as written, so `#Project` and `#project` both match `project`.
   const t = tag.replace(/^#/, '').toLowerCase();
-  return card.tags.some((c) => c === t || c.startsWith(`${t}/`));
+  return card.tags.some((c) => {
+    const lower = c.toLowerCase();
+    return lower === t || lower.startsWith(`${t}/`);
+  });
 }
 
 function inFolder(card: NoteCard, folder: string): boolean {

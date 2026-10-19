@@ -37,6 +37,8 @@ export interface ConflictCopy {
   originalPath: string | null;
   /** The client whose naming pattern matched. */
   provider: SyncProvider | 'unknown';
+  /** True for names a person could choose too, such as `Note 2`; the user can dismiss these. */
+  ambiguous: boolean;
 }
 
 interface Pattern {
@@ -56,7 +58,15 @@ function suffix(re: RegExp): (stem: string) => string[] {
   };
 }
 
-const DEVICE_NAME = /^(?=[A-Z0-9-]*[A-Z])[A-Z0-9][A-Z0-9-]{3,14}(?:-\d+)?$/;
+/**
+ * A Windows computer name as OneDrive appends it, such as `DESKTOP-4F2K9` or `ALEX-PC`. It needs
+ * two letters and a digit or an inner hyphen, so suffixes people write themselves, such as
+ * `TODO`, `FINAL`, or `2026Q1`, are not mistaken for one.
+ */
+function isDeviceName(text: string): boolean {
+  if (!/^[A-Z0-9][A-Z0-9-]{3,14}(?:-\d+)?$/.test(text)) return false;
+  return (text.match(/[A-Z]/g) ?? []).length >= 2 && /\d|.-./.test(text);
+}
 
 const PATTERNS: Pattern[] = [
   // Dropbox: "Note (Alex's conflicted copy 2026-10-19).md", also with a trailing counter.
@@ -73,7 +83,7 @@ const PATTERNS: Pattern[] = [
     bases: (stem) => {
       const out: string[] = [];
       for (let i = stem.indexOf('-'); i > 0; i = stem.indexOf('-', i + 1)) {
-        if (DEVICE_NAME.test(stem.slice(i + 1))) out.push(stem.slice(0, i));
+        if (isDeviceName(stem.slice(i + 1))) out.push(stem.slice(0, i));
       }
       return out;
     },
@@ -95,8 +105,13 @@ function splitExt(path: string): { stem: string; ext: string } {
 /**
  * Finds conflict copies among vault-relative paths. `provider` enables the ambiguous patterns
  * for the vault's sync client; the explicit Dropbox, Nextcloud, and Syncthing names always count.
+ * `dismissed` holds copy paths the user marked as not a conflict; it only hides ambiguous names.
  */
-export function findConflictCopies(paths: string[], provider: SyncProvider | null): ConflictCopy[] {
+export function findConflictCopies(
+  paths: string[],
+  provider: SyncProvider | null,
+  dismissed: ReadonlySet<string> = new Set()
+): ConflictCopy[] {
   const normalized = paths.map((p) => p.replace(/\\/g, '/'));
   const byLower = new Map(normalized.map((p) => [p.toLowerCase(), p]));
   const found: ConflictCopy[] = [];
@@ -109,10 +124,12 @@ export function findConflictCopies(paths: string[], provider: SyncProvider | nul
       const original =
         bases.map((base) => byLower.get(`${base}${ext}`.toLowerCase())).find(Boolean) ?? null;
       if (pattern.needsOriginal && !original) continue;
+      if (pattern.needsOriginal && dismissed.has(path)) break;
       found.push({
         copyPath: path,
         originalPath: original,
         provider: pattern.onlyIn && provider ? provider : pattern.provider,
+        ambiguous: pattern.needsOriginal,
       });
       break;
     }
