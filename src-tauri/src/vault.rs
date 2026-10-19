@@ -9,45 +9,112 @@ use crate::types::{
     NoteDocument, RecentVault, RenameEntryResult, VaultNode, VaultNodeKind, VaultSnapshot,
 };
 
+const WINDOWS_RESERVED_NAMES: &[&str] = &[
+    "CON", "PRN", "AUX", "NUL", "COM0", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
+    "COM8", "COM9", "LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8",
+    "LPT9",
+];
+
+const WINDOWS_INVALID_CHARS: &[char] = &['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
+
+/// Validates a single path segment (file or folder name) against Windows naming rules:
+/// - Non-empty
+/// - No leading dot (`.obsidian`, `.git`, `.hidden`)
+/// - No trailing space or trailing period (checked both on the full segment and on the stem before `.md`)
+/// - No invalid Windows characters (`< > : " / \ | ? *` or control characters)
+/// - Not a Windows reserved device name (`CON`, `PRN`, `AUX`, `NUL`, `COM0-9`, `LPT0-9`, with or without extension)
+pub fn validate_windows_entry_name(raw_segment: &str) -> Result<(), String> {
+    if raw_segment.is_empty() || raw_segment.trim().is_empty() {
+        return Err("Name cannot be empty.".to_string());
+    }
+
+    if raw_segment.ends_with(' ') || raw_segment.ends_with('.') {
+        return Err("Windows names cannot end with a space or a period.".to_string());
+    }
+
+    // If the segment has an extension (e.g. `foo .md` or `foo..md`), also check the stem before `.md`
+    if let Some(stem) = raw_segment
+        .strip_suffix(".md")
+        .or_else(|| raw_segment.strip_suffix(".MD"))
+    {
+        if stem.is_empty() || stem.trim().is_empty() {
+            return Err("Note name cannot be empty.".to_string());
+        }
+        if stem.ends_with(' ') || stem.ends_with('.') {
+            return Err("Windows names cannot end with a space or a period.".to_string());
+        }
+    }
+
+    let trimmed = raw_segment.trim();
+    if trimmed.starts_with('.') {
+        return Err(format!(
+            "Names starting with a dot (such as '{trimmed}') are reserved."
+        ));
+    }
+
+    for ch in raw_segment.chars() {
+        if WINDOWS_INVALID_CHARS.contains(&ch) || ch.is_control() {
+            return Err(format!(
+                "Name contains invalid Windows character '{ch}'. Avoid < > : \" / \\ | ? *"
+            ));
+        }
+    }
+
+    // Check reserved device names (both full segment and stem before first '.')
+    let stem_before_dot = trimmed.split('.').next().unwrap_or(trimmed).trim();
+    let upper = stem_before_dot.to_ascii_uppercase();
+    if WINDOWS_RESERVED_NAMES.contains(&upper.as_str()) {
+        return Err(format!(
+            "'{stem_before_dot}' is a reserved Windows device name."
+        ));
+    }
+
+    Ok(())
+}
+
 /// Normalizes a relative vault path to forward slashes (`/`) without leading or trailing slashes.
+/// Preserves any trailing spaces/dots on individual path segments so `validate_windows_entry_name` can catch them.
 pub fn normalize_rel_path(rel_path: &str) -> String {
     rel_path
         .replace('\\', "/")
-        .trim()
-        .trim_matches('/')
+        .trim_start_matches('/')
+        .trim_end_matches('/')
         .to_string()
 }
 
 /// Validates and resolves a relative path inside `vault_root`.
-/// Rejects path traversal (`..`), absolute paths, and `.obsidian` or dot-prefixed segments.
-pub fn resolve_safe_vault_path(vault_root: &Path, rel_path: &str) -> Result<(PathBuf, String), String> {
+/// Rejects path traversal (`..`), absolute paths, `.obsidian` or dot-prefixed segments,
+/// and invalid Windows entry names.
+pub fn resolve_safe_vault_path(
+    vault_root: &Path,
+    rel_path: &str,
+) -> Result<(PathBuf, String), String> {
     let normalized = normalize_rel_path(rel_path);
-    if normalized.is_empty() {
-        return Err("Relative path cannot be empty".to_string());
+    if normalized.trim().is_empty() {
+        return Err("Relative path cannot be empty.".to_string());
+    }
+
+    // Validate each slash-separated segment before Path::components (since Path on Windows can strip trailing dots)
+    let raw_parts: Vec<&str> = normalized.split('/').collect();
+    let mut clean_parts = Vec::with_capacity(raw_parts.len());
+
+    for raw_part in raw_parts {
+        if raw_part == "." || raw_part == ".." {
+            return Err(format!(
+                "Path traversal or non-relative path segment is not allowed: {rel_path}"
+            ));
+        }
+        validate_windows_entry_name(raw_part)?;
+        let trimmed_start = raw_part.trim_start();
+        clean_parts.push(trimmed_start.to_string());
     }
 
     let rel = Path::new(&normalized);
-    let mut clean_parts = Vec::new();
-
     for comp in rel.components() {
-        match comp {
-            Component::Normal(os_str) => {
-                let part = os_str
-                    .to_str()
-                    .ok_or_else(|| "Invalid UTF-8 in vault path".to_string())?
-                    .trim();
-                if part.is_empty() || part.starts_with('.') {
-                    return Err(format!(
-                        "Hidden or system dot-paths (such as .obsidian) are not allowed: {part}"
-                    ));
-                }
-                clean_parts.push(part.to_string());
-            }
-            _ => {
-                return Err(format!(
-                    "Path traversal or non-relative path segment is not allowed: {rel_path}"
-                ));
-            }
+        if !matches!(comp, Component::Normal(_)) {
+            return Err(format!(
+                "Path traversal or non-relative path segment is not allowed: {rel_path}"
+            ));
         }
     }
 
@@ -59,7 +126,8 @@ pub fn resolve_safe_vault_path(vault_root: &Path, rel_path: &str) -> Result<(Pat
     Ok((full_path, clean_parts.join("/")))
 }
 
-/// Ensures a relative note path ends with `.md` (case-insensitive).
+/// Ensures a relative note path ends with `.md` (case-insensitive), validating raw segments first
+/// so trailing dots/spaces before `.md` are caught.
 pub fn ensure_md_extension(rel_path: &str) -> String {
     let norm = normalize_rel_path(rel_path);
     if norm.len() >= 3 && norm[norm.len() - 3..].eq_ignore_ascii_case(".md") {
@@ -323,20 +391,15 @@ pub fn rename_vault_entry(
     })
 }
 
-/// Deletes a note or folder inside `vault_root`.
+/// Sends a note or folder inside `vault_root` to the Windows Recycle Bin via the `trash` crate.
 pub fn delete_vault_entry(vault_root: &Path, rel_path: &str) -> Result<VaultSnapshot, String> {
     let (abs_path, clean_rel) = resolve_safe_vault_path(vault_root, rel_path)?;
     if !abs_path.exists() {
         return Err(format!("Entry to delete does not exist: '{clean_rel}'"));
     }
 
-    if abs_path.is_dir() {
-        fs::remove_dir_all(&abs_path)
-            .map_err(|e| format!("Failed to delete folder '{clean_rel}': {e}"))?;
-    } else {
-        fs::remove_file(&abs_path)
-            .map_err(|e| format!("Failed to delete note '{clean_rel}': {e}"))?;
-    }
+    trash::delete(&abs_path)
+        .map_err(|e| format!("Failed to move '{clean_rel}' to Recycle Bin: {e}"))?;
 
     scan_vault_snapshot(vault_root)
 }
@@ -488,6 +551,39 @@ mod tests {
     }
 
     #[test]
+    fn rejects_windows_reserved_names_invalid_chars_and_trailing_dots_or_spaces() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+
+        // Reserved device names (case-insensitive, with or without extension)
+        for reserved in ["CON", "prn", "Aux.md", "NUL", "COM1.md", "lpt9", "Folder/CON.md"] {
+            assert!(
+                resolve_safe_vault_path(root, reserved).is_err(),
+                "Expected reserved name '{reserved}' to be rejected"
+            );
+        }
+
+        // Invalid characters
+        for invalid in ["Note?.md", "A:B.md", "Star*.md", "Pipe|.md", "Quote\".md", "Angle<>.md"] {
+            assert!(
+                resolve_safe_vault_path(root, invalid).is_err(),
+                "Expected invalid chars in '{invalid}' to be rejected"
+            );
+        }
+
+        // Trailing spaces or dots (both on folder/note name and before .md)
+        for trailing in ["TrailingDot.", "TrailingSpace ", "Note..md", "Note .md", "Folder./Note.md"] {
+            assert!(
+                resolve_safe_vault_path(root, trailing).is_err(),
+                "Expected trailing space/dot in '{trailing}' to be rejected"
+            );
+        }
+
+        // Valid names pass
+        assert!(resolve_safe_vault_path(root, "Meeting Notes (2026-10-19).md").is_ok());
+    }
+
+    #[test]
     fn vault_crud_and_noop_save_preserve_files_and_ignore_obsidian() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path();
@@ -523,7 +619,7 @@ mod tests {
         assert!(!root.join("Daily/2026-10-18.md").exists());
         assert!(root.join("Daily/2026-10-19.md").exists());
 
-        // Delete folder
+        // Delete folder (moves to Windows Recycle Bin via trash crate)
         let snap_after_del = delete_vault_entry(root, "Daily").unwrap();
         assert_eq!(snap_after_del.note_count, 0);
         assert!(snap_after_del.tree.is_empty());

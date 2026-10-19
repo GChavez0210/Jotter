@@ -2,11 +2,21 @@ use std::fs;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::clipboard::strip_markdown_to_plain;
 use crate::links::split_yaml_frontmatter;
 use crate::types::{CalendarDateField, CalendarDaySummary, CalendarNoteEntry};
+
+/// Filesystem metadata scanned from a `.md` note without holding the SQLite mutex.
+#[derive(Debug, Clone)]
+pub struct ScannedNoteFile {
+    pub path: String,
+    pub title: String,
+    pub fs_modified_ms: i64,
+    pub created_ms: i64,
+    pub preview: String,
+}
 
 /// Converts a `SystemTime` to milliseconds since UNIX_EPOCH.
 pub fn system_time_to_ms(time: SystemTime) -> i64 {
@@ -57,7 +67,7 @@ pub fn extract_note_preview(content: &str) -> String {
     String::new()
 }
 
-/// Initializes the rebuildable SQLite metadata cache schema.
+/// Initializes the rebuildable SQLite metadata cache schema (`notes` and persistent `edit_log`).
 pub fn init_index_schema(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS notes (
@@ -69,10 +79,75 @@ pub fn init_index_schema(conn: &Connection) -> Result<(), String> {
             created_date TEXT NOT NULL,
             preview TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS edit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            path TEXT NOT NULL,
+            edited_ms INTEGER NOT NULL
+        );
         CREATE INDEX IF NOT EXISTS idx_notes_modified_date ON notes(modified_date);
-        CREATE INDEX IF NOT EXISTS idx_notes_created_date ON notes(created_date);",
+        CREATE INDEX IF NOT EXISTS idx_notes_created_date ON notes(created_date);
+        CREATE INDEX IF NOT EXISTS idx_edit_log_path_ms ON edit_log(path, edited_ms DESC);",
     )
     .map_err(|e| format!("Failed to initialize SQLite index schema: {e}"))
+}
+
+/// Logs an in-app save event in `edit_log` (`path`, `edited_ms`), which is preserved across index rebuilds.
+pub fn record_edit_log(conn: &Connection, rel_path: &str, edited_ms: i64) -> Result<(), String> {
+    conn.execute(
+        "INSERT INTO edit_log (path, edited_ms) VALUES (?1, ?2)",
+        params![rel_path, edited_ms],
+    )
+    .map_err(|e| format!("Failed to insert into edit_log for {rel_path}: {e}"))?;
+    Ok(())
+}
+
+/// Returns the latest `edited_ms` from `edit_log` for `rel_path`, if any in-app save has been recorded.
+pub fn latest_edit_log_ms(conn: &Connection, rel_path: &str) -> Result<Option<i64>, String> {
+    conn.query_row(
+        "SELECT MAX(edited_ms) FROM edit_log WHERE path = ?1",
+        params![rel_path],
+        |row| row.get::<_, Option<i64>>(0),
+    )
+    .optional()
+    .map(|opt| opt.flatten())
+    .map_err(|e| format!("Failed to query edit_log for {rel_path}: {e}"))
+}
+
+/// Updates `edit_log` paths when a note or folder is renamed so in-app edit timestamps follow the file.
+pub fn rename_edit_log_paths(
+    conn: &Connection,
+    old_rel_path: &str,
+    new_rel_path: &str,
+) -> Result<(), String> {
+    conn.execute(
+        "UPDATE edit_log SET path = ?2 WHERE path = ?1",
+        params![old_rel_path, new_rel_path],
+    )
+    .map_err(|e| format!("Failed to rename edit_log path {old_rel_path}: {e}"))?;
+
+    let old_prefix = format!("{old_rel_path}/%");
+    let old_prefix_len = old_rel_path.len() + 1;
+    let mut stmt = conn
+        .prepare("SELECT DISTINCT path FROM edit_log WHERE path LIKE ?1")
+        .map_err(|e| format!("Failed to prepare edit_log prefix query: {e}"))?;
+    let sub_paths: Vec<String> = stmt
+        .query_map(params![old_prefix], |r| r.get(0))
+        .map_err(|e| format!("Failed to query edit_log sub-paths: {e}"))?
+        .filter_map(Result::ok)
+        .collect();
+
+    for sub in sub_paths {
+        if sub.len() >= old_prefix_len {
+            let updated = format!("{new_rel_path}/{}", &sub[old_prefix_len..]);
+            conn.execute(
+                "UPDATE edit_log SET path = ?2 WHERE path = ?1",
+                params![sub, updated],
+            )
+            .map_err(|e| format!("Failed to update child edit_log path {sub}: {e}"))?;
+        }
+    }
+
+    Ok(())
 }
 
 /// Inserts or updates a note's metadata row in the SQLite index cache.
@@ -106,13 +181,11 @@ pub fn upsert_note_entry(
     Ok(())
 }
 
-/// Indexes a single `.md` file from disk into the SQLite cache.
-pub fn index_single_file(
-    conn: &Connection,
+/// Scans a single `.md` file from disk without holding the SQLite lock.
+pub fn scan_single_file_from_disk(
     vault_root: &Path,
     abs_path: &Path,
-    override_modified_ms: Option<i64>,
-) -> Result<(), String> {
+) -> Result<ScannedNoteFile, String> {
     let rel = abs_path
         .strip_prefix(vault_root)
         .map_err(|e| format!("Path is outside vault root: {e}"))?;
@@ -124,15 +197,14 @@ pub fn index_single_file(
 
     let metadata = fs::metadata(abs_path)
         .map_err(|e| format!("Failed to read metadata for {}: {e}", abs_path.display()))?;
-    let fs_mod_ms = metadata
+    let fs_modified_ms = metadata
         .modified()
         .map(system_time_to_ms)
         .unwrap_or(0);
-    let modified_ms = override_modified_ms.unwrap_or(fs_mod_ms);
     let created_ms = metadata
         .created()
         .map(system_time_to_ms)
-        .unwrap_or(modified_ms);
+        .unwrap_or(fs_modified_ms);
 
     let content = fs::read_to_string(abs_path).unwrap_or_default();
     let title = abs_path
@@ -142,49 +214,30 @@ pub fn index_single_file(
         .to_string();
     let preview = extract_note_preview(&content);
 
-    let entry = CalendarNoteEntry {
+    Ok(ScannedNoteFile {
         path: rel_str,
         title,
-        modified_ms,
+        fs_modified_ms,
         created_ms,
         preview,
-    };
-
-    upsert_note_entry(
-        conn,
-        &entry,
-        &ms_to_ymd_date(modified_ms),
-        &ms_to_ymd_date(created_ms),
-    )
+    })
 }
 
-/// Removes a note or all notes inside a folder (`rel_path` or `rel_path/%`) from the SQLite index.
-pub fn delete_indexed_path(conn: &Connection, rel_path: &str) -> Result<(), String> {
-    let prefix = format!("{rel_path}/%");
-    conn.execute(
-        "DELETE FROM notes WHERE path = ?1 OR path LIKE ?2",
-        params![rel_path, prefix],
-    )
-    .map_err(|e| format!("Failed to delete indexed path {rel_path}: {e}"))?;
-    Ok(())
+/// Recursively scans all `.md` files under `dir` (inside `vault_root`) without holding the SQLite lock.
+/// Ignores `.obsidian` and dot-entries.
+pub fn scan_dir_files_from_disk(
+    vault_root: &Path,
+    dir: &Path,
+) -> Result<Vec<ScannedNoteFile>, String> {
+    let mut out = Vec::new();
+    walk_and_scan_dir(vault_root, dir, &mut out)?;
+    Ok(out)
 }
 
-/// Rebuilds the entire SQLite note index from `.md` files in `vault_root` (ignoring `.obsidian` and dot-entries).
-pub fn rebuild_index_from_vault(conn: &Connection, vault_root: &Path) -> Result<usize, String> {
-    init_index_schema(conn)?;
-    conn.execute("DELETE FROM notes", [])
-        .map_err(|e| format!("Failed to clear notes table: {e}"))?;
-
-    let mut count = 0;
-    walk_and_index_dir(conn, vault_root, vault_root, &mut count)?;
-    Ok(count)
-}
-
-fn walk_and_index_dir(
-    conn: &Connection,
+fn walk_and_scan_dir(
     vault_root: &Path,
     current_dir: &Path,
-    count: &mut usize,
+    out: &mut Vec<ScannedNoteFile>,
 ) -> Result<(), String> {
     let entries = fs::read_dir(current_dir)
         .map_err(|e| format!("Failed to read directory {}: {e}", current_dir.display()))?;
@@ -202,21 +255,101 @@ fn walk_and_index_dir(
         }
         let path = entry.path();
         if path.is_dir() {
-            walk_and_index_dir(conn, vault_root, &path, count)?;
+            walk_and_scan_dir(vault_root, &path, out)?;
         } else if path
             .extension()
             .and_then(|e| e.to_str())
             .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
         {
-            index_single_file(conn, vault_root, &path, None)?;
-            *count += 1;
+            if let Ok(scanned) = scan_single_file_from_disk(vault_root, &path) {
+                out.push(scanned);
+            }
         }
     }
 
     Ok(())
 }
 
+/// Upserts a pre-scanned `.md` file into SQLite, consulting `edit_log` for the latest in-app
+/// `edited_ms` and falling back to `scanned.fs_modified_ms` otherwise.
+pub fn upsert_scanned_note(
+    conn: &Connection,
+    scanned: &ScannedNoteFile,
+    in_app_save_ms: Option<i64>,
+) -> Result<(), String> {
+    if let Some(save_ms) = in_app_save_ms {
+        record_edit_log(conn, &scanned.path, save_ms)?;
+    }
+
+    let effective_mod_ms = in_app_save_ms
+        .or_else(|| latest_edit_log_ms(conn, &scanned.path).ok().flatten())
+        .unwrap_or(scanned.fs_modified_ms);
+
+    let entry = CalendarNoteEntry {
+        path: scanned.path.clone(),
+        title: scanned.title.clone(),
+        modified_ms: effective_mod_ms,
+        created_ms: scanned.created_ms,
+        preview: scanned.preview.clone(),
+    };
+
+    upsert_note_entry(
+        conn,
+        &entry,
+        &ms_to_ymd_date(effective_mod_ms),
+        &ms_to_ymd_date(scanned.created_ms),
+    )
+}
+
+/// Indexes a single `.md` file from disk into the SQLite cache.
+/// If `override_modified_ms` is `Some(ms)`, logs `(path, ms)` in `edit_log`.
+/// Otherwise uses the latest `edit_log` entry when present and falls back to file `mtime`.
+pub fn index_single_file(
+    conn: &Connection,
+    vault_root: &Path,
+    abs_path: &Path,
+    override_modified_ms: Option<i64>,
+) -> Result<(), String> {
+    let scanned = scan_single_file_from_disk(vault_root, abs_path)?;
+    upsert_scanned_note(conn, &scanned, override_modified_ms)
+}
+
+/// Removes a note or all notes inside a folder (`rel_path` or `rel_path/%`) from the `notes` table.
+pub fn delete_indexed_path(conn: &Connection, rel_path: &str) -> Result<(), String> {
+    let prefix = format!("{rel_path}/%");
+    conn.execute(
+        "DELETE FROM notes WHERE path = ?1 OR path LIKE ?2",
+        params![rel_path, prefix],
+    )
+    .map_err(|e| format!("Failed to delete indexed path {rel_path}: {e}"))?;
+    Ok(())
+}
+
+/// Applies a pre-scanned list of vault files to rebuild the `notes` table while preserving `edit_log`.
+pub fn apply_scanned_vault_index(
+    conn: &Connection,
+    scanned_files: &[ScannedNoteFile],
+) -> Result<usize, String> {
+    init_index_schema(conn)?;
+    conn.execute("DELETE FROM notes", [])
+        .map_err(|e| format!("Failed to clear notes table: {e}"))?;
+
+    for scanned in scanned_files {
+        upsert_scanned_note(conn, scanned, None)?;
+    }
+
+    Ok(scanned_files.len())
+}
+
+/// Rebuilds the SQLite `notes` index from `.md` files in `vault_root` (ignoring `.obsidian` and dot-entries),
+/// while preserving all rows in `edit_log`.
+pub fn rebuild_index_from_vault(conn: &Connection, vault_root: &Path) -> Result<usize, String> {
+    let scanned = scan_dir_files_from_disk(vault_root, vault_root)?;
+    apply_scanned_vault_index(conn, &scanned)
+}
+
 /// Queries per-day note counts for a given `year_month` prefix (e.g. `"2026-10"`).
+/// For `CalendarDateField::Modified`, uses the latest `edit_log` entry when present and falls back to file `mtime`.
 pub fn query_calendar_month(
     conn: &Connection,
     year_month: &str,
@@ -379,5 +512,56 @@ mod tests {
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].path, "Welcome.md");
         assert_eq!(remaining[0].preview, "Welcome Note");
+    }
+
+    #[test]
+    fn rebuild_index_preserves_edit_log_and_uses_latest_edited_ms_over_file_mtime() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+
+        fs::write(root.join("SyncedNote.md"), "# Synced Note\nEdited in app").unwrap();
+        fs::write(root.join("ExternalNote.md"), "# External Note\nOnly mtime").unwrap();
+
+        let conn = Connection::open_in_memory().unwrap();
+        init_index_schema(&conn).unwrap();
+
+        // Record two in-app edits for SyncedNote.md on 2026-05-10 and 2026-05-12
+        let may_10_ms = 1_778_400_000_000_i64; // 2026-05-10T08:00:00Z
+        let may_12_ms = 1_778_572_800_000_i64; // 2026-05-12T08:00:00Z
+        record_edit_log(&conn, "SyncedNote.md", may_10_ms).unwrap();
+        record_edit_log(&conn, "SyncedNote.md", may_12_ms).unwrap();
+
+        // Run a full rebuild_index_from_vault
+        let count = rebuild_index_from_vault(&conn, root).unwrap();
+        assert_eq!(count, 2);
+
+        // Verify edit_log was preserved across the rebuild
+        assert_eq!(
+            latest_edit_log_ms(&conn, "SyncedNote.md").unwrap(),
+            Some(may_12_ms)
+        );
+
+        // Verify Calendar Modified query uses the latest edit_log date (2026-05-12) for SyncedNote.md
+        let may_days =
+            query_calendar_month(&conn, "2026-05", CalendarDateField::Modified).unwrap();
+        assert_eq!(
+            may_days,
+            vec![CalendarDaySummary {
+                date: "2026-05-12".to_string(),
+                count: 1,
+            }]
+        );
+        let may_12_notes =
+            query_notes_on_date(&conn, "2026-05-12", CalendarDateField::Modified).unwrap();
+        assert_eq!(may_12_notes.len(), 1);
+        assert_eq!(may_12_notes[0].path, "SyncedNote.md");
+        assert_eq!(may_12_notes[0].modified_ms, may_12_ms);
+
+        // Verify ExternalNote.md (no edit_log entry) falls back to its filesystem mtime (today)
+        let today = ms_to_ymd_date(system_time_to_ms(SystemTime::now()));
+        let today_notes =
+            query_notes_on_date(&conn, &today, CalendarDateField::Modified).unwrap();
+        assert_eq!(today_notes.len(), 1);
+        assert_eq!(today_notes[0].path, "ExternalNote.md");
     }
 }
