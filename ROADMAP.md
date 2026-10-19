@@ -27,10 +27,10 @@ Platform work (Linux, Android, Apple) sits in the last phase. Until then, build 
 
 ## Phase 2: Core features (one to three weeks each)
 
-- [ ] **Folder-based cloud sync.** Support vaults inside Google Drive, Dropbox, OneDrive, or Box folders. Detect each provider's conflict copies and document the setup.
-- [ ] **Math calculation.** Evaluate inline expressions (`12*4 =` → `48`) and calc blocks with variables.
-- [ ] **Note properties editor.** Edit YAML frontmatter through a form in the note header.
-- [ ] **Outliner basics.** Fold lists, move items with `Alt+↑/↓`, indent and outdent, and zoom into a bullet.
+- [x] **Folder-based cloud sync.** Support vaults inside Google Drive, Dropbox, OneDrive, or Box folders. Detect each provider's conflict copies and document the setup.
+- [x] **Math calculation.** Evaluate inline expressions (`12*4 =` → `48`) and calc blocks with variables.
+- [x] **Note properties editor.** Edit YAML frontmatter through a form in the note header.
+- [x] **Outliner basics.** Fold lists, move items with `Alt+↑/↓`, indent and outdent, and zoom into a bullet.
 - [ ] **Multi-dictionary spell check.** Bundle Hunspell dictionaries and choose languages per vault or per note.
 - [ ] **Bring-your-own AI model.** Off by default. Supports OpenAI-compatible endpoints, Anthropic, and local Ollama, with keys in the OS keychain. Starts with three commands on the selection or the whole note: summarize, rewrite, and translate. Translate takes a target language, keeps Markdown formatting, links, and code blocks intact, and either replaces the text or inserts the translation below it.
 - [ ] **Multi-language UI.** Extract UI strings into an i18n library and ship the most common languages.

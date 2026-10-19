@@ -1,3 +1,4 @@
+import { detectSyncProvider, findConflictCopies, type ConflictCopy } from '../syncConflicts';
 import {
   closeVault,
   createFolder,
@@ -77,6 +78,15 @@ class VaultStore {
 
   allFiles = $derived<VaultNode[]>(
     this.vaultSnapshot ? collectAllFiles(this.vaultSnapshot.tree) : []
+  );
+
+  /** The cloud client syncing the vault folder, guessed from its path. */
+  syncProvider = $derived(
+    this.vaultSnapshot ? detectSyncProvider(this.vaultSnapshot.rootPath) : null
+  );
+
+  syncConflicts = $derived<ConflictCopy[]>(
+    findConflictCopies(this.allFiles.map((f) => f.relPath), this.syncProvider)
   );
 
   bumpIndexVersion() {
