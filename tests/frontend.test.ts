@@ -6,6 +6,7 @@ import { vaultStore, fillDailyTemplate } from '../src/lib/stores/vault.svelte';
 import { control } from './ipc.mock';
 import { captureEditorOperation } from '../src/lib/editorOperations';
 import { findRichBlocks } from '../src/lib/livePreviewBlocks';
+import { CalcError, evaluate, evaluateCalcBlock, formatNumber, inlineCalculation } from '../src/lib/calc';
 import { invalidateImagePreviews, cachedImage, rememberImage, imagePreviewEpoch } from '../src/lib/imagePreviewCache';
 
 function dirtyTab() {
@@ -92,4 +93,50 @@ test('rich blocks respect indented code and render quote/list Mermaid and math',
 test('daily template uses the local date and fills placeholders', () => {
   const result = fillDailyTemplate('{{date}} {{title}} {{time}}', new Date(2026, 9, 19, 23, 7));
   assert.equal(result, '2026-10-19 2026-10-19 23:07');
+});
+
+test('calculator evaluates expressions, percentages, and functions', () => {
+  assert.equal(evaluate('12*4'), 48);
+  assert.equal(evaluate('2 + 3 * 4 ^ 2'), 50);
+  assert.equal(evaluate('-(2 + 3) * 2'), -10);
+  assert.equal(evaluate('100 + 10%'), 110);
+  assert.equal(evaluate('200 - 25%'), 150);
+  assert.equal(evaluate('15% of 80'), 12);
+  assert.equal(evaluate('50%'), 0.5);
+  assert.equal(evaluate('sqrt(16) + max(1, 7)'), 11);
+  assert.equal(evaluate('2pi'), 2 * Math.PI);
+  assert.equal(formatNumber(0.1 + 0.2), '0.3');
+  assert.equal(formatNumber(1 / 3), '0.3333333333');
+  assert.throws(() => evaluate('1/0'), CalcError);
+  assert.throws(() => evaluate('3 4'), CalcError);
+  assert.throws(() => evaluate('alert(1)'), CalcError);
+});
+
+test('inline calculation finds the expression before a trailing equals sign', () => {
+  assert.deepEqual(inlineCalculation('12*4 ='), {from:0,result:'48'});
+  assert.deepEqual(inlineCalculation('Total: 12*4 ='), {from:7,result:'48'});
+  assert.equal(inlineCalculation('- 3*4 =')?.result, '12');
+  assert.equal(inlineCalculation('I have 3 apples and 2*4 =')?.result, '8');
+  assert.equal(inlineCalculation('the price 2*4=')?.result, '8');
+  assert.equal(inlineCalculation('x = 5'), null);
+  assert.equal(inlineCalculation('Version 2 ='), null);
+  assert.equal(inlineCalculation('a == b'), null);
+  assert.equal(inlineCalculation('if a >= 2*3 =='), null);
+  assert.equal(inlineCalculation('no math here ='), null);
+});
+
+test('calc blocks assign variables and keep running sums', () => {
+  const results = evaluateCalcBlock([
+    'price = 12.5',
+    'qty = 4 # boxes',
+    'price * qty',
+    'shipping = 7',
+    '',
+    'a = 1',
+    'b = 2',
+    'sum',
+    'nope + 1',
+  ]);
+  assert.deepEqual(results.map((r) => r.result ?? 'err'), ['12.5', '4', '50', '7', '1', '2', '3', 'err']);
+  assert.equal(results[2].line, 2);
 });
