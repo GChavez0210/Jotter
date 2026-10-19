@@ -9,6 +9,7 @@ import { findRichBlocks } from '../src/lib/livePreviewBlocks';
 import { CalcError, evaluate, evaluateCalcBlock, formatNumber, inlineCalculation } from '../src/lib/calc';
 import { parseFrontmatter, removeProperty, renameProperty, serializeProperty, setProperty } from '../src/lib/frontmatter';
 import { itemAt, itemOnLine, moveItem, shiftItem } from '../src/lib/outliner';
+import { detectSyncProvider, findConflictCopies } from '../src/lib/syncConflicts';
 import { invalidateImagePreviews, cachedImage, rememberImage, imagePreviewEpoch } from '../src/lib/imagePreviewCache';
 
 function dirtyTab() {
@@ -210,4 +211,37 @@ test('outliner finds item blocks across blank lines', () => {
   assert.deepEqual([itemOnLine(doc, 1)?.line, itemOnLine(doc, 1)?.end], [1, 3]);
   assert.equal(itemAt(doc, 3)?.line, 1);
   assert.equal(itemOnLine(doc, 3), null);
+});
+
+test('sync provider comes from the vault path', () => {
+  assert.equal(detectSyncProvider('C:/Users/a/Dropbox/Notes'), 'dropbox');
+  assert.equal(detectSyncProvider('C:/Users/a/OneDrive - Contoso/Vault'), 'onedrive');
+  assert.equal(detectSyncProvider('G:/My Drive/Vault'), 'googledrive');
+  assert.equal(detectSyncProvider('C:/Users/a/Box/Vault'), 'box');
+  assert.equal(detectSyncProvider('C:/Users/a/iCloudDrive/Vault'), 'icloud');
+  assert.equal(detectSyncProvider('C:/Users/a/Documents/Vault'), null);
+});
+
+test('conflict copies match each provider and skip ambiguous names elsewhere', () => {
+  const paths = [
+    'Plan.md',
+    "Plan (Alex's conflicted copy 2026-10-19).md",
+    'Ideas.sync-conflict-20261019-101500-ABCDEFG.md',
+    'Notes/Todo.md',
+    'Notes/Todo-DESKTOP-4F2K9.md',
+    'Plan-V2.md',
+    'Plan (1).md',
+    'Plan 2.md',
+  ];
+  const local = findConflictCopies(paths, null);
+  assert.deepEqual(local.map((c) => [c.copyPath, c.originalPath, c.provider]), [
+    ['Ideas.sync-conflict-20261019-101500-ABCDEFG.md', null, 'syncthing'],
+    ["Plan (Alex's conflicted copy 2026-10-19).md", 'Plan.md', 'dropbox'],
+  ]);
+  const onedrive = findConflictCopies(paths, 'onedrive').map((c) => c.copyPath);
+  assert.ok(onedrive.includes('Notes/Todo-DESKTOP-4F2K9.md'));
+  assert.ok(!onedrive.includes('Plan-V2.md'));
+  assert.ok(findConflictCopies(paths, 'googledrive').some((c) => c.copyPath === 'Plan (1).md'));
+  assert.ok(findConflictCopies(paths, 'icloud').some((c) => c.copyPath === 'Plan 2.md'));
+  assert.ok(!findConflictCopies(['Chapter 2.md'], 'icloud').length);
 });

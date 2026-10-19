@@ -36,6 +36,44 @@ Fenced code blocks tagged `mermaid` render as diagrams through [Pele](https://gi
 
 Math and diagrams also appear in HTML export and in Print to PDF. Exported HTML files use MathML, so they need no extra fonts or stylesheets.
 
+### Calculations
+End a line with an arithmetic expression and `=`, such as `Rent split: 1850 / 3 =`, and Jotter shows the result after the `=`. Press `Tab` or click the result to insert it. Expressions support `+ - * / ^`, parentheses, percentages (`200 - 25%`, `15% of 80`), `pi`, `e`, and the functions `sqrt`, `abs`, `round`, `floor`, `ceil`, `min`, `max`, `sin`, `cos`, `tan`, `log`, `ln`, and `exp`. A line needs an operator or function, so `x = 5` stays text.
+
+A fenced code block tagged `calc` shows a result after each line:
+
+````markdown
+```calc
+price = 12.5
+qty = 4
+price * qty        # 50
+shipping = 7
+sum                # 73.5, every result since the last blank line
+```
+````
+
+`name = expression` assigns a variable for later lines. `sum` and `total` add up the results since the last blank line, and `prev` holds the previous result. `#` and `//` start comments. Results are not saved in the file, except in HTML export and Print to PDF, which write each result after its line.
+
+### Properties
+The note header shows the note's YAML frontmatter as a form. Each property has a type: text, list, number, checkbox, date, or date and time. Click a property's icon to change its type. **Add property** appears when you hover over the line under the title. Edits change only that property's lines in the file, so comments and formatting elsewhere in the frontmatter stay as they are, and `Ctrl+Z` undoes them. Values the form cannot edit, such as nested maps, show as read-only text; edit them in Source mode. Live mode hides the raw YAML; Source mode shows it.
+
+### Outlining
+Markdown lists work as an outline:
+
+- `Alt+↑` and `Alt+↓` move the item at the cursor, with its children, past its neighbor. Outside a list, they move the line.
+- `Tab` nests an item under the item above it, and `Shift+Tab` moves it back out.
+- Hover over an item with children and click the arrow in the left margin to fold them. `Ctrl+Shift+[` folds and `Ctrl+Shift+]` unfolds at the cursor, including heading sections.
+- `Ctrl+.` shows only the item at the cursor and its children. Press `Ctrl+.` again on that item, or click **Show whole note**, to zoom out.
+
+### Syncing Through a Cloud Folder
+To use a vault on several computers, keep the vault folder inside a folder your sync client manages: Dropbox, OneDrive, Google Drive, or Box. Jotter reads and writes plain files, and it reloads notes that change on disk.
+
+1. Move or create the vault inside the synced folder, such as `C:\Users\you\Dropbox\Notes`.
+2. Keep the vault available offline. In OneDrive, right-click the vault folder and choose **Always keep on this device**. In Google Drive for desktop, choose **Available offline**. In Dropbox, choose **Make available offline**. Online-only files make search and backlinks wait for downloads.
+3. Open the vault in Jotter on each computer. Indexes and edit history stay in `%LOCALAPPDATA%\Jotter` on each computer, so the sync client never copies them.
+4. Let the sync client finish before you edit the same note on another computer.
+
+When two computers change a note before syncing, the sync client keeps both versions and names one as a conflict copy, such as `Plan (Alex's conflicted copy 2026-10-19).md` (Dropbox), `Plan-DESKTOP-4F2K9.md` (OneDrive), `Plan (1).md` (Google Drive and Box), or `Plan.sync-conflict-20261019-101500-ABCDEFG.md` (Syncthing). Jotter lists these copies in the **Sync conflicts** sidebar view and in the status bar. Open the copy and the original, move the changes you want into the original, and move the copy to the Recycle Bin. **Settings → Vault → Cloud sync** shows which client Jotter detected. Jotter guesses the client from the vault path, and it matches the OneDrive, Google Drive, Box, and iCloud names only in vaults inside those folders, so a note named `Plan (1).md` in a local vault is not flagged.
+
 ### Daily Notes
 `Ctrl+Shift+D` opens today's note, `Daily/YYYY-MM-DD.md`. If the note does not exist, Jotter creates it from the template note `Templates/Daily.md`, replacing `{{date}}`, `{{title}}` and `{{time}}`. Without a template note, Jotter uses a built-in one. Set the folder and template in **Settings → Vault**.
 
@@ -96,6 +134,12 @@ Put `.css` files in `%LOCALAPPDATA%\Jotter\snippets`, then turn each one on in *
 | `Ctrl+Shift+8` | Toggle bullet list (`- `) |
 | `Ctrl+Shift+9` | Toggle task list checkbox (`- [ ] `) |
 | `Ctrl+Shift+.` | Toggle blockquote (`> `) |
+| `Tab` | Insert a pending calculation result; in a list, nest the item under the one above |
+| `Shift+Tab` | Move a list item out one level |
+| `Alt+↑` / `Alt+↓` | Move the list item, with its children, or the line |
+| `Ctrl+.` | Zoom into the list item at the cursor; again on that item to zoom out |
+| `Ctrl+Shift+[` / `Ctrl+Shift+]` | Fold / unfold the list item or heading section at the cursor |
+| `Ctrl+Alt+[` / `Ctrl+Alt+]` | Fold / unfold everything |
 
 ### File Tree & Calendar Keyboard Navigation
 | Shortcut | Context | Action |

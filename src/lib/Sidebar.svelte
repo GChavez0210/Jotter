@@ -2,6 +2,7 @@
   import CalendarView from './CalendarView.svelte';
   import FileTreeItem from './FileTreeItem.svelte';
   import RecentlyDeletedPanel from './RecentlyDeletedPanel.svelte';
+  import SyncConflictsPanel from './SyncConflictsPanel.svelte';
   import SearchPanel from './SearchPanel.svelte';
   import TagBrowserPanel from './TagBrowserPanel.svelte';
   import Icon from './ui/Icon.svelte';
@@ -9,6 +10,7 @@
   import IconButton from './ui/IconButton.svelte';
   import type { IconName } from './ui/icons';
   import { settingsStore } from './stores/settings.svelte';
+  import { vaultStore } from './stores/vault.svelte';
   import type { LeftSidebarView, RecentVault, VaultNode, VaultSnapshot } from './types';
   import { validateWindowsEntryName } from './validation';
 
@@ -68,13 +70,20 @@
   // macOS draws its traffic lights over the top-left corner of the window.
   const isMac = navigator.userAgent.includes('Mac');
 
-  const VIEWS: { id: LeftSidebarView; label: string; icon: IconName; hint?: string }[] = [
+  const BASE_VIEWS: { id: LeftSidebarView; label: string; icon: IconName; hint?: string }[] = [
     { id: 'files', label: 'Notes', icon: 'notebook' },
     { id: 'search', label: 'Full-text search', icon: 'magnifying-glass', hint: 'Ctrl+Shift+F' },
     { id: 'tags', label: 'Tags', icon: 'tag' },
     { id: 'calendar', label: 'Calendar', icon: 'calendar-blank' },
     { id: 'trash', label: 'Recently deleted', icon: 'trash' },
   ];
+
+  // The conflicts view appears only while the vault has conflict copies to resolve.
+  let VIEWS = $derived(
+    vaultStore.syncConflicts.length > 0 || settingsStore.leftSidebarView === 'conflicts'
+      ? [...BASE_VIEWS, { id: 'conflicts' as const, label: 'Sync conflicts', icon: 'warning' as const }]
+      : BASE_VIEWS
+  );
 
   function samePath(a: string, b: string): boolean {
     const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
@@ -410,6 +419,8 @@
       <CalendarView />
     {:else if settingsStore.leftSidebarView === 'trash'}
       <RecentlyDeletedPanel />
+    {:else if settingsStore.leftSidebarView === 'conflicts'}
+      <SyncConflictsPanel />
     {/if}
 
     <div class="sidebar-footer">

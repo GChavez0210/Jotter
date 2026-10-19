@@ -12,6 +12,7 @@
   import { ACCENT_PRESETS } from './designTokens';
   import { systemStore } from './stores/system.svelte';
   import { vaultStore } from './stores/vault.svelte';
+  import { PROVIDER_NAMES } from './syncConflicts';
   import type { CopyMode } from './types';
 
   interface Props {
@@ -477,6 +478,40 @@
                 {isRebuilding ? 'Rebuilding…' : 'Rebuild index'}
               </Button>
             </div>
+
+            {#if vaultStore.vaultSnapshot}
+              <div class="setting-card">
+                <div class="setting-info">
+                  <div class="setting-label">Cloud sync</div>
+                  <div class="setting-desc">
+                    {#if vaultStore.syncProvider}
+                      This vault is in a {PROVIDER_NAMES[vaultStore.syncProvider]} folder. Keep the
+                      vault folder downloaded on this device (in OneDrive and Google Drive, choose
+                      "Always keep on this device" or "Available offline"), so search and backlinks
+                      can read every note. Jotter lists conflict copies under Sync conflicts.
+                    {:else}
+                      No cloud folder detected. To sync, keep the vault inside your Dropbox,
+                      OneDrive, Google Drive, or Box folder. Jotter still detects Dropbox, Nextcloud,
+                      and Syncthing conflict copies here.
+                    {/if}
+                    {#if vaultStore.syncConflicts.length > 0}
+                      <strong>{vaultStore.syncConflicts.length} conflict {vaultStore.syncConflicts.length === 1 ? 'copy needs' : 'copies need'} review.</strong>
+                    {/if}
+                  </div>
+                </div>
+                {#if vaultStore.syncConflicts.length > 0}
+                  <Button
+                    icon="warning"
+                    onclick={() => {
+                      settingsStore.setLeftSidebarView('conflicts');
+                      onClose();
+                    }}
+                  >
+                    Review
+                  </Button>
+                {/if}
+              </div>
+            {/if}
 
             <div class="setting-card">
               <div class="setting-info">
