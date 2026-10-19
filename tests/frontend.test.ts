@@ -19,6 +19,7 @@ import {
   shiftItem,
   zoomedRange,
   zoomIntoItem,
+  frontmatterEndLine,
 } from '../src/lib/outliner';
 import { createFrontmatterHideExtension, frontmatterNeedsReparse, positionAfterFrontmatter } from '../src/lib/frontmatterPreview';
 import { ChangeSet } from '@codemirror/state';
@@ -502,4 +503,56 @@ test('hidden frontmatter reparses only for edits near it or on the first line', 
   assert.equal(check(plain, plain.indexOf('body'), null), false);
   const open = '---\nintro\n\nlater\n';
   assert.equal(check(open, open.indexOf('later'), null), true);
+});
+
+// Regression tests for the review leftovers. The frontmatter and due-date cases repeat the Rust
+// tests in src-tauri/src/links.rs and src-tauri/src/tasks.rs, so both parsers stay in step.
+
+test('frontmatter detection matches the Rust indexer', () => {
+  assert.equal(parseFrontmatter('---\nSome intro paragraph #idea\n---\nBody'), null);
+  const yaml = parseFrontmatter('---\n# comment\ntags:\n  - a\n\n- b\n"a:b": 1\nempty:\n---\nBody');
+  assert.deepEqual(yaml?.properties.map((p) => p.key), ['tags', 'a:b', 'empty']);
+  assert.ok(parseFrontmatter('---\r\ntitle: x\r\n---\r\nBody'));
+  for (const notYaml of ['---\nurl:http://x\n---\n', '---\n  indented\n---\n', '---\ntitle: x\n# c\n  stray\n---\n']) {
+    assert.equal(parseFrontmatter(notYaml), null, notYaml);
+  }
+});
+
+test('due dates inside code spans are ignored, as the Rust indexer ignores them', () => {
+  assert.equal(findDueDate('- [ ] Read `due:2026-01-01` docs'), null);
+  assert.equal(findDueDate('- [ ] Run `📅 2026-01-02` then ship 📅 2026-11-03')?.date, '2026-11-03');
+  assert.equal(findDueDate('- [ ] Odd `é` text due:2026-11-04')?.date, '2026-11-04');
+  assert.equal(findDueDate('- [ ] Unclosed ` tick due:2026-11-05')?.date, '2026-11-05');
+  const line = '- [ ] Run `x` then ship 📅 2026-11-03';
+  const found = findDueDate(line)!;
+  assert.equal(line.slice(found.from, found.to), '📅 2026-11-03');
+});
+
+test('inline calculation skips phone numbers but computes three-digit subtraction', () => {
+  assert.equal(inlineCalculation('100-250 =')?.result, '-150');
+  assert.equal(inlineCalculation('call 555-1234 ='), null);
+  assert.equal(inlineCalculation('call 1-800-555-0100 ='), null);
+  assert.equal(inlineCalculation('Meeting 2026-10-19 ='), null);
+  assert.equal(inlineCalculation('see 10-5 =')?.result, '5');
+});
+
+test('the outliner caches the frontmatter end and updates it when the top changes', () => {
+  const doc = '---\nitems:\n  - a\n    - b\n---\n- x\n  - y\n';
+  let state = EditorState.create({doc, extensions:[markdown(), createOutlinerExtension()]});
+  const outdentAt = (s: EditorState, lineNo: number) =>
+    shiftItem(s.update({selection:{anchor:s.doc.line(lineNo).from}}).state, -1);
+  assert.equal(frontmatterEndLine(state), 5);
+  assert.equal(outdentAt(state, 4), null);
+  assert.ok(outdentAt(state, 7));
+  // An edit below the frontmatter keeps the cached line; breaking the opening fence clears it.
+  state = state.update({changes:{from:state.doc.length, insert:'- z\n'}}).state;
+  assert.equal(frontmatterEndLine(state), 5);
+  state = state.update({changes:{from:0, to:3, insert:'+++'}}).state;
+  assert.equal(frontmatterEndLine(state), 0);
+  assert.ok(outdentAt(state, 4));
+  // Typing the closing fence in a note that opens with one finds the new end.
+  let open = EditorState.create({doc:'---\ntitle: x\nbody\n', extensions:createOutlinerExtension()});
+  assert.equal(frontmatterEndLine(open), 0);
+  open = open.update({changes:{from:'---\ntitle: x\n'.length, to:'---\ntitle: x\nbody'.length, insert:'---'}}).state;
+  assert.equal(frontmatterEndLine(open), 3);
 });

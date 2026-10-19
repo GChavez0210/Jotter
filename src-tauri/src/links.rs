@@ -16,17 +16,72 @@ pub fn split_yaml_frontmatter(content: &str) -> (&str, Option<&str>) {
     while let Some(pos) = rest[search_from..].find("\n---") {
         let idx = search_from + pos;
         let after_marker = &rest[idx + 4..];
-        if let Some(body) = after_marker.strip_prefix('\n') {
-            return (body, Some(&rest[..idx]));
+        let body = if let Some(body) = after_marker.strip_prefix('\n') {
+            Some(body)
         } else if let Some(body) = after_marker.strip_prefix("\r\n") {
-            return (body, Some(&rest[..idx]));
+            Some(body)
         } else if after_marker.is_empty() {
-            return ("", Some(&rest[..idx]));
+            Some("")
+        } else {
+            None
+        };
+        if let Some(body) = body {
+            let inner = &rest[..idx];
+            return if is_property_block(inner) { (body, Some(inner)) } else { (content, None) };
         }
         search_from = idx + 4;
     }
 
     (content, None)
+}
+
+/// True when every line between the fences is a property, an indented or list continuation of
+/// one, a comment, a stray list item, or blank. A note that opens with a thematic break, such as
+/// `---` / `Intro text` / `---`, has no frontmatter. Mirrors `parseFrontmatter` in
+/// `src/lib/frontmatter.ts`, so the index and the editor agree on which notes have frontmatter.
+fn is_property_block(inner: &str) -> bool {
+    let mut in_property = false;
+    for raw in inner.split('\n') {
+        let line = raw.strip_suffix('\r').unwrap_or(raw);
+        let trimmed = line.trim_start();
+        let list_item = trimmed == "-" || trimmed.starts_with("- ") || trimmed.starts_with("-\t");
+        if trimmed.is_empty() {
+            continue;
+        }
+        if line.starts_with([' ', '\t']) || list_item {
+            // Continuation of the property above, or a YAML list item or comment on its own.
+            if in_property || list_item || trimmed.starts_with('#') {
+                continue;
+            }
+            return false;
+        }
+        if line.starts_with('#') {
+            in_property = false;
+            continue;
+        }
+        if !is_key_line(line) {
+            return false;
+        }
+        in_property = true;
+    }
+    true
+}
+
+/// `key:` or `key: value`, with a plain or quoted key, as `KEY_RE` in `frontmatter.ts` matches.
+fn is_key_line(line: &str) -> bool {
+    // After the key: `:` then the end of the line, or whitespace before a value.
+    let colon_then_value = |after_key: &str| match after_key.strip_prefix(':') {
+        Some(value) => value.is_empty() || value.starts_with([' ', '\t']) || value.trim().is_empty(),
+        None => false,
+    };
+    let Some(first) = line.chars().next() else { return false };
+    // A plain key runs to the first colon. It may start with a quote, as `KEY_RE` allows.
+    let plain = !(first.is_whitespace() || matches!(first, '#' | '-' | ':'))
+        && line.find(':').is_some_and(|colon| colon_then_value(&line[colon..]));
+    // A quoted key, such as `"a:b": 1`, may contain colons.
+    let quoted = matches!(first, '"' | '\'')
+        && line[1..].find(first).is_some_and(|end| colon_then_value(&line[end + 2..]));
+    plain || quoted
 }
 
 /// Parses a single inner wiki-link string (inside `[[...]]`) into its components:
@@ -514,6 +569,22 @@ mod tests {
                 "project/v2".to_string()
             ]
         );
+    }
+
+    #[test]
+    fn a_thematic_break_with_prose_is_not_frontmatter() {
+        // The same cases as the frontmatter test in tests/frontend.test.ts.
+        let doc = "---\nSome intro paragraph #idea\n---\nBody";
+        assert_eq!(split_yaml_frontmatter(doc), (doc, None));
+        assert_eq!(extract_tags(doc), vec!["idea".to_string()]);
+
+        let yaml = "---\n# comment\ntags:\n  - a\n\n- b\n\"a:b\": 1\nempty:\n---\nBody";
+        assert_eq!(split_yaml_frontmatter(yaml).0, "Body");
+        let crlf = "---\r\ntitle: x\r\n---\r\nBody";
+        assert_eq!(split_yaml_frontmatter(crlf), ("Body", Some("title: x\r")));
+        for not_yaml in ["---\nurl:http://x\n---\n", "---\n  indented\n---\n", "---\ntitle: x\n# c\n  stray\n---\n"] {
+            assert_eq!(split_yaml_frontmatter(not_yaml).1, None, "{not_yaml:?}");
+        }
     }
 
     #[test]
