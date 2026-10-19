@@ -9,6 +9,7 @@ pub mod vault;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
@@ -46,6 +47,27 @@ pub struct AppState {
     pub watcher: Mutex<Option<RecommendedWatcher>>,
     pub recent_self_writes: Arc<Mutex<HashMap<String, Instant>>>,
     pub recent_vaults_file: PathBuf,
+    /// Bumped on every vault open or close so a stale watcher worker never writes into the next vault's index.
+    pub vault_generation: Arc<AtomicU64>,
+}
+
+/// Stable 64-bit FNV-1a hash used to name per-vault index databases.
+fn fnv1a_64(input: &str) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in input.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+/// Path of the SQLite index cache for `vault_root`: one database per vault, so edit history
+/// and index rows from one vault never leak into another vault with the same relative paths.
+fn vault_index_db_path(app_data_dir: &Path, vault_root: &Path) -> PathBuf {
+    let key = vault_root.to_string_lossy().to_lowercase().replace('\\', "/");
+    app_data_dir
+        .join("indexes")
+        .join(format!("{:016x}.sqlite", fnv1a_64(key.trim_end_matches('/'))))
 }
 
 /// Applies the Windows 11 Mica backdrop via `window-vibrancy`, returning whether Mica succeeded
@@ -193,6 +215,8 @@ fn start_vault_watcher(
     sqlite_conn: Arc<Mutex<Connection>>,
     search_index: Arc<VaultSearchIndex>,
     recent_self_writes: Arc<Mutex<HashMap<String, Instant>>>,
+    vault_generation: Arc<AtomicU64>,
+    my_generation: u64,
 ) -> Result<RecommendedWatcher, String> {
     let (tx, rx) = mpsc::channel::<Vec<String>>();
     let root_for_cb = vault_root.clone();
@@ -266,6 +290,9 @@ fn start_vault_watcher(
                     }
                     Err(mpsc::RecvTimeoutError::Timeout) => break,
                     Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        if vault_generation.load(Ordering::SeqCst) != my_generation {
+                            return;
+                        }
                         process_watcher_batch(
                             &root_for_worker,
                             &sqlite_conn,
@@ -283,6 +310,9 @@ fn start_vault_watcher(
                 }
             }
 
+            if vault_generation.load(Ordering::SeqCst) != my_generation {
+                return;
+            }
             process_watcher_batch(&root_for_worker, &sqlite_conn, &search_index, &batched);
             let _ = app_handle.emit(
                 "vault-fs-event",
@@ -365,11 +395,33 @@ fn open_vault(
 
     // Walk the filesystem and parse notes/links/tags BEFORE locking SQLite or Tantivy
     let scanned_files = scan_dir_files_from_disk(&vault_root, &vault_root)?;
+
+    // Stop the previous vault's watcher and invalidate its pending batches before the index swap.
+    if let Ok(mut w_guard) = state.watcher.lock() {
+        *w_guard = None;
+    }
+    let generation = state.vault_generation.fetch_add(1, Ordering::SeqCst) + 1;
+
+    // Each vault keeps its own SQLite index cache (and edit history).
+    let app_data_dir = state
+        .recent_vaults_file
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(std::env::temp_dir);
+    let db_path = vault_index_db_path(&app_data_dir, &vault_root);
+    if let Some(parent) = db_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let vault_conn = Connection::open(&db_path)
+        .or_else(|_| Connection::open_in_memory())
+        .map_err(|e| format!("Failed to open vault index database: {e}"))?;
+    init_index_schema(&vault_conn)?;
     {
-        let conn = state
+        let mut conn = state
             .sqlite_conn
             .lock()
             .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+        *conn = vault_conn;
         apply_scanned_vault_index(&conn, &scanned_files)?;
     }
     state.search_index.rebuild_from_scanned(&scanned_files)?;
@@ -380,6 +432,8 @@ fn open_vault(
         Arc::clone(&state.sqlite_conn),
         Arc::clone(&state.search_index),
         Arc::clone(&state.recent_self_writes),
+        Arc::clone(&state.vault_generation),
+        generation,
     )?;
 
     if let Ok(mut w_guard) = state.watcher.lock() {
@@ -446,6 +500,7 @@ fn get_vault_snapshot(state: State<'_, AppState>) -> Result<Option<VaultSnapshot
 
 #[tauri::command]
 fn close_vault(state: State<'_, AppState>) -> Result<(), String> {
+    state.vault_generation.fetch_add(1, Ordering::SeqCst);
     if let Ok(mut w_guard) = state.watcher.lock() {
         *w_guard = None;
     }
@@ -783,11 +838,9 @@ pub fn run() {
         .join("Jotter");
     let _ = std::fs::create_dir_all(&app_data_dir);
     let recent_vaults_file = app_data_dir.join("recent_vaults.json");
-    let db_path = app_data_dir.join("vault_index_cache.sqlite");
 
-    let conn = Connection::open(&db_path)
-        .or_else(|_| Connection::open_in_memory())
-        .expect("Failed to open SQLite index cache");
+    // Placeholder index until a vault opens; `open_vault` swaps in the vault's own database.
+    let conn = Connection::open_in_memory().expect("Failed to open in-memory SQLite index");
     let _ = init_index_schema(&conn);
 
     let search_idx = VaultSearchIndex::new().expect("Failed to initialize Tantivy search index");
@@ -805,6 +858,7 @@ pub fn run() {
             watcher: Mutex::new(None),
             recent_self_writes: Arc::new(Mutex::new(HashMap::new())),
             recent_vaults_file,
+            vault_generation: Arc::new(AtomicU64::new(0)),
         })
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
@@ -853,4 +907,26 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Jotter Tauri application");
+}
+
+#[cfg(test)]
+mod vault_index_path_tests {
+    use super::*;
+
+    #[test]
+    fn each_vault_gets_its_own_index_database() {
+        let data = Path::new("C:/Users/test/AppData/Local/Jotter");
+        let a = vault_index_db_path(data, Path::new("C:/Notes/Work"));
+        let b = vault_index_db_path(data, Path::new("C:/Notes/Personal"));
+        assert_ne!(a, b);
+        assert!(a.starts_with(data.join("indexes")));
+    }
+
+    #[test]
+    fn same_vault_maps_to_the_same_database_regardless_of_case_and_slashes() {
+        let data = Path::new("C:/Users/test/AppData/Local/Jotter");
+        let a = vault_index_db_path(data, Path::new(r"C:\Notes\Work"));
+        let b = vault_index_db_path(data, Path::new("c:/notes/work/"));
+        assert_eq!(a, b);
+    }
 }
