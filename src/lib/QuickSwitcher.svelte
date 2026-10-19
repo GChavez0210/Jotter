@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { fluentIcons } from './icons';
+  import Icon from './ui/Icon.svelte';
+  import Dialog from './ui/Dialog.svelte';
   import { tabsStore } from './stores/tabs.svelte';
   import { stripMdExt, vaultStore } from './stores/vault.svelte';
   import type { VaultNode } from './types';
@@ -177,210 +178,70 @@
       }
     }
   }
+
+  let listEl: HTMLDivElement | undefined = $state();
+
+  // Keep the keyboard selection visible while arrowing through a long list.
+  $effect(() => {
+    void selectedIndex;
+    listEl?.querySelector('.picker-row.selected')?.scrollIntoView({ block: 'nearest' });
+  });
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-  class="switcher-backdrop"
-  onmousedown={(e) => {
-    if (e.target === e.currentTarget) onClose();
-  }}
-  onkeydown={handleKeyDown}
->
-  <div
-    class="switcher-dialog"
-    role="dialog"
-    aria-modal="true"
-    aria-label="Quick switcher"
-  >
-    <div class="search-row">
-      <span class="search-icon">{@html fluentIcons.search16}</span>
-      <input
-        bind:this={inputEl}
-        type="text"
-        class="search-input"
-        placeholder="Quick switcher — fuzzy match note title or path (Ctrl+O)…"
-        aria-label="Fuzzy search note names"
-        bind:value={query}
-      />
-      <kbd class="esc-hint">Esc</kbd>
-    </div>
-
-    <div class="note-list" role="listbox" aria-label="Matching vault notes">
-      {#if matchedNotes.length === 0 && !canCreateFromQuery}
-        <div class="empty-results">No matching notes in this vault.</div>
-      {:else}
-        {#each matchedNotes as item, idx (item.node.relPath)}
-          <button
-            type="button"
-            role="option"
-            aria-selected={idx === selectedIndex}
-            class="note-row"
-            class:selected={idx === selectedIndex}
-            onmouseenter={() => (selectedIndex = idx)}
-            onclick={() => openMatch(item)}
-          >
-            <div class="note-left">
-              <span class="note-icon">{@html fluentIcons.document16}</span>
-              <span class="note-title">{item.title}</span>
-              {#if item.relPathNoExt !== item.title}
-                <span class="note-path">{item.relPathNoExt}</span>
-              {/if}
-            </div>
-            <kbd class="enter-hint">Enter</kbd>
-          </button>
-        {/each}
-
-        {#if canCreateFromQuery}
-          <button
-            type="button"
-            class="note-row create-row"
-            class:selected={matchedNotes.length === 0}
-            onclick={() => void createFromQuery()}
-          >
-            <div class="note-left">
-              <span class="note-icon">{@html fluentIcons.documentAdd16}</span>
-              <span class="note-title">
-                Create new note <strong>"{query.trim()}"</strong>
-              </span>
-            </div>
-            <kbd class="enter-hint">
-              {matchedNotes.length === 0 ? 'Enter' : 'Shift+Enter'}
-            </kbd>
-          </button>
-        {/if}
-      {/if}
-    </div>
+<Dialog label="Quick switcher" {onClose} onkeydown={handleKeyDown}>
+  <div class="picker-search">
+    <Icon name="magnifying-glass" />
+    <input
+      bind:this={inputEl}
+      type="text"
+      class="picker-input"
+      placeholder="Find a note by name"
+      aria-label="Find a note by name"
+      bind:value={query}
+    />
+    <kbd>Esc</kbd>
   </div>
-</div>
 
-<style>
-  .switcher-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 205;
-    background: rgba(0, 0, 0, 0.32);
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    padding-top: 10vh;
-  }
+  <div class="picker-list" bind:this={listEl} role="listbox" aria-label="Matching notes">
+    {#if matchedNotes.length === 0 && !canCreateFromQuery}
+      <div class="picker-empty">No notes in this vault match “{query.trim()}”.</div>
+    {:else}
+      {#each matchedNotes as item, idx (item.node.relPath)}
+        <button
+          type="button"
+          role="option"
+          aria-selected={idx === selectedIndex}
+          class="picker-row"
+          class:selected={idx === selectedIndex}
+          onmouseenter={() => (selectedIndex = idx)}
+          onclick={() => openMatch(item)}
+        >
+          <Icon name="file-text" />
+          <span class="picker-label">{item.title}</span>
+          {#if item.relPathNoExt !== item.title}
+            <span class="picker-hint">{item.relPathNoExt.split('/').slice(0, -1).join(' / ')}</span>
+          {/if}
+        </button>
+      {/each}
 
-  .switcher-dialog {
-    width: min(540px, 92vw);
-    max-height: 68vh;
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border-control);
-    border-radius: var(--radius-card);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
+      {#if canCreateFromQuery}
+        <button
+          type="button"
+          class="picker-row"
+          class:selected={matchedNotes.length === 0}
+          onclick={() => void createFromQuery()}
+        >
+          <Icon name="file-plus" />
+          <span class="picker-label">Create “{query.trim()}”</span>
+          <kbd>{matchedNotes.length === 0 ? 'Enter' : 'Shift+Enter'}</kbd>
+        </button>
+      {/if}
+    {/if}
+  </div>
 
-  .search-row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-3);
-    border-bottom: 1px solid var(--border-subtle);
-  }
-
-  .search-icon {
-    display: inline-flex;
-    color: var(--text-secondary);
-  }
-
-  .search-input {
-    flex: 1;
-    border: none;
-    background: transparent;
-    color: var(--text-primary);
-    font-family: var(--font-ui);
-    font-size: var(--text-sm);
-    outline: none;
-  }
-
-  .esc-hint,
-  .enter-hint {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    padding: 2px 6px;
-    border-radius: var(--radius-control);
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-subtle);
-    color: var(--text-secondary);
-    flex-shrink: 0;
-  }
-
-  .note-list {
-    overflow-y: auto;
-    padding: var(--space-2);
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .empty-results {
-    padding: var(--space-4);
-    text-align: center;
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
-  }
-
-  .note-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3);
-    width: 100%;
-    min-height: 36px;
-    padding: var(--space-1) var(--space-3);
-    border: 1px solid transparent;
-    border-radius: var(--radius-control);
-    background: transparent;
-    color: var(--text-primary);
-    text-align: left;
-    cursor: pointer;
-    transition: background-color var(--transition-fast);
-  }
-
-  .note-row:hover,
-  .note-row.selected {
-    background: var(--selection-bg);
-    border-color: var(--accent-color, var(--accent-fallback));
-  }
-
-  .note-left {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    min-width: 0;
-  }
-
-  .note-icon {
-    display: inline-flex;
-    color: var(--accent-color, var(--accent-fallback));
-    flex-shrink: 0;
-  }
-
-  .note-title {
-    font-size: var(--text-xs);
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .note-path {
-    font-size: 11px;
-    color: var(--text-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .create-row {
-    margin-top: 2px;
-    border-top: 1px dashed var(--border-subtle);
-  }
-</style>
+  <div class="picker-footer">
+    <span><kbd>↑</kbd> <kbd>↓</kbd> to move</span>
+    <span><kbd>Enter</kbd> to open</span>
+    <span><kbd>Shift+Enter</kbd> to create</span>
+  </div>
+</Dialog>

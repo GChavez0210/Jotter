@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { fluentIcons } from './icons';
+  import Icon from './ui/Icon.svelte';
+  import Button from './ui/Button.svelte';
+  import IconButton from './ui/IconButton.svelte';
+  import Segmented from './ui/Segmented.svelte';
   import { queryCalendarDateNotes, queryCalendarDays } from './ipc';
   import { tabsStore } from './stores/tabs.svelte';
   import { vaultStore } from './stores/vault.svelte';
@@ -264,60 +267,23 @@
 </script>
 
 <div class="calendar-view" aria-label="Vault calendar view">
-  <div class="calendar-top-controls">
-    <div class="field-toggle" role="radiogroup" aria-label="Calendar date source">
-      <button
-        type="button"
-        role="radio"
-        aria-checked={dateField === 'modified'}
-        class="field-btn"
-        class:active={dateField === 'modified'}
-        onclick={() => (dateField = 'modified')}
-      >
-        Modified
-      </button>
-      <button
-        type="button"
-        role="radio"
-        aria-checked={dateField === 'created'}
-        class="field-btn"
-        class:active={dateField === 'created'}
-        onclick={() => (dateField = 'created')}
-      >
-        Created
-      </button>
-    </div>
-
-    <button
-      type="button"
-      class="today-btn"
-      title="Jump to today (T)"
-      onclick={jumpToToday}
-    >
-      Today
-    </button>
+  <div class="month-nav">
+    <div class="month-label">{MONTH_NAMES[viewMonth - 1]} {viewYear}</div>
+    <IconButton icon="caret-left" size="sm" label="Previous month" onclick={() => stepMonth(-1)} />
+    <Button variant="subtle" title="Jump to today (T)" onclick={jumpToToday}>Today</Button>
+    <IconButton icon="caret-right" size="sm" label="Next month" onclick={() => stepMonth(1)} />
   </div>
 
-  <div class="month-nav">
-    <button
-      type="button"
-      class="month-step-btn"
-      aria-label="Previous month"
-      onclick={() => stepMonth(-1)}
-    >
-      ‹
-    </button>
-    <div class="month-label">
-      {MONTH_NAMES[viewMonth - 1]} {viewYear}
-    </div>
-    <button
-      type="button"
-      class="month-step-btn"
-      aria-label="Next month"
-      onclick={() => stepMonth(1)}
-    >
-      ›
-    </button>
+  <div class="date-source">
+    <Segmented
+      label="Calendar date source"
+      value={dateField}
+      options={[
+        { value: 'modified', label: 'Modified' },
+        { value: 'created', label: 'Created' },
+      ]}
+      onchange={(field) => (dateField = field)}
+    />
   </div>
 
   <!-- Keyboard-navigable month grid: Arrow keys move between days, Enter opens day, T jumps to today -->
@@ -367,10 +333,9 @@
   <div class="day-notes-section">
     <div class="day-notes-header">
       <span>
-        {dateField === 'modified' ? 'Modified' : 'Created'} on
-        <strong>{selectedDateIso}</strong> ({dayNotes.length})
+        {dateField === 'modified' ? 'Modified' : 'Created'} {selectedDateIso}
       </span>
-      <span class="kbd-hint">←↑↓→ · Enter · T</span>
+      <span class="day-count-label">{dayNotes.length}</span>
     </div>
 
     <div class="day-notes-scroll">
@@ -391,7 +356,7 @@
                 onclick={() => void tabsStore.openNoteInTab(note.path)}
               >
                 <div class="day-note-top">
-                  <span class="day-note-icon">{@html fluentIcons.document16}</span>
+                  <span class="day-note-icon"><Icon name="file-text" /></span>
                   <span class="day-note-title">{note.title}</span>
                   <span class="day-note-time">
                     {formatTimeShort(
@@ -423,208 +388,137 @@
     overflow: hidden;
   }
 
-  .calendar-top-controls {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2);
-    padding: var(--space-2);
-    border-bottom: 1px solid var(--border-subtle);
-  }
-
-  .field-toggle {
-    display: inline-flex;
-    background: var(--bg-subtle);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-control);
-    padding: 2px;
-    gap: 2px;
-  }
-
-  .field-btn {
-    min-height: 26px;
-    padding: 0 var(--space-2);
-    border-radius: var(--radius-control);
-    border: 1px solid transparent;
-    background: transparent;
-    color: var(--text-secondary);
-    font-size: var(--text-xs);
-    font-weight: 500;
-    cursor: pointer;
-    transition: background-color var(--transition-fast);
-  }
-
-  .field-btn.active {
-    background: var(--bg-card-solid);
-    color: var(--text-primary);
-    border-color: var(--border-control);
-    font-weight: 600;
-  }
-
-  .today-btn {
-    min-height: 28px;
-    padding: 0 var(--space-2);
-    border-radius: var(--radius-control);
-    border: 1px solid var(--border-control);
-    background: var(--bg-control);
-    color: var(--text-primary);
-    font-size: var(--text-xs);
-    cursor: pointer;
-  }
-
-  .today-btn:hover {
-    background: var(--bg-control-hover);
-  }
-
   .month-nav {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: var(--space-1) var(--space-2);
+    gap: 2px;
+    padding: var(--space-1) var(--space-2) var(--space-2) var(--space-4);
   }
 
   .month-label {
-    font-size: var(--text-xs);
-    font-weight: 600;
-    color: var(--text-primary);
+    flex: 1;
+    font: 600 var(--fs-15) / 1.2 var(--font-display);
   }
 
-  .month-step-btn {
-    min-width: 28px;
-    min-height: 28px;
-    border-radius: var(--radius-control);
-    border: 1px solid transparent;
-    background: transparent;
-    color: var(--text-secondary);
-    font-size: var(--text-base);
-    cursor: pointer;
-  }
-
-  .month-step-btn:hover {
-    background: var(--bg-control-hover);
-    color: var(--text-primary);
+  .date-source {
+    padding: 0 var(--space-3) var(--space-2);
   }
 
   .month-grid-wrap {
-    padding: 0 var(--space-2) var(--space-2) var(--space-2);
-    border-bottom: 1px solid var(--border-subtle);
-    outline: none;
+    margin: 0 var(--space-3);
+    border-radius: var(--radius-card);
+    outline-offset: 2px;
   }
 
-  .month-grid-wrap:focus-visible {
-    box-shadow: inset 0 0 0 2px var(--accent-color, var(--focus-ring));
-    border-radius: var(--radius-control);
-  }
-
-  .weekday-row {
-    display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    margin-bottom: 2px;
-  }
-
-  .weekday-cell {
-    text-align: center;
-    font-size: 10px;
-    font-weight: 600;
-    color: var(--text-muted);
-    padding: 2px 0;
-  }
-
+  .weekday-row,
   .days-grid {
     display: grid;
     grid-template-columns: repeat(7, 1fr);
     gap: 2px;
   }
 
+  .weekday-cell {
+    padding: var(--space-1) 0;
+    color: var(--text-muted);
+    font: 600 var(--fs-11) / 1 var(--font-ui);
+    letter-spacing: 0.04em;
+    text-align: center;
+    text-transform: uppercase;
+  }
+
   .day-cell {
-    min-height: 34px;
-    padding: 2px;
-    border-radius: var(--radius-control);
-    border: 1px solid transparent;
-    background: transparent;
-    color: var(--text-primary);
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 1px;
+    gap: 2px;
+    aspect-ratio: 1;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--text-secondary);
+    font: var(--fs-12) var(--font-ui);
+    font-variant-numeric: tabular-nums;
     cursor: pointer;
-    transition:
-      background-color var(--transition-fast),
-      border-color var(--transition-fast);
   }
 
   .day-cell:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
+    color: var(--text-primary);
   }
 
   .day-cell.outside-month {
-    opacity: 0.42;
+    color: var(--text-muted);
+    opacity: 0.5;
   }
 
-  .day-cell.heat-1 {
-    background: color-mix(
-      in srgb,
-      var(--accent-color, var(--accent-fallback)) 10%,
-      transparent
-    );
-  }
-
-  .day-cell.heat-2 {
-    background: color-mix(
-      in srgb,
-      var(--accent-color, var(--accent-fallback)) 20%,
-      transparent
-    );
-  }
-
+  .day-cell.heat-1,
+  .day-cell.heat-2,
   .day-cell.heat-3 {
-    background: color-mix(
-      in srgb,
-      var(--accent-color, var(--accent-fallback)) 32%,
-      transparent
-    );
+    color: var(--text-primary);
   }
 
   .day-cell.is-today .day-num {
-    color: var(--accent-color, var(--accent-fallback));
+    color: var(--accent);
     font-weight: 700;
-    text-decoration: underline;
-  }
-
-  .day-cell.is-focused {
-    border-color: var(--border-control);
   }
 
   .day-cell.is-selected {
-    background: var(--selection-bg);
-    border-color: var(--accent-color, var(--accent-fallback));
-    font-weight: 600;
+    background: var(--accent);
+    color: var(--on-accent);
   }
 
-  .day-num {
-    font-size: 11px;
-    line-height: 1.1;
+  .day-cell.is-selected .day-num,
+  .day-cell.is-selected .day-dot {
+    color: var(--on-accent);
+  }
+
+  .day-cell.is-focused {
+    box-shadow: inset 0 0 0 1px var(--accent);
   }
 
   .day-indicator {
-    display: inline-flex;
-    align-items: center;
+    display: flex;
     gap: 2px;
   }
 
   .day-dot {
     width: 4px;
     height: 4px;
-    border-radius: 999px;
-    background: var(--accent-color, var(--accent-fallback));
+    border-radius: 50%;
+    background: currentColor;
+    color: var(--accent);
+  }
+
+  .heat-2 .day-indicator::after,
+  .heat-3 .day-indicator::after {
+    content: '';
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: 0.7;
+  }
+
+  .heat-3 .day-indicator::before {
+    content: '';
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: 0.45;
+    order: 3;
+  }
+
+  .is-selected .day-indicator::before,
+  .is-selected .day-indicator::after {
+    background: var(--on-accent);
   }
 
   .day-count {
-    font-family: var(--font-mono);
-    font-size: 9px;
-    line-height: 1;
-    color: var(--text-secondary);
+    display: none;
   }
 
   .day-notes-section {
@@ -632,112 +526,116 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    padding: var(--space-2);
-    gap: var(--space-2);
-    overflow: hidden;
+    margin-top: var(--space-3);
+    border-top: 1px solid var(--line-subtle);
   }
 
   .day-notes-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    font-size: 11px;
-    color: var(--text-secondary);
+    gap: var(--space-2);
+    padding: var(--space-3) var(--space-3) var(--space-1) var(--space-4);
+    color: var(--text-muted);
+    font: 600 var(--fs-11) / 1 var(--font-ui);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
   }
 
-  .kbd-hint {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text-muted);
+  .day-notes-header span:first-child {
+    flex: 1;
+  }
+
+  .day-count-label {
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
   }
 
   .day-notes-scroll {
     flex: 1;
     overflow-y: auto;
+    padding: 0 var(--space-2) var(--space-2);
   }
 
   .empty-day {
-    padding: var(--space-3) var(--space-2);
-    text-align: center;
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
+    padding: var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--fs-13);
   }
 
   .day-note-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
   }
 
   .day-note-card {
-    width: 100%;
-    text-align: left;
-    padding: var(--space-2);
-    border-radius: var(--radius-control);
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-subtle);
-    color: var(--text-primary);
-    cursor: pointer;
     display: flex;
     flex-direction: column;
     gap: 2px;
+    width: 100%;
+    padding: var(--space-2);
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
   }
 
   .day-note-card:hover {
-    background: var(--bg-control-hover);
-    border-color: var(--border-control);
+    background: var(--surface-hover);
   }
 
   .day-note-card.active {
-    background: var(--selection-bg);
-    border-color: var(--accent-color, var(--accent-fallback));
+    background: var(--accent-soft);
   }
 
   .day-note-top {
     display: flex;
     align-items: center;
-    gap: var(--space-1);
+    gap: var(--space-2);
     min-width: 0;
   }
 
   .day-note-icon {
     display: inline-flex;
-    color: var(--accent-color, var(--accent-fallback));
     flex-shrink: 0;
+    color: var(--text-muted);
   }
 
   .day-note-title {
-    font-size: var(--text-xs);
-    font-weight: 600;
+    flex: 1;
     overflow: hidden;
+    font-weight: 500;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex: 1;
+  }
+
+  .day-note-card.active .day-note-title {
+    color: var(--accent);
   }
 
   .day-note-time {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text-muted);
     flex-shrink: 0;
+    color: var(--text-muted);
+    font-size: var(--fs-12);
+    font-variant-numeric: tabular-nums;
   }
 
-  .day-note-path {
-    font-size: 11px;
-    color: var(--text-muted);
+  .day-note-path,
+  .day-note-preview {
     overflow: hidden;
+    padding-left: 24px;
+    color: var(--text-muted);
+    font-size: var(--fs-12);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .day-note-preview {
-    font-size: 11px;
     color: var(--text-secondary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 </style>

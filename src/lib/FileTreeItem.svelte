@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fluentIcons } from './icons';
+  import Icon from './ui/Icon.svelte';
   import type { VaultNode } from './types';
   import { validateWindowsEntryName } from './validation';
   import FileTreeItem from './FileTreeItem.svelte';
@@ -100,7 +100,7 @@
     <div class="rename-container" style:padding-left="{depth * 16 + 8}px">
       <div class="tree-row rename-row">
         <span class="row-icon">
-          {@html isFolder ? fluentIcons.folder16 : fluentIcons.document16}
+          <Icon name={isFolder ? 'folder-simple' : 'file-text'} />
         </span>
         <!-- svelte-ignore a11y_autofocus -->
         <input
@@ -137,12 +137,12 @@
     >
       {#if isFolder}
         <span class="chevron-icon">
-          {@html isExpanded ? fluentIcons.chevronDown16 : fluentIcons.chevronRight16}
+          <Icon name={isExpanded ? 'caret-down' : 'caret-right'} size={12} />
         </span>
-        <span class="row-icon folder-color">{@html fluentIcons.folder16}</span>
+        <span class="row-icon folder-color"><Icon name="folder-simple" /></span>
       {:else}
         <span class="chevron-spacer"></span>
-        <span class="row-icon">{@html fluentIcons.document16}</span>
+        <span class="row-icon"><Icon name="file-text" /></span>
       {/if}
       <span class="row-label">
         {node.kind === 'file' && node.name.toLowerCase().endsWith('.md')
@@ -198,18 +198,18 @@
     border-radius: var(--radius-control);
     background: transparent;
     color: var(--text-primary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     text-align: left;
     cursor: pointer;
     transition: background-color var(--transition-fast);
   }
 
   .tree-row:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
   }
 
   .tree-row.active {
-    background: var(--selection-bg);
+    background: var(--selection);
     font-weight: 600;
   }
 
@@ -240,7 +240,7 @@
   }
 
   .row-icon.folder-color {
-    color: var(--accent-color, var(--accent-fallback));
+    color: var(--accent);
   }
 
   .row-label {
@@ -268,10 +268,10 @@
     height: 26px;
     padding: 0 var(--space-2);
     border-radius: var(--radius-control);
-    border: 1px solid var(--accent-color, var(--focus-ring));
-    background: var(--bg-card-solid);
+    border: 1px solid var(--accent);
+    background: var(--surface-raised);
     color: var(--text-primary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
   }
 
   .rename-input.invalid {
@@ -279,7 +279,7 @@
   }
 
   .inline-error {
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     color: var(--text-danger);
     padding: 2px var(--space-1);
     line-height: 1.3;

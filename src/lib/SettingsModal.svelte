@@ -1,7 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { fluentIcons } from './icons';
+  import { getVersion } from '@tauri-apps/api/app';
+  import Icon from './ui/Icon.svelte';
+  import Button from './ui/Button.svelte';
+  import IconButton from './ui/IconButton.svelte';
+  import Segmented from './ui/Segmented.svelte';
+  import Dialog from './ui/Dialog.svelte';
+  import ChoiceCards from './ui/ChoiceCards.svelte';
   import { COPY_MODE_LABELS, settingsStore } from './stores/settings.svelte';
+  import { ACCENT_PRESETS } from './designTokens';
   import { vaultStore } from './stores/vault.svelte';
   import type { CopyMode } from './types';
 
@@ -12,20 +19,13 @@
 
   let { onClose, onRefreshInspector }: Props = $props();
 
-  type SettingsSection = 'editor' | 'copy' | 'appearance' | 'vault';
+  type SettingsSection = 'editor' | 'copy' | 'appearance' | 'vault' | 'about';
+  let appVersion = $state('');
   let activeSection = $state<SettingsSection>('editor');
   let rebuildStatus = $state('');
   let isRebuilding = $state(false);
   let closeBtnRef: HTMLButtonElement | undefined = $state();
 
-  const ACCENT_PRESETS = [
-    { label: 'Fluent Blue', hex: '#0067c0' },
-    { label: ' Teal', hex: '#038387' },
-    { label: 'Forest Green', hex: '#0f7b0f' },
-    { label: 'Iris Purple', hex: '#8764b8' },
-    { label: 'Crimson', hex: '#c42b1c' },
-    { label: 'Amber', hex: '#ca5010' },
-  ];
 
   const COPY_MODE_DETAILS: Record<
     CopyMode,
@@ -72,42 +72,18 @@
 
   onMount(() => {
     closeBtnRef?.focus();
+    getVersion()
+      .then((version) => (appVersion = version))
+      .catch(() => {
+        // Not running inside Tauri (browser preview).
+      });
   });
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-  class="settings-backdrop"
-  onmousedown={(e) => {
-    if (e.target === e.currentTarget) onClose();
-  }}
->
-  <div
-    class="settings-dialog"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="settings-dialog-title"
-  >
-    <header class="settings-header">
-      <div class="header-title-group">
-        <span class="header-icon">{@html fluentIcons.settings16}</span>
-        <h2 id="settings-dialog-title" class="header-title">Settings</h2>
-        <span class="shortcut-pill">Ctrl+,</span>
-      </div>
-      <button
-        bind:this={closeBtnRef}
-        type="button"
-        class="fluent-btn icon-only"
-        aria-label="Close settings (Escape)"
-        title="Close settings (Escape)"
-        onclick={onClose}
-      >
-        {@html fluentIcons.dismiss16}
-      </button>
-    </header>
-
+<Dialog label="Settings" variant="panel" {onClose}>
     <div class="settings-body">
       <nav class="settings-nav" aria-label="Settings categories">
+        <h2 class="nav-title">Settings</h2>
         <button
           type="button"
           class="nav-item"
@@ -115,7 +91,7 @@
           aria-current={activeSection === 'editor' ? 'page' : undefined}
           onclick={() => (activeSection = 'editor')}
         >
-          {@html fluentIcons.edit16}
+          <Icon name="pencil-simple" />
           <span>Editor</span>
         </button>
         <button
@@ -125,7 +101,7 @@
           aria-current={activeSection === 'copy' ? 'page' : undefined}
           onclick={() => (activeSection = 'copy')}
         >
-          {@html fluentIcons.copy16}
+          <Icon name="copy" />
           <span>Copy</span>
         </button>
         <button
@@ -135,7 +111,7 @@
           aria-current={activeSection === 'appearance' ? 'page' : undefined}
           onclick={() => (activeSection = 'appearance')}
         >
-          {@html fluentIcons.eye16}
+          <Icon name="eye" />
           <span>Appearance</span>
         </button>
         <button
@@ -145,12 +121,31 @@
           aria-current={activeSection === 'vault' ? 'page' : undefined}
           onclick={() => (activeSection = 'vault')}
         >
-          {@html fluentIcons.folder16}
+          <Icon name="folder-simple" />
           <span>Vault</span>
+        </button>
+        <button
+          type="button"
+          class="nav-item nav-bottom"
+          class:active={activeSection === 'about'}
+          aria-current={activeSection === 'about' ? 'page' : undefined}
+          onclick={() => (activeSection = 'about')}
+        >
+          <Icon name="info" />
+          <span>About</span>
         </button>
       </nav>
 
       <div class="settings-content">
+        <div class="close-btn">
+          <IconButton
+            bind:ref={closeBtnRef}
+            icon="x"
+            label="Close settings"
+            tooltip="Close settings (Esc)"
+            onclick={onClose}
+          />
+        </div>
         {#if activeSection === 'editor'}
           <section class="settings-section" aria-labelledby="sec-editor">
             <h3 id="sec-editor" class="section-title">Editor</h3>
@@ -165,28 +160,15 @@
                   Live mode renders headings, emphasis, links, task checkboxes, and images inline while keeping raw Markdown on the active cursor line (Ctrl+/).
                 </div>
               </div>
-              <div class="segmented-group" role="radiogroup" aria-label="Default editing mode">
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={settingsStore.editingMode === 'live'}
-                  class="seg-btn"
-                  class:active={settingsStore.editingMode === 'live'}
-                  onclick={() => settingsStore.setEditingMode('live')}
-                >
-                  Live Preview
-                </button>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={settingsStore.editingMode === 'source'}
-                  class="seg-btn"
-                  class:active={settingsStore.editingMode === 'source'}
-                  onclick={() => settingsStore.setEditingMode('source')}
-                >
-                  Source
-                </button>
-              </div>
+              <Segmented
+                label="Default editing mode"
+                value={settingsStore.editingMode}
+                options={[
+                  { value: 'live', label: 'Live Preview' },
+                  { value: 'source', label: 'Source' },
+                ]}
+                onchange={(mode) => settingsStore.setEditingMode(mode)}
+              />
             </div>
 
             <div class="setting-card">
@@ -235,23 +217,15 @@
               <div class="setting-info">
                 <div class="setting-label">Editor font size</div>
                 <div class="setting-desc">
-                  Select a step on the Fluent typography scale (12, 14, 16, or 20 px).
+                  Size of note text: 12, 14, 16 or 20 px.
                 </div>
               </div>
-              <div class="segmented-group" role="radiogroup" aria-label="Editor font size">
-                {#each [12, 14, 16, 20] as sizePx}
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={settingsStore.editorFontSize === sizePx}
-                    class="seg-btn"
-                    class:active={settingsStore.editorFontSize === sizePx}
-                    onclick={() => settingsStore.setEditorFontSize(sizePx)}
-                  >
-                    {sizePx} px
-                  </button>
-                {/each}
-              </div>
+              <Segmented
+                label="Editor font size"
+                value={settingsStore.editorFontSize}
+                options={[12, 14, 16, 20].map((px) => ({ value: px, label: `${px} px` }))}
+                onchange={(px) => settingsStore.setEditorFontSize(px)}
+              />
             </div>
 
             <div class="setting-card">
@@ -261,28 +235,15 @@
                   Choose how images pasted from the clipboard into the <code>attachments/</code> folder are inserted into the note.
                 </div>
               </div>
-              <div class="segmented-group" role="radiogroup" aria-label="Pasted image link format">
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={settingsStore.imageLinkFormat === 'wikilink'}
-                  class="seg-btn"
-                  class:active={settingsStore.imageLinkFormat === 'wikilink'}
-                  onclick={() => settingsStore.setImageLinkFormat('wikilink')}
-                >
-                  ![[name]]
-                </button>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={settingsStore.imageLinkFormat === 'markdown'}
-                  class="seg-btn"
-                  class:active={settingsStore.imageLinkFormat === 'markdown'}
-                  onclick={() => settingsStore.setImageLinkFormat('markdown')}
-                >
-                  ![](path)
-                </button>
-              </div>
+              <Segmented
+                label="Pasted image link format"
+                value={settingsStore.imageLinkFormat}
+                options={[
+                  { value: 'wikilink', label: '![[name]]' },
+                  { value: 'markdown', label: '![](path)' },
+                ]}
+                onchange={(format) => settingsStore.setImageLinkFormat(format)}
+              />
             </div>
           </section>
         {:else if activeSection === 'copy'}
@@ -328,55 +289,31 @@
           <section class="settings-section" aria-labelledby="sec-appearance">
             <h3 id="sec-appearance" class="section-title">Appearance</h3>
             <p class="section-subtitle">
-              Customize Windows 11 Fluent theme, Mica window backdrop, and system accent color.
+              Theme, accent, writing font and window backdrop.
             </p>
 
-            <div class="setting-card">
+            <div class="setting-card column-card">
               <div class="setting-info">
-                <div class="setting-label">Theme mode</div>
-                <div class="setting-desc">
-                  Follow the Windows 11 system theme live (`prefers-color-scheme`) or lock Light or Dark mode.
-                </div>
+                <div class="setting-label">Theme</div>
+                <div class="setting-desc">System follows your operating system's light or dark setting.</div>
               </div>
-              <div class="segmented-group" role="radiogroup" aria-label="Theme mode">
-                {#each ['system', 'light', 'dark'] as const as pref}
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={settingsStore.themePref === pref}
-                    class="seg-btn"
-                    class:active={settingsStore.themePref === pref}
-                    onclick={() => settingsStore.setThemePreference(pref)}
-                  >
-                    {pref === 'system'
-                      ? 'Follow System'
-                      : pref === 'light'
-                        ? 'Light'
-                        : 'Dark'}
-                  </button>
-                {/each}
-              </div>
-            </div>
-
-            <div class="setting-card">
-              <div class="setting-info">
-                <label for="toggle-mica" class="setting-label">
-                  Windows 11 Mica backdrop
-                </label>
-                <div class="setting-desc">
-                  Use native Mica material on the window background. When off (or on Windows 10), Jotter uses a solid Fluent surface fallback.
-                </div>
-              </div>
-              <input
-                id="toggle-mica"
-                type="checkbox"
-                class="fluent-toggle"
-                checked={!settingsStore.forceSolidBackdrop}
-                onchange={(e) =>
-                  settingsStore.setForceSolidBackdrop(
-                    !(e.currentTarget as HTMLInputElement).checked
-                  )}
-              />
+              <ChoiceCards
+                label="Theme"
+                value={settingsStore.themePref}
+                options={[
+                  { value: 'system', label: 'System' },
+                  { value: 'light', label: 'Paper' },
+                  { value: 'dark', label: 'Night' },
+                ]}
+                onchange={(pref) => settingsStore.setThemePreference(pref)}
+              >
+                {#snippet preview(pref)}
+                  <span class="theme-preview {pref}" aria-hidden="true">
+                    <span class="tp-side"></span>
+                    <span class="tp-page"><span></span><span></span></span>
+                  </span>
+                {/snippet}
+              </ChoiceCards>
             </div>
 
             <div class="setting-card column-card">
@@ -384,50 +321,45 @@
                 <div class="setting-info">
                   <div class="setting-label">Accent color</div>
                   <div class="setting-desc">
-                    Follow the Windows system accent color (`AccentColor`) or choose a custom Fluent accent.
+                    Used for links, the active note, selection and primary buttons.
                   </div>
                 </div>
-                <div class="segmented-group" role="radiogroup" aria-label="Accent color source">
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={settingsStore.accentColorMode === 'system'}
-                    class="seg-btn"
-                    class:active={settingsStore.accentColorMode === 'system'}
-                    onclick={() => settingsStore.setAccentColor('system')}
-                  >
-                    System Accent
-                  </button>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={settingsStore.accentColorMode === 'custom'}
-                    class="seg-btn"
-                    class:active={settingsStore.accentColorMode === 'custom'}
-                    onclick={() => settingsStore.setAccentColor('custom')}
-                  >
-                    Custom
-                  </button>
-                </div>
+                <Segmented
+                  label="Accent color source"
+                  value={settingsStore.accentColorMode}
+                  options={[
+                    { value: 'preset', label: 'Jotter' },
+                    { value: 'system', label: 'System' },
+                    { value: 'custom', label: 'Custom' },
+                  ]}
+                  onchange={(mode) => settingsStore.setAccentColor(mode)}
+                />
               </div>
 
-              {#if settingsStore.accentColorMode === 'custom'}
-                <div class="accent-swatches">
-                  {#each ACCENT_PRESETS as swatch}
+              {#if settingsStore.accentColorMode === 'preset'}
+                <div class="accent-swatches" role="radiogroup" aria-label="Accent preset">
+                  {#each ACCENT_PRESETS as swatch (swatch.id)}
+                    {@const selected = settingsStore.accentPreset === swatch.id}
                     <button
                       type="button"
-                      class="swatch-btn"
-                      class:active={settingsStore.customAccentColor.toLowerCase() ===
-                        swatch.hex.toLowerCase()}
-                      style:background-color={swatch.hex}
-                      title={swatch.label}
-                      aria-label="Select accent color {swatch.label}"
-                      onclick={() =>
-                        settingsStore.setAccentColor('custom', swatch.hex)}
-                    ></button>
+                      role="radio"
+                      class="swatch"
+                      aria-checked={selected}
+                      onclick={() => settingsStore.setAccentColor('preset', swatch.id)}
+                    >
+                      <span
+                        class="swatch-dot"
+                        class:active={selected}
+                        style:background-color={settingsStore.effectiveDark ? swatch.dark : swatch.light}
+                      ></span>
+                      {swatch.label}
+                    </button>
                   {/each}
+                </div>
+              {:else if settingsStore.accentColorMode === 'custom'}
+                <div class="accent-swatches">
                   <label class="color-picker-label" title="Custom hex color">
-                    <span>Custom:</span>
+                    <span>Pick a color</span>
                     <input
                       type="color"
                       value={settingsStore.customAccentColor}
@@ -440,6 +372,48 @@
                   </label>
                 </div>
               {/if}
+            </div>
+
+            <div class="setting-card column-card">
+              <div class="setting-info">
+                <div class="setting-label">Writing font</div>
+                <div class="setting-desc">Font for note text. Titles and headings stay in Literata.</div>
+              </div>
+              <ChoiceCards
+                label="Writing font"
+                value={settingsStore.writingFont}
+                options={[
+                  { value: 'serif', label: 'Serif · Literata' },
+                  { value: 'sans', label: 'Sans · Instrument' },
+                  { value: 'mono', label: 'Mono · JetBrains' },
+                ]}
+                onchange={(font) => settingsStore.setWritingFont(font)}
+              >
+                {#snippet preview(font)}
+                  <span class="font-preview {font}" aria-hidden="true">Aa</span>
+                {/snippet}
+              </ChoiceCards>
+            </div>
+
+            <div class="setting-card">
+              <div class="setting-info">
+                <label for="toggle-mica" class="setting-label">
+                  Mica backdrop (Windows 11)
+                </label>
+                <div class="setting-desc">
+                  Tint the sidebar with the desktop behind the window. Off by default.
+                </div>
+              </div>
+              <input
+                id="toggle-mica"
+                type="checkbox"
+                class="fluent-toggle"
+                checked={!settingsStore.forceSolidBackdrop}
+                onchange={(e) =>
+                  settingsStore.setForceSolidBackdrop(
+                    !(e.currentTarget as HTMLInputElement).checked
+                  )}
+              />
             </div>
           </section>
         {:else if activeSection === 'vault'}
@@ -463,15 +437,14 @@
                   <div class="rebuild-status" role="status">{rebuildStatus}</div>
                 {/if}
               </div>
-              <button
-                type="button"
-                class="fluent-btn primary-btn"
+              <Button
+                variant="primary"
+                icon="arrow-clockwise"
                 disabled={!vaultStore.vaultSnapshot || isRebuilding}
                 onclick={() => void handleRebuildIndex()}
               >
-                {@html fluentIcons.arrowClockwise16}
-                <span>{isRebuilding ? 'Rebuilding...' : 'Rebuild Index'}</span>
-              </button>
+                {isRebuilding ? 'Rebuilding…' : 'Rebuild index'}
+              </Button>
             </div>
 
             <div class="setting-card">
@@ -496,280 +469,295 @@
               />
             </div>
           </section>
+        {:else if activeSection === 'about'}
+          <section class="settings-section about" aria-labelledby="sec-about">
+            <div class="about-mark" aria-hidden="true">J</div>
+            <h3 id="sec-about" class="section-title">Jotter</h3>
+            {#if appVersion}
+              <p class="about-version">Version {appVersion}</p>
+            {/if}
+            <p class="about-desc">
+              Jotter is a Markdown notes app for plain-text folders. Your notes stay as
+              <code>.md</code> files on your own disk, it opens Obsidian vaults as they are,
+              and it copies text that pastes cleanly into chat, email and documents.
+            </p>
+            <p class="about-tagline">Developed in Mexico with love</p>
+          </section>
         {/if}
       </div>
     </div>
-  </div>
-</div>
+</Dialog>
 
 <style>
-  .settings-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 220;
-    background: rgba(0, 0, 0, 0.42);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: var(--space-4);
-  }
-
-  .settings-dialog {
-    width: min(760px, 100%);
-    height: min(560px, 90vh);
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border-control);
-    border-radius: var(--radius-card);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  .settings-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: var(--space-3) var(--space-4);
-    border-bottom: 1px solid var(--border-subtle);
-    flex-shrink: 0;
-  }
-
-  .header-title-group {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-  }
-
-  .header-icon {
-    display: inline-flex;
-    color: var(--accent-color, var(--accent-fallback));
-  }
-
-  .header-title {
-    margin: 0;
-    font-family: var(--font-display);
-    font-size: var(--text-base);
-    font-weight: 600;
-  }
-
-  .shortcut-pill {
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    color: var(--text-muted);
-    background: var(--bg-subtle);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-control);
-    padding: 1px 6px;
-  }
-
   .settings-body {
+    display: flex;
     flex: 1;
     min-height: 0;
-    display: flex;
-    overflow: hidden;
   }
 
   .settings-nav {
-    width: 180px;
-    flex-shrink: 0;
-    border-right: 1px solid var(--border-subtle);
-    background: var(--bg-subtle);
-    padding: var(--space-3);
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
+    gap: 2px;
+    width: 188px;
+    flex: none;
+    padding: var(--space-4) var(--space-2);
+    border-right: 1px solid var(--line-subtle);
+    background: var(--surface-app);
+  }
+
+  .nav-title {
+    margin: var(--space-1) var(--space-2) var(--space-3);
+    font: 600 var(--fs-17) / 1.2 var(--font-display);
   }
 
   .nav-item {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    min-height: var(--control-min-height);
-    padding: 0 var(--space-3);
-    border: 1px solid transparent;
+    height: var(--row-height);
+    padding: 0 var(--space-2);
+    border: 0;
     border-radius: var(--radius-control);
     background: transparent;
     color: var(--text-secondary);
-    font-size: var(--text-sm);
-    font-weight: 500;
-    cursor: pointer;
+    font: inherit;
     text-align: left;
-    transition:
-      background-color var(--transition-fast),
-      color var(--transition-fast);
+    cursor: pointer;
+  }
+
+  .nav-bottom {
+    margin-top: auto;
   }
 
   .nav-item:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
     color: var(--text-primary);
   }
 
   .nav-item.active {
-    background: var(--bg-card-solid);
-    color: var(--text-primary);
-    border-color: var(--border-control);
-    font-weight: 600;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 500;
   }
 
   .settings-content {
+    position: relative;
     flex: 1;
     min-width: 0;
     overflow-y: auto;
-    padding: var(--space-5);
+    padding: var(--space-5) var(--space-6) var(--space-8);
+  }
+
+  .close-btn {
+    position: absolute;
+    top: var(--space-3);
+    right: var(--space-3);
   }
 
   .settings-section {
     display: flex;
     flex-direction: column;
-    gap: var(--space-3);
+  }
+
+  .about {
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding-top: var(--space-4);
+  }
+
+  .about-mark {
+    display: grid;
+    place-items: center;
+    width: 48px;
+    height: 48px;
+    margin-bottom: var(--space-2);
+    border-radius: 12px;
+    background: var(--accent);
+    color: var(--on-accent);
+    font: 600 26px / 1 var(--font-display);
+  }
+
+  .about-version {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: var(--fs-13);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .about-desc {
+    max-width: 52ch;
+    margin: var(--space-3) 0 0;
+    color: var(--text-secondary);
+    font: var(--fs-15) / var(--leading-relaxed) var(--font-display);
+  }
+
+  .about-desc code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+  }
+
+  .about-tagline {
+    align-self: stretch;
+    max-width: 52ch;
+    margin: var(--space-6) 0 0;
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--line-subtle);
+    color: var(--text-muted);
+    font: italic var(--fs-15) / 1.4 var(--font-display);
   }
 
   .section-title {
-    margin: 0;
-    font-family: var(--font-display);
-    font-size: var(--text-lg);
-    font-weight: 600;
+    margin: 0 0 var(--space-1);
+    font: 600 var(--fs-24) / 1.25 var(--font-display);
   }
 
   .section-subtitle {
-    margin: 0 0 var(--space-2) 0;
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
+    margin: 0 0 var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--fs-13);
   }
 
   .setting-card {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-4);
-    padding: var(--space-3) var(--space-4);
-    background: var(--bg-subtle);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-card);
+    gap: var(--space-6);
+    padding: var(--space-4) 0;
+    border-bottom: 1px solid var(--line-subtle);
+  }
+
+  .setting-card:last-child {
+    border-bottom: 0;
   }
 
   .setting-card.column-card {
     flex-direction: column;
     align-items: stretch;
+    gap: var(--space-3);
   }
 
   .setting-row-top {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-4);
+    gap: var(--space-6);
   }
 
   .setting-info {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
     min-width: 0;
   }
 
   .setting-label {
-    font-size: var(--text-sm);
-    font-weight: 600;
     color: var(--text-primary);
+    font-weight: 600;
   }
 
   .setting-desc {
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
+    color: var(--text-muted);
+    font-size: var(--fs-12);
     line-height: var(--leading-normal);
+  }
+
+  .setting-desc code {
+    font-family: var(--font-mono);
+    font-size: 0.95em;
   }
 
   .rebuild-status {
     margin-top: var(--space-1);
-    font-size: var(--text-xs);
     color: var(--status-ok);
-    font-weight: 500;
+    font-size: var(--fs-12);
   }
 
-  .segmented-group {
-    display: inline-flex;
-    align-items: center;
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border-control);
-    border-radius: var(--radius-control);
-    padding: 2px;
-    gap: 2px;
-    flex-shrink: 0;
-  }
-
-  .seg-btn {
-    min-height: 28px;
-    padding: 0 var(--space-3);
-    border: 1px solid transparent;
-    border-radius: var(--radius-control);
-    background: transparent;
-    color: var(--text-secondary);
-    font-size: var(--text-xs);
-    font-weight: 500;
+  /* Switch built on a native checkbox so keyboard and screen readers work unchanged. */
+  .fluent-toggle {
+    appearance: none;
+    position: relative;
+    width: 36px;
+    height: 20px;
+    flex: none;
+    margin: 0;
+    border: 1px solid var(--line-strong);
+    border-radius: 10px;
+    background: var(--surface-field);
     cursor: pointer;
     transition:
       background-color var(--transition-fast),
-      color var(--transition-fast);
+      border-color var(--transition-fast);
   }
 
-  .seg-btn:hover {
-    background: var(--bg-control-hover);
-    color: var(--text-primary);
+  .fluent-toggle::before {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--text-secondary);
+    transition: transform var(--transition-fast);
   }
 
-  .seg-btn.active {
-    background: var(--selection-bg);
-    color: var(--text-primary);
-    border-color: var(--accent-color, var(--accent-fallback));
-    font-weight: 600;
+  .fluent-toggle:checked {
+    border-color: var(--accent);
+    background: var(--accent);
   }
 
-  .fluent-toggle {
-    width: 18px;
-    height: 18px;
-    accent-color: var(--accent-color, var(--accent-fallback));
-    cursor: pointer;
-    flex-shrink: 0;
+  .fluent-toggle:checked::before {
+    transform: translateX(16px);
+    background: var(--on-accent);
+  }
+
+  @media (forced-colors: active) {
+    .fluent-toggle {
+      appearance: auto;
+    }
+
+    .fluent-toggle::before {
+      display: none;
+    }
   }
 
   .copy-modes-list {
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
+    margin-top: var(--space-3);
   }
 
   .copy-mode-card {
     display: flex;
     align-items: flex-start;
     gap: var(--space-3);
-    padding: var(--space-3) var(--space-4);
-    background: var(--bg-subtle);
-    border: 1px solid var(--border-subtle);
+    padding: var(--space-3);
+    border: 1px solid var(--line-subtle);
     border-radius: var(--radius-card);
     cursor: pointer;
-    transition:
-      border-color var(--transition-fast),
-      background-color var(--transition-fast);
   }
 
   .copy-mode-card:hover {
-    background: var(--bg-control-hover);
+    border-color: var(--line-control);
   }
 
   .copy-mode-card.selected {
-    border-color: var(--accent-color, var(--accent-fallback));
-    background: var(--selection-bg);
+    border-color: var(--accent);
+    box-shadow: 0 0 0 1px var(--accent);
   }
 
-  .copy-mode-card input[type='radio'] {
-    margin-top: 4px;
-    accent-color: var(--accent-color, var(--accent-fallback));
+  .copy-mode-card input {
+    margin-top: 3px;
+    accent-color: var(--accent);
   }
 
   .copy-mode-body {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 2px;
+    min-width: 0;
   }
 
   .copy-mode-header {
@@ -779,97 +767,166 @@
   }
 
   .copy-mode-title {
-    font-size: var(--text-sm);
     font-weight: 600;
-    color: var(--text-primary);
   }
 
   .copy-mode-badge {
-    font-size: var(--text-xs);
     padding: 1px 6px;
-    border-radius: var(--radius-control);
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border-subtle);
-    color: var(--text-secondary);
+    border-radius: 9px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: var(--fs-11);
+    font-weight: 500;
   }
 
   .copy-mode-formats {
+    color: var(--text-secondary);
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    color: var(--syn-code);
+    font-size: var(--fs-12);
   }
 
   .copy-mode-desc {
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
+    color: var(--text-muted);
+    font-size: var(--fs-12);
     line-height: var(--leading-normal);
   }
 
   .accent-swatches {
     display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding-top: var(--space-2);
-    border-top: 1px solid var(--border-subtle);
     flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
   }
 
-  .swatch-btn {
-    width: 28px;
-    height: 28px;
-    border-radius: var(--radius-control);
-    border: 2px solid transparent;
+  .accent-swatches[role='radiogroup'] {
+    display: grid;
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+    gap: var(--space-1);
+  }
+
+  .swatch {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-secondary);
+    font: var(--fs-12) var(--font-ui);
     cursor: pointer;
   }
 
-  .swatch-btn.active {
-    border-color: var(--text-primary);
-    box-shadow: 0 0 0 2px var(--bg-card-solid);
+  .swatch-dot {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px var(--line-subtle);
+  }
+
+  .swatch-dot.active {
+    box-shadow:
+      0 0 0 2px var(--surface-raised),
+      0 0 0 4px var(--text-primary);
+  }
+
+  .swatch[aria-checked='true'] {
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  /* Theme previews use fixed paper and night colors so each card shows its own theme. */
+  .theme-preview {
+    display: flex;
+    height: 100%;
+    border: 1px solid var(--line-subtle);
+    border-radius: var(--radius-control);
+    overflow: hidden;
+  }
+
+  .tp-side {
+    width: 32%;
+  }
+
+  .tp-page {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 10px 8px;
+  }
+
+  .tp-page span {
+    height: 4px;
+    border-radius: 2px;
+    background: currentColor;
+    opacity: 0.45;
+  }
+
+  .tp-page span:last-child {
+    width: 60%;
+  }
+
+  .theme-preview.light {
+    color: #1f1d1a;
+  }
+
+  .theme-preview.light .tp-side {
+    background: #f3f1ea;
+  }
+
+  .theme-preview.light .tp-page {
+    background: #fbfaf6;
+  }
+
+  .theme-preview.dark {
+    color: #ece8df;
+  }
+
+  .theme-preview.dark .tp-side {
+    background: #161512;
+  }
+
+  .theme-preview.dark .tp-page {
+    background: #1c1b18;
+  }
+
+  .theme-preview.system {
+    background: linear-gradient(135deg, #fbfaf6 50%, #1c1b18 50%);
+  }
+
+  .theme-preview.system > span {
+    visibility: hidden;
+  }
+
+  .font-preview {
+    display: grid;
+    place-items: center;
+    height: 100%;
+    border-radius: var(--radius-control);
+    background: var(--surface-editor);
+    color: var(--text-primary);
+    font-size: 26px;
+  }
+
+  .font-preview.serif {
+    font-family: var(--font-display);
+  }
+
+  .font-preview.sans {
+    font-family: var(--font-ui);
+  }
+
+  .font-preview.mono {
+    font-family: var(--font-mono);
   }
 
   .color-picker-label {
     display: inline-flex;
     align-items: center;
-    gap: var(--space-1);
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
-    margin-left: auto;
-  }
-
-  .fluent-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
     gap: var(--space-2);
-    min-height: var(--control-min-height);
-    min-width: var(--control-min-height);
-    padding: 0 var(--space-3);
-    border-radius: var(--radius-control);
-    border: 1px solid var(--border-control);
-    background: var(--bg-control);
-    color: var(--text-primary);
-    font-size: var(--text-xs);
-    font-weight: 500;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-
-  .fluent-btn.icon-only {
-    padding: 0 var(--space-2);
-  }
-
-  .fluent-btn:hover:not(:disabled) {
-    background: var(--bg-control-hover);
-  }
-
-  .fluent-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .fluent-btn.primary-btn {
-    background: var(--accent-color, var(--accent-fallback));
-    color: var(--accent-text, #ffffff);
-    border-color: transparent;
+    color: var(--text-secondary);
+    font-size: var(--fs-13);
   }
 </style>

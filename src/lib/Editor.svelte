@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, untrack, type Snippet } from 'svelte';
   import { EditorState } from '@codemirror/state';
   import {
     EditorView,
@@ -9,7 +9,7 @@
     highlightActiveLine,
   } from '@codemirror/view';
   import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
-  import { markdown } from '@codemirror/lang-markdown';
+  import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
   import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
   import { tags } from '@lezer/highlight';
   import {
@@ -29,6 +29,8 @@
     type MarkdownFormatCommandId,
   } from './markdownCommands';
   import { settingsStore } from './stores/settings.svelte';
+  import Icon from './ui/Icon.svelte';
+  import type { IconName } from './ui/icons';
   import type {
     ClipboardPayload,
     CopyMode,
@@ -58,6 +60,8 @@
       selectedLines: number;
     }) => void;
     onError?: (err: string) => void;
+    /** Rendered above the text and scrolled with it, such as the note title. */
+    header?: Snippet;
   }
 
   let {
@@ -75,9 +79,49 @@
     onPastePlainComplete,
     onStatsChange,
     onError,
+    header,
   }: Props = $props();
 
   let editorHost: HTMLDivElement | undefined = $state();
+  let scrollHost: HTMLDivElement | undefined = $state();
+
+  // Floating format toolbar shown above a non-empty selection.
+  let selectionBar = $state<{ left: number; top: number } | null>(null);
+
+  const SELECTION_ACTIONS: { cmd: MarkdownFormatCommandId; icon: IconName; label: string }[] = [
+    { cmd: 'bold', icon: 'text-b', label: 'Bold (Ctrl+B)' },
+    { cmd: 'italic', icon: 'text-italic', label: 'Italic (Ctrl+I)' },
+    { cmd: 'strikethrough', icon: 'text-strikethrough', label: 'Strikethrough' },
+    { cmd: 'inline_code', icon: 'code', label: 'Inline code' },
+    { cmd: 'link', icon: 'link-simple', label: 'Link' },
+    { cmd: 'wikilink', icon: 'notebook', label: 'Wiki link' },
+    { cmd: 'blockquote', icon: 'quotes', label: 'Quote' },
+    { cmd: 'task_list', icon: 'list-checks', label: 'Task list' },
+  ];
+
+  function updateSelectionBar(target: EditorView) {
+    const sel = target.state.selection.main;
+    if (sel.empty || !target.hasFocus) {
+      selectionBar = null;
+      return;
+    }
+    const start = target.coordsAtPos(sel.from);
+    const end = target.coordsAtPos(sel.to);
+    if (!start || !end) {
+      selectionBar = null;
+      return;
+    }
+    // Centre over a single-line selection; anchor to the start of a multi-line one.
+    const left = start.top === end.top ? (start.left + end.right) / 2 : start.left + 120;
+    selectionBar = { left, top: Math.min(start.top, end.top) };
+  }
+
+  function runSelectionAction(cmd: MarkdownFormatCommandId) {
+    if (!view) return;
+    runMarkdownCommand(view, cmd);
+    view.focus();
+    updateSelectionBar(view);
+  }
   let view: EditorView | undefined;
   let currentLoadedDocId = '';
   let suppressChangeEmit = false;
@@ -86,14 +130,14 @@
     {
       tag: tags.heading1,
       fontFamily: 'var(--font-display)',
-      fontSize: 'var(--text-xl)',
+      fontSize: 'var(--fs-24)',
       fontWeight: '600',
       color: 'var(--syn-heading)',
     },
     {
       tag: [tags.heading2, tags.heading3],
       fontFamily: 'var(--font-display)',
-      fontSize: 'var(--text-lg)',
+      fontSize: 'var(--fs-17)',
       fontWeight: '600',
       color: 'var(--syn-heading)',
     },
@@ -120,7 +164,7 @@
     {
       tag: [tags.monospace, tags.processingInstruction],
       fontFamily: 'var(--font-mono)',
-      fontSize: 'var(--text-sm)',
+      fontSize: 'var(--fs-13)',
       color: 'var(--syn-code)',
     },
     {
@@ -141,73 +185,75 @@
 
   const editorTheme = EditorView.theme({
     '&': {
-      height: '100%',
-      fontSize: 'var(--editor-font-size, var(--text-base))',
-      fontFamily: 'var(--font-ui)',
+      minHeight: '100%',
+      fontSize: 'var(--editor-font-size, var(--fs-17))',
+      fontFamily: 'var(--font-body)',
       color: 'var(--text-primary)',
       backgroundColor: 'transparent',
     },
     '.cm-scroller': {
-      overflow: 'auto',
-      padding: 'var(--space-6) var(--space-4) var(--space-8) var(--space-4)',
-      fontFamily: 'var(--font-ui)',
+      // The outer .editor-scroll element scrolls so the note header moves with the text.
+      overflow: 'visible',
+      padding: '0 var(--space-6) var(--space-12)',
+      fontFamily: 'var(--font-body)',
       lineHeight: 'var(--leading-relaxed)',
     },
     '.cm-content': {
       maxWidth: 'var(--editor-max-width)',
       margin: '0 auto',
-      padding: '0 0 var(--space-8) 0',
-      caretColor: 'var(--accent-color, var(--focus-ring))',
+      padding: '0 0 var(--space-12) 0',
+      caretColor: 'var(--accent)',
     },
     '.cm-content.cm-typewriter-content': {
       paddingTop: '42vh',
       paddingBottom: '42vh',
     },
     '.cm-line': {
-      padding: '0 var(--space-2)',
+      padding: '0',
       transition: 'opacity var(--transition-fast)',
     },
     '.cm-activeLine': {
-      backgroundColor: 'var(--bg-subtle)',
-      borderRadius: 'var(--radius-control)',
+      backgroundColor: 'transparent',
     },
     '&.cm-focused': {
       outline: 'none',
     },
     '.cm-selectionBackground, &.cm-focused .cm-selectionBackground, ::selection': {
-      backgroundColor: 'var(--selection-bg) !important',
+      backgroundColor: 'var(--selection) !important',
     },
     '.cm-cursor, .cm-dropCursor': {
-      borderLeftColor: 'var(--accent-color, var(--focus-ring))',
+      borderLeftColor: 'var(--accent)',
       borderLeftWidth: '2px',
     },
     /* Live Preview Inline & Block Styles */
     '.cm-line.cm-live-h1': {
       fontFamily: 'var(--font-display)',
-      fontSize: 'var(--text-xl)',
+      fontSize: 'var(--fs-32)',
       fontWeight: '600',
       lineHeight: 'var(--leading-tight)',
-      paddingTop: 'var(--space-3)',
-      paddingBottom: 'var(--space-1)',
+      letterSpacing: '-0.01em',
+      paddingTop: 'var(--space-6)',
+      paddingBottom: 'var(--space-2)',
       color: 'var(--syn-heading)',
     },
     '.cm-line.cm-live-h2': {
       fontFamily: 'var(--font-display)',
-      fontSize: 'var(--text-lg)',
+      fontSize: 'var(--fs-24)',
       fontWeight: '600',
       lineHeight: 'var(--leading-tight)',
-      paddingTop: 'var(--space-2)',
-      paddingBottom: '2px',
+      paddingTop: 'var(--space-6)',
+      paddingBottom: 'var(--space-1)',
       color: 'var(--syn-heading)',
     },
     '.cm-line.cm-live-h3': {
-      fontFamily: 'var(--font-display)',
-      fontSize: 'var(--text-base)',
+      fontFamily: 'var(--font-ui)',
+      fontSize: 'var(--fs-17)',
       fontWeight: '600',
+      paddingTop: 'var(--space-4)',
       color: 'var(--syn-heading)',
     },
     '.cm-line.cm-live-h4, .cm-line.cm-live-h5, .cm-line.cm-live-h6': {
-      fontSize: 'var(--text-sm)',
+      fontSize: 'var(--fs-15)',
       fontWeight: '600',
       color: 'var(--syn-heading)',
     },
@@ -225,34 +271,27 @@
     },
     '.cm-live-inline-code': {
       fontFamily: 'var(--font-mono)',
-      fontSize: '0.9em',
-      backgroundColor: 'var(--bg-code)',
+      fontSize: '0.86em',
+      backgroundColor: 'var(--surface-code)',
       color: 'var(--syn-code)',
       padding: '1px 5px',
       borderRadius: 'var(--radius-control)',
-      border: '1px solid var(--border-subtle)',
     },
     '.cm-live-link': {
       color: 'var(--syn-link)',
       textDecoration: 'underline',
-      textUnderlineOffset: '2px',
+      textDecorationColor: 'color-mix(in srgb, var(--accent) 40%, transparent)',
+      textUnderlineOffset: '3px',
     },
     '.cm-live-wikilink-widget': {
-      display: 'inline-flex',
-      alignItems: 'center',
       color: 'var(--syn-link)',
-      backgroundColor: 'var(--bg-subtle)',
-      border: '1px solid var(--border-subtle)',
-      borderRadius: 'var(--radius-control)',
-      padding: '0 6px',
-      fontSize: '0.95em',
-      fontWeight: '500',
+      textDecoration: 'underline',
+      textDecorationColor: 'color-mix(in srgb, var(--accent) 40%, transparent)',
+      textUnderlineOffset: '3px',
       cursor: 'pointer',
-      textDecoration: 'none',
     },
     '.cm-live-wikilink-widget:hover': {
-      backgroundColor: 'var(--bg-control-hover)',
-      borderColor: 'var(--accent-color, var(--accent-fallback))',
+      textDecorationColor: 'currentColor',
     },
     '.cm-live-wikilink-raw': {
       color: 'var(--syn-link)',
@@ -268,106 +307,99 @@
       maxWidth: '100%',
       maxHeight: '360px',
       borderRadius: 'var(--radius-card)',
-      border: '1px solid var(--border-subtle)',
+      border: '1px solid var(--line-subtle)',
     },
     '.cm-live-image-missing': {
       display: 'inline-flex',
       alignItems: 'center',
       padding: '2px 8px',
       borderRadius: 'var(--radius-control)',
-      border: '1px dashed var(--border-control)',
-      backgroundColor: 'var(--bg-subtle)',
+      border: '1px dashed var(--line-control)',
+      backgroundColor: 'var(--surface-subtle)',
       color: 'var(--text-muted)',
-      fontSize: 'var(--text-xs)',
+      fontSize: 'var(--fs-12)',
     },
     '.cm-live-bullet-widget': {
       display: 'inline-block',
-      width: '14px',
-      textAlign: 'center',
-      color: 'var(--accent-color, var(--accent-fallback))',
-      fontWeight: '700',
+      width: '1em',
+      color: 'var(--text-muted)',
     },
     '.cm-live-ordered-mark': {
-      color: 'var(--accent-color, var(--accent-fallback))',
-      fontWeight: '600',
+      color: 'var(--text-muted)',
+      fontVariantNumeric: 'tabular-nums',
     },
     '.cm-live-task-widget': {
       display: 'inline-flex',
       alignItems: 'center',
-      verticalAlign: 'middle',
-      marginRight: '6px',
+      verticalAlign: '-2px',
+      marginRight: '0.5em',
     },
     '.cm-live-task-checkbox': {
-      width: '15px',
-      height: '15px',
+      width: '16px',
+      height: '16px',
       margin: '0',
       cursor: 'pointer',
-      accentColor: 'var(--accent-color, var(--accent-fallback))',
+      accentColor: 'var(--accent)',
     },
     '.cm-line.cm-live-task-done-line': {
       color: 'var(--text-muted)',
       textDecoration: 'line-through',
+      textDecorationColor: 'var(--line-strong)',
     },
     '.cm-line.cm-live-blockquote-line': {
-      borderLeft: '3px solid var(--accent-color, var(--accent-fallback))',
-      paddingLeft: 'var(--space-3)',
-      backgroundColor: 'var(--bg-subtle)',
+      borderLeft: '2px solid var(--line-strong)',
+      paddingLeft: 'var(--space-4)',
       color: 'var(--syn-quote)',
       fontStyle: 'italic',
     },
     '.cm-line.cm-live-codeblock-line': {
       fontFamily: 'var(--font-mono)',
-      fontSize: 'var(--text-sm)',
-      backgroundColor: 'var(--bg-code)',
-      borderLeft: '1px solid var(--border-subtle)',
-      borderRight: '1px solid var(--border-subtle)',
-      paddingLeft: 'var(--space-3)',
-      paddingRight: 'var(--space-3)',
+      fontSize: 'var(--fs-13)',
+      lineHeight: '1.6',
+      backgroundColor: 'var(--surface-code)',
+      paddingLeft: 'var(--space-4)',
+      paddingRight: 'var(--space-4)',
     },
     '.cm-line.cm-live-codeblock-start': {
-      borderTop: '1px solid var(--border-subtle)',
-      borderTopLeftRadius: 'var(--radius-control)',
-      borderTopRightRadius: 'var(--radius-control)',
-      paddingTop: 'var(--space-1)',
+      borderTopLeftRadius: 'var(--radius-card)',
+      borderTopRightRadius: 'var(--radius-card)',
+      paddingTop: 'var(--space-2)',
     },
     '.cm-line.cm-live-codeblock-end': {
-      borderBottom: '1px solid var(--border-subtle)',
-      borderBottomLeftRadius: 'var(--radius-control)',
-      borderBottomRightRadius: 'var(--radius-control)',
-      paddingBottom: 'var(--space-1)',
+      borderBottomLeftRadius: 'var(--radius-card)',
+      borderBottomRightRadius: 'var(--radius-card)',
+      paddingBottom: 'var(--space-2)',
     },
     '.cm-live-codeblock-badge': {
       display: 'inline-block',
-      fontFamily: 'var(--font-mono)',
-      fontSize: '11px',
+      fontFamily: 'var(--font-ui)',
+      fontSize: 'var(--fs-11)',
+      fontWeight: '500',
       color: 'var(--text-muted)',
-      textTransform: 'uppercase',
-      letterSpacing: '0.04em',
       userSelect: 'none',
     },
     '.cm-line.cm-live-table-line': {
-      fontFamily: 'var(--font-mono)',
-      fontSize: 'var(--text-sm)',
-      backgroundColor: 'var(--bg-subtle)',
-      borderLeft: '1px solid var(--border-subtle)',
-      borderRight: '1px solid var(--border-subtle)',
-      paddingLeft: 'var(--space-3)',
-      paddingRight: 'var(--space-3)',
+      fontFamily: 'var(--font-ui)',
+      fontSize: 'var(--fs-15)',
+      fontVariantNumeric: 'tabular-nums',
+      borderBottom: '1px solid var(--line-subtle)',
+      paddingTop: '4px',
+      paddingBottom: '4px',
     },
     '.cm-line.cm-live-table-header-line': {
+      fontSize: 'var(--fs-12)',
       fontWeight: '600',
-      borderTop: '1px solid var(--border-subtle)',
-      borderTopLeftRadius: 'var(--radius-control)',
-      borderTopRightRadius: 'var(--radius-control)',
-      color: 'var(--syn-heading)',
+      letterSpacing: '0.04em',
+      textTransform: 'uppercase',
+      color: 'var(--text-secondary)',
     },
     '.cm-line.cm-live-table-row-line': {
-      borderBottom: '1px solid var(--border-subtle)',
+      borderBottom: '1px solid var(--line-subtle)',
     },
     '.cm-live-table-pipe': {
       display: 'inline-block',
-      padding: '0 var(--space-2)',
-      color: 'var(--border-control)',
+      padding: '0 var(--space-3)',
+      color: 'var(--line-control)',
       userSelect: 'none',
     },
     '.cm-live-table-edge-pipe': {
@@ -375,28 +407,35 @@
       width: '2px',
     },
     '.cm-live-table-sep-widget': {
-      display: 'block',
-      width: '100%',
-      height: '1px',
-      backgroundColor: 'var(--border-control)',
-      margin: '6px 0',
+      display: 'none',
     },
     '.cm-live-hr-widget': {
       display: 'block',
       width: '100%',
       height: '1px',
-      backgroundColor: 'var(--border-control)',
-      margin: '10px 0',
+      backgroundColor: 'var(--line-subtle)',
+      margin: 'var(--space-3) 0',
+    },
+    '.cm-live-tag': {
+      fontFamily: 'var(--font-ui)',
+      fontSize: '0.78em',
+      fontWeight: '500',
+      color: 'var(--accent)',
+      backgroundColor: 'var(--accent-soft)',
+      padding: '0.15em 0.5em',
+      borderRadius: '10px',
+      whiteSpace: 'nowrap',
     },
     '.cm-line.cm-dimmed-paragraph-line': {
       opacity: '0.32',
     },
     '.cm-tooltip.cm-tooltip-autocomplete': {
-      backgroundColor: 'var(--bg-card-solid)',
-      border: '1px solid var(--border-control)',
+      backgroundColor: 'var(--surface-raised)',
+      border: '1px solid var(--line-control)',
       borderRadius: 'var(--radius-card)',
+      boxShadow: 'var(--shadow-popover)',
       fontFamily: 'var(--font-ui)',
-      fontSize: 'var(--text-xs)',
+      fontSize: 'var(--fs-13)',
       color: 'var(--text-primary)',
       padding: 'var(--space-1)',
       overflow: 'hidden',
@@ -414,12 +453,12 @@
       gap: 'var(--space-2)',
     },
     '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': {
-      backgroundColor: 'var(--selection-bg)',
-      color: 'var(--text-primary)',
+      backgroundColor: 'var(--accent-soft)',
+      color: 'var(--accent)',
     },
     '.cm-completionDetail': {
       color: 'var(--text-muted)',
-      fontSize: '11px',
+      fontSize: 'var(--fs-11)',
       fontStyle: 'normal',
       marginLeft: 'auto',
     },
@@ -622,7 +661,7 @@
         highlightActiveLine(),
         EditorView.lineWrapping,
         placeholder('Write your Markdown note here...'),
-        markdown(),
+        markdown({ base: markdownLanguage }),
         syntaxHighlighting(markdownHighlight),
         createWikiLinkAutocompleteExtension(() => vaultFiles),
         livePreviewCompartment.of(
@@ -669,6 +708,9 @@
           if (update.docChanged || update.selectionSet) {
             emitStats(update.state);
           }
+          if (update.selectionSet || update.focusChanged || update.docChanged) {
+            updateSelectionBar(update.view);
+          }
           if (update.docChanged && !suppressChangeEmit) {
             onDocChange?.(docId, update.state.doc.toString());
           }
@@ -678,13 +720,16 @@
   }
 
   $effect(() => {
-    if (view && docId !== currentLoadedDocId) {
-      currentLoadedDocId = docId;
-      suppressChangeEmit = true;
-      view.setState(createEditorState(initialDoc));
-      suppressChangeEmit = false;
-      emitStats(view.state);
-    }
+    // Read docId before the view check: this effect first runs before onMount creates
+    // the view, and a dependency read only after the check would never be tracked.
+    const nextDocId = docId;
+    if (!view || nextDocId === currentLoadedDocId) return;
+    currentLoadedDocId = nextDocId;
+    const nextDoc = untrack(() => initialDoc);
+    suppressChangeEmit = true;
+    view.setState(createEditorState(nextDoc));
+    suppressChangeEmit = false;
+    emitStats(view.state);
   });
 
   $effect(() => {
@@ -803,12 +848,94 @@
   });
 </script>
 
-<div class="editor-surface" bind:this={editorHost} aria-label="Markdown note editor"></div>
+<div
+  class="editor-scroll"
+  data-editor-scroll
+  bind:this={scrollHost}
+  onscroll={() => (selectionBar = null)}
+>
+  {#if header}
+    <div class="note-header">{@render header()}</div>
+  {/if}
+  <div class="editor-surface" bind:this={editorHost} aria-label="Markdown note editor"></div>
+</div>
+
+{#if selectionBar}
+  <div
+    class="selection-bar"
+    role="toolbar"
+    aria-label="Format selection"
+    style:left="{selectionBar.left}px"
+    style:top="{selectionBar.top}px"
+  >
+    {#each SELECTION_ACTIONS as action, i (action.cmd)}
+      {#if i === 5}<span class="sep" aria-hidden="true"></span>{/if}
+      <button
+        type="button"
+        title={action.label}
+        aria-label={action.label}
+        onmousedown={(e) => {
+          e.preventDefault();
+          runSelectionAction(action.cmd);
+        }}
+      >
+        <Icon name={action.icon} />
+      </button>
+    {/each}
+  </div>
+{/if}
 
 <style>
+  .editor-scroll {
+    height: 100%;
+    overflow-y: auto;
+  }
+
+  .note-header {
+    max-width: var(--editor-max-width);
+    margin: 0 auto;
+    padding: var(--space-12) var(--space-6) var(--space-6);
+    box-sizing: content-box;
+  }
+
   .editor-surface {
     width: 100%;
-    height: 100%;
-    overflow: hidden;
+  }
+
+  .selection-bar {
+    position: fixed;
+    z-index: 60;
+    display: flex;
+    gap: 1px;
+    padding: 3px;
+    transform: translate(-50%, calc(-100% - 8px));
+    border: 1px solid var(--line-control);
+    border-radius: var(--radius-card);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-popover);
+  }
+
+  .selection-bar button {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+
+  .selection-bar button:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+
+  .sep {
+    width: 1px;
+    margin: 4px 2px;
+    background: var(--line-subtle);
   }
 </style>

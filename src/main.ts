@@ -1,4 +1,8 @@
 import { mount } from 'svelte';
+import '@fontsource-variable/instrument-sans';
+import '@fontsource-variable/literata/opsz.css';
+import '@fontsource-variable/literata/opsz-italic.css';
+import '@fontsource-variable/jetbrains-mono';
 import './app.css';
 import App from './App.svelte';
 
