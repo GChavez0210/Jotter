@@ -429,13 +429,13 @@
     justify-content: space-between;
     gap: var(--space-2);
     padding: var(--space-2);
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--line-subtle);
   }
 
   .field-toggle {
     display: inline-flex;
-    background: var(--bg-subtle);
-    border: 1px solid var(--border-subtle);
+    background: var(--surface-subtle);
+    border: 1px solid var(--line-subtle);
     border-radius: var(--radius-control);
     padding: 2px;
     gap: 2px;
@@ -448,16 +448,16 @@
     border: 1px solid transparent;
     background: transparent;
     color: var(--text-secondary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     font-weight: 500;
     cursor: pointer;
     transition: background-color var(--transition-fast);
   }
 
   .field-btn.active {
-    background: var(--bg-card-solid);
+    background: var(--surface-raised);
     color: var(--text-primary);
-    border-color: var(--border-control);
+    border-color: var(--line-control);
     font-weight: 600;
   }
 
@@ -465,15 +465,15 @@
     min-height: 28px;
     padding: 0 var(--space-2);
     border-radius: var(--radius-control);
-    border: 1px solid var(--border-control);
-    background: var(--bg-control);
+    border: 1px solid var(--line-control);
+    background: var(--surface-field);
     color: var(--text-primary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     cursor: pointer;
   }
 
   .today-btn:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
   }
 
   .month-nav {
@@ -484,7 +484,7 @@
   }
 
   .month-label {
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     font-weight: 600;
     color: var(--text-primary);
   }
@@ -496,23 +496,23 @@
     border: 1px solid transparent;
     background: transparent;
     color: var(--text-secondary);
-    font-size: var(--text-base);
+    font-size: var(--fs-15);
     cursor: pointer;
   }
 
   .month-step-btn:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
     color: var(--text-primary);
   }
 
   .month-grid-wrap {
     padding: 0 var(--space-2) var(--space-2) var(--space-2);
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--line-subtle);
     outline: none;
   }
 
   .month-grid-wrap:focus-visible {
-    box-shadow: inset 0 0 0 2px var(--accent-color, var(--focus-ring));
+    box-shadow: inset 0 0 0 2px var(--accent);
     border-radius: var(--radius-control);
   }
 
@@ -524,7 +524,7 @@
 
   .weekday-cell {
     text-align: center;
-    font-size: 10px;
+    font-size: var(--fs-11);
     font-weight: 600;
     color: var(--text-muted);
     padding: 2px 0;
@@ -555,7 +555,7 @@
   }
 
   .day-cell:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
   }
 
   .day-cell.outside-month {
@@ -565,7 +565,7 @@
   .day-cell.heat-1 {
     background: color-mix(
       in srgb,
-      var(--accent-color, var(--accent-fallback)) 10%,
+      var(--accent) 10%,
       transparent
     );
   }
@@ -573,7 +573,7 @@
   .day-cell.heat-2 {
     background: color-mix(
       in srgb,
-      var(--accent-color, var(--accent-fallback)) 20%,
+      var(--accent) 20%,
       transparent
     );
   }
@@ -581,29 +581,29 @@
   .day-cell.heat-3 {
     background: color-mix(
       in srgb,
-      var(--accent-color, var(--accent-fallback)) 32%,
+      var(--accent) 32%,
       transparent
     );
   }
 
   .day-cell.is-today .day-num {
-    color: var(--accent-color, var(--accent-fallback));
+    color: var(--accent);
     font-weight: 700;
     text-decoration: underline;
   }
 
   .day-cell.is-focused {
-    border-color: var(--border-control);
+    border-color: var(--line-control);
   }
 
   .day-cell.is-selected {
-    background: var(--selection-bg);
-    border-color: var(--accent-color, var(--accent-fallback));
+    background: var(--selection);
+    border-color: var(--accent);
     font-weight: 600;
   }
 
   .day-num {
-    font-size: 11px;
+    font-size: var(--fs-11);
     line-height: 1.1;
   }
 
@@ -617,12 +617,12 @@
     width: 4px;
     height: 4px;
     border-radius: 999px;
-    background: var(--accent-color, var(--accent-fallback));
+    background: var(--accent);
   }
 
   .day-count {
     font-family: var(--font-mono);
-    font-size: 9px;
+    font-size: var(--fs-11);
     line-height: 1;
     color: var(--text-secondary);
   }
@@ -641,13 +641,13 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    font-size: 11px;
+    font-size: var(--fs-11);
     color: var(--text-secondary);
   }
 
   .kbd-hint {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--fs-11);
     color: var(--text-muted);
   }
 
@@ -659,7 +659,7 @@
   .empty-day {
     padding: var(--space-3) var(--space-2);
     text-align: center;
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     color: var(--text-secondary);
   }
 
@@ -677,8 +677,8 @@
     text-align: left;
     padding: var(--space-2);
     border-radius: var(--radius-control);
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-subtle);
+    border: 1px solid var(--line-subtle);
+    background: var(--surface-subtle);
     color: var(--text-primary);
     cursor: pointer;
     display: flex;
@@ -687,13 +687,13 @@
   }
 
   .day-note-card:hover {
-    background: var(--bg-control-hover);
-    border-color: var(--border-control);
+    background: var(--surface-hover);
+    border-color: var(--line-control);
   }
 
   .day-note-card.active {
-    background: var(--selection-bg);
-    border-color: var(--accent-color, var(--accent-fallback));
+    background: var(--selection);
+    border-color: var(--accent);
   }
 
   .day-note-top {
@@ -705,12 +705,12 @@
 
   .day-note-icon {
     display: inline-flex;
-    color: var(--accent-color, var(--accent-fallback));
+    color: var(--accent);
     flex-shrink: 0;
   }
 
   .day-note-title {
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -720,13 +720,13 @@
 
   .day-note-time {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--fs-11);
     color: var(--text-muted);
     flex-shrink: 0;
   }
 
   .day-note-path {
-    font-size: 11px;
+    font-size: var(--fs-11);
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -734,7 +734,7 @@
   }
 
   .day-note-preview {
-    font-size: 11px;
+    font-size: var(--fs-11);
     color: var(--text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;

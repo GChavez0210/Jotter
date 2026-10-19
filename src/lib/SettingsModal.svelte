@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { fluentIcons } from './icons';
   import { COPY_MODE_LABELS, settingsStore } from './stores/settings.svelte';
+  import { ACCENT_PRESETS } from './designTokens';
   import { vaultStore } from './stores/vault.svelte';
   import type { CopyMode } from './types';
 
@@ -18,14 +19,6 @@
   let isRebuilding = $state(false);
   let closeBtnRef: HTMLButtonElement | undefined = $state();
 
-  const ACCENT_PRESETS = [
-    { label: 'Fluent Blue', hex: '#0067c0' },
-    { label: ' Teal', hex: '#038387' },
-    { label: 'Forest Green', hex: '#0f7b0f' },
-    { label: 'Iris Purple', hex: '#8764b8' },
-    { label: 'Crimson', hex: '#c42b1c' },
-    { label: 'Amber', hex: '#ca5010' },
-  ];
 
   const COPY_MODE_DETAILS: Record<
     CopyMode,
@@ -328,14 +321,14 @@
           <section class="settings-section" aria-labelledby="sec-appearance">
             <h3 id="sec-appearance" class="section-title">Appearance</h3>
             <p class="section-subtitle">
-              Customize Windows 11 Fluent theme, Mica window backdrop, and system accent color.
+              Theme, accent color and window backdrop.
             </p>
 
             <div class="setting-card">
               <div class="setting-info">
                 <div class="setting-label">Theme mode</div>
                 <div class="setting-desc">
-                  Follow the Windows 11 system theme live (`prefers-color-scheme`) or lock Light or Dark mode.
+                  Follow your system setting, or always use Light or Dark.
                 </div>
               </div>
               <div class="segmented-group" role="radiogroup" aria-label="Theme mode">
@@ -361,10 +354,10 @@
             <div class="setting-card">
               <div class="setting-info">
                 <label for="toggle-mica" class="setting-label">
-                  Windows 11 Mica backdrop
+                  Mica backdrop (Windows 11)
                 </label>
                 <div class="setting-desc">
-                  Use native Mica material on the window background. When off (or on Windows 10), Jotter uses a solid Fluent surface fallback.
+                  Let the desktop show through the window background. Off by default; Jotter uses solid paper surfaces instead.
                 </div>
               </div>
               <input
@@ -384,10 +377,20 @@
                 <div class="setting-info">
                   <div class="setting-label">Accent color</div>
                   <div class="setting-desc">
-                    Follow the Windows system accent color (`AccentColor`) or choose a custom Fluent accent.
+                    Used for links, the active note, selection and primary buttons.
                   </div>
                 </div>
                 <div class="segmented-group" role="radiogroup" aria-label="Accent color source">
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={settingsStore.accentColorMode === 'preset'}
+                    class="seg-btn"
+                    class:active={settingsStore.accentColorMode === 'preset'}
+                    onclick={() => settingsStore.setAccentColor('preset')}
+                  >
+                    Jotter
+                  </button>
                   <button
                     type="button"
                     role="radio"
@@ -396,7 +399,7 @@
                     class:active={settingsStore.accentColorMode === 'system'}
                     onclick={() => settingsStore.setAccentColor('system')}
                   >
-                    System Accent
+                    System
                   </button>
                   <button
                     type="button"
@@ -411,21 +414,24 @@
                 </div>
               </div>
 
-              {#if settingsStore.accentColorMode === 'custom'}
-                <div class="accent-swatches">
+              {#if settingsStore.accentColorMode === 'preset'}
+                <div class="accent-swatches" role="radiogroup" aria-label="Accent preset">
                   {#each ACCENT_PRESETS as swatch}
                     <button
                       type="button"
+                      role="radio"
                       class="swatch-btn"
-                      class:active={settingsStore.customAccentColor.toLowerCase() ===
-                        swatch.hex.toLowerCase()}
-                      style:background-color={swatch.hex}
+                      class:active={settingsStore.accentPreset === swatch.id}
+                      aria-checked={settingsStore.accentPreset === swatch.id}
+                      style:background-color={swatch.light}
                       title={swatch.label}
-                      aria-label="Select accent color {swatch.label}"
-                      onclick={() =>
-                        settingsStore.setAccentColor('custom', swatch.hex)}
+                      aria-label={swatch.label}
+                      onclick={() => settingsStore.setAccentColor('preset', swatch.id)}
                     ></button>
                   {/each}
+                </div>
+              {:else if settingsStore.accentColorMode === 'custom'}
+                <div class="accent-swatches">
                   <label class="color-picker-label" title="Custom hex color">
                     <span>Custom:</span>
                     <input
@@ -517,8 +523,8 @@
   .settings-dialog {
     width: min(760px, 100%);
     height: min(560px, 90vh);
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border-control);
+    background: var(--surface-raised);
+    border: 1px solid var(--line-control);
     border-radius: var(--radius-card);
     display: flex;
     flex-direction: column;
@@ -530,7 +536,7 @@
     align-items: center;
     justify-content: space-between;
     padding: var(--space-3) var(--space-4);
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--line-subtle);
     flex-shrink: 0;
   }
 
@@ -542,22 +548,22 @@
 
   .header-icon {
     display: inline-flex;
-    color: var(--accent-color, var(--accent-fallback));
+    color: var(--accent);
   }
 
   .header-title {
     margin: 0;
     font-family: var(--font-display);
-    font-size: var(--text-base);
+    font-size: var(--fs-15);
     font-weight: 600;
   }
 
   .shortcut-pill {
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     color: var(--text-muted);
-    background: var(--bg-subtle);
-    border: 1px solid var(--border-subtle);
+    background: var(--surface-subtle);
+    border: 1px solid var(--line-subtle);
     border-radius: var(--radius-control);
     padding: 1px 6px;
   }
@@ -572,8 +578,8 @@
   .settings-nav {
     width: 180px;
     flex-shrink: 0;
-    border-right: 1px solid var(--border-subtle);
-    background: var(--bg-subtle);
+    border-right: 1px solid var(--line-subtle);
+    background: var(--surface-subtle);
     padding: var(--space-3);
     display: flex;
     flex-direction: column;
@@ -590,7 +596,7 @@
     border-radius: var(--radius-control);
     background: transparent;
     color: var(--text-secondary);
-    font-size: var(--text-sm);
+    font-size: var(--fs-13);
     font-weight: 500;
     cursor: pointer;
     text-align: left;
@@ -600,14 +606,14 @@
   }
 
   .nav-item:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
     color: var(--text-primary);
   }
 
   .nav-item.active {
-    background: var(--bg-card-solid);
+    background: var(--surface-raised);
     color: var(--text-primary);
-    border-color: var(--border-control);
+    border-color: var(--line-control);
     font-weight: 600;
   }
 
@@ -627,13 +633,13 @@
   .section-title {
     margin: 0;
     font-family: var(--font-display);
-    font-size: var(--text-lg);
+    font-size: var(--fs-17);
     font-weight: 600;
   }
 
   .section-subtitle {
     margin: 0 0 var(--space-2) 0;
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     color: var(--text-secondary);
   }
 
@@ -643,8 +649,8 @@
     justify-content: space-between;
     gap: var(--space-4);
     padding: var(--space-3) var(--space-4);
-    background: var(--bg-subtle);
-    border: 1px solid var(--border-subtle);
+    background: var(--surface-subtle);
+    border: 1px solid var(--line-subtle);
     border-radius: var(--radius-card);
   }
 
@@ -668,20 +674,20 @@
   }
 
   .setting-label {
-    font-size: var(--text-sm);
+    font-size: var(--fs-13);
     font-weight: 600;
     color: var(--text-primary);
   }
 
   .setting-desc {
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     color: var(--text-secondary);
     line-height: var(--leading-normal);
   }
 
   .rebuild-status {
     margin-top: var(--space-1);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     color: var(--status-ok);
     font-weight: 500;
   }
@@ -689,8 +695,8 @@
   .segmented-group {
     display: inline-flex;
     align-items: center;
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border-control);
+    background: var(--surface-raised);
+    border: 1px solid var(--line-control);
     border-radius: var(--radius-control);
     padding: 2px;
     gap: 2px;
@@ -704,7 +710,7 @@
     border-radius: var(--radius-control);
     background: transparent;
     color: var(--text-secondary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     font-weight: 500;
     cursor: pointer;
     transition:
@@ -713,21 +719,21 @@
   }
 
   .seg-btn:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
     color: var(--text-primary);
   }
 
   .seg-btn.active {
-    background: var(--selection-bg);
+    background: var(--selection);
     color: var(--text-primary);
-    border-color: var(--accent-color, var(--accent-fallback));
+    border-color: var(--accent);
     font-weight: 600;
   }
 
   .fluent-toggle {
     width: 18px;
     height: 18px;
-    accent-color: var(--accent-color, var(--accent-fallback));
+    accent-color: var(--accent);
     cursor: pointer;
     flex-shrink: 0;
   }
@@ -743,8 +749,8 @@
     align-items: flex-start;
     gap: var(--space-3);
     padding: var(--space-3) var(--space-4);
-    background: var(--bg-subtle);
-    border: 1px solid var(--border-subtle);
+    background: var(--surface-subtle);
+    border: 1px solid var(--line-subtle);
     border-radius: var(--radius-card);
     cursor: pointer;
     transition:
@@ -753,17 +759,17 @@
   }
 
   .copy-mode-card:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
   }
 
   .copy-mode-card.selected {
-    border-color: var(--accent-color, var(--accent-fallback));
-    background: var(--selection-bg);
+    border-color: var(--accent);
+    background: var(--selection);
   }
 
   .copy-mode-card input[type='radio'] {
     margin-top: 4px;
-    accent-color: var(--accent-color, var(--accent-fallback));
+    accent-color: var(--accent);
   }
 
   .copy-mode-body {
@@ -779,28 +785,28 @@
   }
 
   .copy-mode-title {
-    font-size: var(--text-sm);
+    font-size: var(--fs-13);
     font-weight: 600;
     color: var(--text-primary);
   }
 
   .copy-mode-badge {
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     padding: 1px 6px;
     border-radius: var(--radius-control);
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border-subtle);
+    background: var(--surface-raised);
+    border: 1px solid var(--line-subtle);
     color: var(--text-secondary);
   }
 
   .copy-mode-formats {
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     color: var(--syn-code);
   }
 
   .copy-mode-desc {
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     color: var(--text-secondary);
     line-height: var(--leading-normal);
   }
@@ -810,7 +816,7 @@
     align-items: center;
     gap: var(--space-2);
     padding-top: var(--space-2);
-    border-top: 1px solid var(--border-subtle);
+    border-top: 1px solid var(--line-subtle);
     flex-wrap: wrap;
   }
 
@@ -824,14 +830,14 @@
 
   .swatch-btn.active {
     border-color: var(--text-primary);
-    box-shadow: 0 0 0 2px var(--bg-card-solid);
+    box-shadow: 0 0 0 2px var(--surface-raised);
   }
 
   .color-picker-label {
     display: inline-flex;
     align-items: center;
     gap: var(--space-1);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     color: var(--text-secondary);
     margin-left: auto;
   }
@@ -845,10 +851,10 @@
     min-width: var(--control-min-height);
     padding: 0 var(--space-3);
     border-radius: var(--radius-control);
-    border: 1px solid var(--border-control);
-    background: var(--bg-control);
+    border: 1px solid var(--line-control);
+    background: var(--surface-field);
     color: var(--text-primary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     font-weight: 500;
     cursor: pointer;
     flex-shrink: 0;
@@ -859,7 +865,7 @@
   }
 
   .fluent-btn:hover:not(:disabled) {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
   }
 
   .fluent-btn:disabled {
@@ -868,8 +874,8 @@
   }
 
   .fluent-btn.primary-btn {
-    background: var(--accent-color, var(--accent-fallback));
-    color: var(--accent-text, #ffffff);
+    background: var(--accent);
+    color: var(--on-accent);
     border-color: transparent;
   }
 </style>

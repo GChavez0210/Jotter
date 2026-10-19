@@ -89,10 +89,10 @@
     max-width: 220px;
     padding: 0 var(--space-2) 0 var(--space-3);
     border-radius: var(--radius-control);
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-subtle);
+    border: 1px solid var(--line-subtle);
+    background: var(--surface-subtle);
     color: var(--text-secondary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     cursor: pointer;
     user-select: none;
     transition:
@@ -102,14 +102,14 @@
   }
 
   .tab-item:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
     color: var(--text-primary);
   }
 
   .tab-item.active {
-    background: var(--bg-card-solid);
+    background: var(--surface-raised);
     color: var(--text-primary);
-    border-color: var(--border-control);
+    border-color: var(--line-control);
     font-weight: 600;
   }
 
@@ -129,7 +129,7 @@
     width: 6px;
     height: 6px;
     border-radius: 50%;
-    background: var(--accent-color, var(--accent-fallback));
+    background: var(--accent);
     flex-shrink: 0;
   }
 
@@ -148,7 +148,7 @@
   }
 
   .tab-close-btn:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
     color: var(--text-primary);
   }
 
@@ -159,15 +159,15 @@
     align-items: center;
     justify-content: center;
     border-radius: var(--radius-control);
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-subtle);
+    border: 1px solid var(--line-subtle);
+    background: var(--surface-subtle);
     color: var(--text-secondary);
     cursor: pointer;
     transition: background-color var(--transition-fast);
   }
 
   .new-tab-btn:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
     color: var(--text-primary);
   }
 </style>

@@ -497,8 +497,8 @@
     position: relative;
     height: 100%;
     flex-shrink: 0;
-    background: var(--bg-card);
-    border: 1px solid var(--border-subtle);
+    background: var(--surface-app);
+    border: 1px solid var(--line-subtle);
     border-radius: var(--radius-card);
     display: flex;
     flex-direction: column;
@@ -513,7 +513,7 @@
     justify-content: space-between;
     gap: var(--space-1);
     padding: var(--space-2);
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--line-subtle);
   }
 
   .sidebar-nav-tabs {
@@ -521,8 +521,8 @@
     grid-template-columns: repeat(4, 1fr);
     gap: 2px;
     padding: 4px var(--space-2);
-    border-bottom: 1px solid var(--border-subtle);
-    background: var(--bg-subtle);
+    border-bottom: 1px solid var(--line-subtle);
+    background: var(--surface-subtle);
   }
 
   .nav-tab-btn {
@@ -532,7 +532,7 @@
     border: 1px solid transparent;
     background: transparent;
     color: var(--text-secondary);
-    font-size: 11px;
+    font-size: var(--fs-11);
     font-weight: 500;
     display: inline-flex;
     align-items: center;
@@ -546,14 +546,14 @@
   }
 
   .nav-tab-btn:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
     color: var(--text-primary);
   }
 
   .nav-tab-btn.active {
-    background: var(--bg-card-solid);
+    background: var(--surface-raised);
     color: var(--text-primary);
-    border-color: var(--border-control);
+    border-color: var(--line-control);
     font-weight: 600;
   }
 
@@ -569,19 +569,19 @@
     border: 1px solid transparent;
     background: transparent;
     color: var(--text-primary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     font-weight: 600;
     cursor: pointer;
     transition: background-color var(--transition-fast);
   }
 
   .vault-switcher-btn:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
   }
 
   .vault-folder-icon {
     display: inline-flex;
-    color: var(--accent-color, var(--accent-fallback));
+    color: var(--accent);
     flex-shrink: 0;
   }
 
@@ -611,8 +611,8 @@
     padding: var(--space-1);
     max-height: 60%;
     overflow-y: auto;
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border-control);
+    background: var(--surface-raised);
+    border: 1px solid var(--line-control);
     border-radius: var(--radius-card);
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
   }
@@ -627,13 +627,13 @@
     border-radius: var(--radius-control);
     background: transparent;
     color: var(--text-primary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     text-align: left;
     cursor: pointer;
   }
 
   .vault-menu-item:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
   }
 
   .vault-menu-item.current {
@@ -643,7 +643,7 @@
   .vault-menu-check {
     width: 14px;
     flex-shrink: 0;
-    color: var(--accent-color, var(--accent-fallback));
+    color: var(--accent);
   }
 
   .vault-menu-text {
@@ -661,7 +661,7 @@
 
   .vault-menu-path {
     color: var(--text-secondary);
-    font-size: 11px;
+    font-size: var(--fs-11);
     font-weight: 400;
   }
 
@@ -688,15 +688,15 @@
   }
 
   .fluent-icon-btn:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
     color: var(--text-primary);
   }
 
   .create-entry-bar,
   .delete-confirm-bar {
     padding: var(--space-2);
-    background: var(--bg-subtle);
-    border-bottom: 1px solid var(--border-subtle);
+    background: var(--surface-subtle);
+    border-bottom: 1px solid var(--line-subtle);
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
@@ -704,7 +704,7 @@
 
   .create-entry-label,
   .delete-confirm-text {
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     color: var(--text-secondary);
   }
 
@@ -720,10 +720,10 @@
     min-height: var(--control-min-height);
     padding: 0 var(--space-2);
     border-radius: var(--radius-control);
-    border: 1px solid var(--border-control);
-    background: var(--bg-card-solid);
+    border: 1px solid var(--line-control);
+    background: var(--surface-raised);
     color: var(--text-primary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
   }
 
   .create-input.invalid {
@@ -731,7 +731,7 @@
   }
 
   .inline-error {
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     color: var(--text-danger);
     line-height: 1.3;
   }
@@ -740,10 +740,10 @@
     min-height: var(--control-min-height);
     padding: 0 var(--space-2);
     border-radius: var(--radius-control);
-    border: 1px solid var(--border-control);
-    background: var(--bg-control);
+    border: 1px solid var(--line-control);
+    background: var(--surface-field);
     color: var(--text-primary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     cursor: pointer;
   }
 
@@ -753,14 +753,14 @@
   }
 
   .mini-btn.primary {
-    background: var(--accent-color, var(--accent-fallback));
-    color: var(--accent-text, #ffffff);
+    background: var(--accent);
+    color: var(--on-accent);
     border-color: transparent;
   }
 
   .mini-btn.danger {
     background: var(--status-danger);
-    color: #ffffff;
+    color: var(--on-danger);
     border-color: transparent;
   }
 
@@ -781,7 +781,7 @@
     padding: var(--space-4) var(--space-3);
     text-align: center;
     color: var(--text-secondary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -795,10 +795,10 @@
     align-items: center;
     gap: var(--space-2);
     border-radius: var(--radius-control);
-    border: 1px solid var(--border-control);
-    background: var(--bg-control);
+    border: 1px solid var(--line-control);
+    background: var(--surface-field);
     color: var(--text-primary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     cursor: pointer;
   }
 
@@ -815,14 +815,14 @@
 
   .resize-handle:hover,
   .resize-handle.dragging {
-    background: var(--accent-color, var(--accent-fallback));
+    background: var(--accent);
   }
 
   .fluent-context-menu {
     position: fixed;
     min-width: 196px;
-    background: var(--bg-elevated);
-    border: 1px solid var(--border-control);
+    background: var(--surface-raised);
+    border: 1px solid var(--line-control);
     border-radius: var(--radius-card);
     padding: var(--space-1);
     z-index: 100;
@@ -838,7 +838,7 @@
     border-radius: var(--radius-control);
     background: transparent;
     color: var(--text-primary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     display: flex;
     align-items: center;
     gap: var(--space-2);
@@ -847,7 +847,7 @@
   }
 
   .ctx-item:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
   }
 
   .ctx-item.danger-item {
@@ -856,7 +856,7 @@
 
   .ctx-sep {
     height: 1px;
-    background: var(--border-subtle);
+    background: var(--line-subtle);
     margin: var(--space-1) 0;
   }
 </style>

@@ -251,8 +251,8 @@
     justify-content: space-between;
     gap: var(--space-2);
     padding: var(--space-1) var(--space-3);
-    border-bottom: 1px solid var(--border-subtle);
-    background: var(--bg-subtle);
+    border-bottom: 1px solid var(--line-subtle);
+    background: var(--surface-subtle);
     flex-shrink: 0;
     overflow-x: auto;
     scrollbar-width: none;
@@ -270,8 +270,8 @@
   .mode-switch {
     display: inline-flex;
     align-items: center;
-    background: var(--bg-control);
-    border: 1px solid var(--border-subtle);
+    background: var(--surface-field);
+    border: 1px solid var(--line-subtle);
     border-radius: var(--radius-control);
     padding: 2px;
     gap: 2px;
@@ -287,7 +287,7 @@
     border-radius: var(--radius-control);
     background: transparent;
     color: var(--text-secondary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     font-weight: 500;
     cursor: pointer;
     transition:
@@ -296,14 +296,14 @@
   }
 
   .mode-btn:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
     color: var(--text-primary);
   }
 
   .mode-btn.active {
-    background: var(--bg-card-solid);
+    background: var(--surface-raised);
     color: var(--text-primary);
-    border-color: var(--border-control);
+    border-color: var(--line-control);
     font-weight: 600;
   }
 
@@ -316,7 +316,7 @@
   .sep {
     width: 1px;
     height: 18px;
-    background: var(--border-subtle);
+    background: var(--line-subtle);
     margin: 0 var(--space-1);
   }
 
@@ -332,7 +332,7 @@
     border-radius: var(--radius-control);
     background: transparent;
     color: var(--text-secondary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     font-weight: 500;
     cursor: pointer;
     transition:
@@ -344,23 +344,23 @@
   .fmt-btn.text-btn {
     font-family: var(--font-mono);
     font-weight: 600;
-    font-size: 11px;
+    font-size: var(--fs-11);
   }
 
   .fmt-btn.pill-btn {
-    border-color: var(--border-subtle);
-    background: var(--bg-control);
+    border-color: var(--line-subtle);
+    background: var(--surface-field);
     padding: 0 var(--space-2);
   }
 
   .fmt-btn:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
     color: var(--text-primary);
   }
 
   .fmt-btn.active-pill {
-    border-color: var(--accent-color, var(--accent-fallback));
-    background: var(--selection-bg);
+    border-color: var(--accent);
+    background: var(--selection);
     color: var(--text-primary);
     font-weight: 600;
   }

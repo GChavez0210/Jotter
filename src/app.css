@@ -15,7 +15,7 @@ body,
   height: 100%;
   overflow: hidden;
   font-family: var(--font-ui);
-  font-size: var(--text-sm);
+  font-size: var(--fs-13);
   color: var(--text-primary);
   background: transparent;
   -webkit-font-smoothing: antialiased;
@@ -26,7 +26,7 @@ select,
 input,
 textarea {
   font-family: inherit;
-  font-size: var(--text-sm);
+  font-size: var(--fs-13);
   color: inherit;
 }
 
@@ -39,7 +39,7 @@ textarea:focus-visible,
 [role='treeitem']:focus-visible,
 [role='option']:focus-visible,
 [tabindex]:focus-visible {
-  outline: 2px solid var(--accent-color, var(--focus-ring));
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 

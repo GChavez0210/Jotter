@@ -231,9 +231,9 @@
     justify-content: space-between;
     height: 28px;
     padding: 0 var(--space-4);
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--line-subtle);
     color: var(--text-muted);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     user-select: none;
     flex-shrink: 0;
     opacity: 0.72;
@@ -269,21 +269,21 @@
   }
 
   .minimal-hint {
-    font-size: 11px;
+    font-size: var(--fs-11);
   }
 
   .minimal-exit-btn {
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-subtle);
+    border: 1px solid var(--line-subtle);
+    background: var(--surface-subtle);
     color: var(--text-secondary);
     border-radius: var(--radius-control);
-    font-size: 11px;
+    font-size: var(--fs-11);
     padding: 2px 8px;
     cursor: pointer;
   }
 
   .minimal-exit-btn:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
     color: var(--text-primary);
   }
 
@@ -293,7 +293,7 @@
     justify-content: space-between;
     gap: var(--space-3);
     padding: var(--space-2) var(--space-4);
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--line-subtle);
     user-select: none;
     flex-shrink: 0;
     transition:
@@ -307,8 +307,8 @@
     left: 0;
     right: 0;
     z-index: 120;
-    background: var(--bg-card-solid);
-    border-bottom: 1px solid var(--border-control);
+    background: var(--surface-raised);
+    border-bottom: 1px solid var(--line-control);
   }
 
   .brand-group {
@@ -321,21 +321,21 @@
   .brand-icon {
     display: inline-flex;
     align-items: center;
-    color: var(--accent-color, var(--accent-fallback));
+    color: var(--accent);
   }
 
   .brand-title {
     font-family: var(--font-display);
-    font-size: var(--text-base);
+    font-size: var(--fs-15);
     font-weight: 600;
     letter-spacing: -0.01em;
   }
 
   .note-pill {
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     color: var(--text-secondary);
-    background: var(--bg-subtle);
-    border: 1px solid var(--border-subtle);
+    background: var(--surface-subtle);
+    border: 1px solid var(--line-subtle);
     padding: var(--space-1) var(--space-2);
     border-radius: var(--radius-control);
     white-space: nowrap;
@@ -354,15 +354,15 @@
   .segmented-group {
     display: inline-flex;
     align-items: center;
-    background: var(--bg-subtle);
-    border: 1px solid var(--border-subtle);
+    background: var(--surface-subtle);
+    border: 1px solid var(--line-subtle);
     border-radius: var(--radius-control);
     padding: 2px;
     gap: 2px;
   }
 
   .segmented-label {
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     color: var(--text-secondary);
     padding: 0 var(--space-2);
   }
@@ -374,7 +374,7 @@
     border-radius: var(--radius-control);
     background: transparent;
     color: var(--text-secondary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     font-weight: 500;
     cursor: pointer;
     transition:
@@ -384,21 +384,21 @@
   }
 
   .seg-btn:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
     color: var(--text-primary);
   }
 
   .seg-btn.active {
-    background: var(--bg-card-solid);
+    background: var(--surface-raised);
     color: var(--text-primary);
-    border-color: var(--border-control);
+    border-color: var(--line-control);
     font-weight: 600;
   }
 
   .divider {
     width: 1px;
     height: 20px;
-    background: var(--border-subtle);
+    background: var(--line-subtle);
     margin: 0 var(--space-1);
   }
 
@@ -411,10 +411,10 @@
     min-width: var(--control-min-height);
     padding: 0 var(--space-3);
     border-radius: var(--radius-control);
-    border: 1px solid var(--border-control);
-    background: var(--bg-control);
+    border: 1px solid var(--line-control);
+    background: var(--surface-field);
     color: var(--text-primary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     font-weight: 500;
     cursor: pointer;
     transition:
@@ -427,21 +427,21 @@
   }
 
   .fluent-btn:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
   }
 
   .fluent-btn:active {
-    background: var(--bg-control-active);
+    background: var(--surface-active);
   }
 
   .fluent-btn.active-toggle {
-    border-color: var(--accent-color, var(--accent-fallback));
-    background: var(--selection-bg);
+    border-color: var(--accent);
+    background: var(--selection);
   }
 
   .fluent-btn.primary-btn {
-    background: var(--accent-color, var(--accent-fallback));
-    color: var(--accent-text, #ffffff);
+    background: var(--accent);
+    color: var(--on-accent);
     border-color: transparent;
   }
 

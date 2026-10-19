@@ -1,5 +1,5 @@
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { designTokens } from '../designTokens';
+import { designTokens, isAccentPresetId, type AccentPresetId } from '../designTokens';
 import { getBackdropState, syncWindowTheme } from '../ipc';
 import type {
   BackdropState,
@@ -31,11 +31,14 @@ interface SavedPreFocusLayout {
   showRightPanel: boolean;
 }
 
+type AccentMode = 'preset' | 'system' | 'custom';
+
 class SettingsStore {
   copyMode = $state<CopyMode>('markdown_source');
   themePref = $state<ThemePreference>('system');
   systemIsDark = $state(false);
-  forceSolidBackdrop = $state(false);
+  // Mica is opt-in: the default window surface is solid paper.
+  forceSolidBackdrop = $state(true);
   backdropState = $state<BackdropState>({
     micaApplied: true,
     backdropKind: 'mica',
@@ -58,8 +61,9 @@ class SettingsStore {
 
   // Milestone 5: Editor Font Size, Accent Color, Vault Hidden Files, Image Paste Format
   editorFontSize = $state<number>(16);
-  accentColorMode = $state<'system' | 'custom'>('system');
-  customAccentColor = $state<string>('#0067c0');
+  accentColorMode = $state<AccentMode>('preset');
+  accentPreset = $state<AccentPresetId>('ink');
+  customAccentColor = $state<string>('#2f4fa8');
   showHiddenFiles = $state<boolean>(false);
   imageLinkFormat = $state<'wikilink' | 'markdown'>('wikilink');
 
@@ -140,14 +144,17 @@ class SettingsStore {
     }
   }
 
-  setAccentColor(mode: 'system' | 'custom', customHex?: string) {
+  setAccentColor(mode: AccentMode, value?: string) {
     this.accentColorMode = mode;
-    if (customHex) {
-      this.customAccentColor = customHex;
+    if (mode === 'preset' && value && isAccentPresetId(value)) {
+      this.accentPreset = value;
+    } else if (mode === 'custom' && value) {
+      this.customAccentColor = value;
     }
     this.applyAccentToDocument();
     try {
-      localStorage.setItem('jotter.accentColorMode', this.accentColorMode);
+      localStorage.setItem('jotter.accentMode', this.accentColorMode);
+      localStorage.setItem('jotter.accentPreset', this.accentPreset);
       localStorage.setItem('jotter.customAccentColor', this.customAccentColor);
     } catch {
       // ignore
@@ -156,14 +163,18 @@ class SettingsStore {
 
   applyAccentToDocument() {
     const root = document.documentElement;
-    if (this.accentColorMode === 'custom' && this.customAccentColor) {
-      root.style.setProperty('--accent-color', this.customAccentColor);
-      root.style.setProperty('--focus-ring', this.customAccentColor);
-      root.style.setProperty('--accent-text', '#ffffff');
-    } else {
-      root.style.removeProperty('--accent-color');
-      root.style.removeProperty('--focus-ring');
-      root.style.removeProperty('--accent-text');
+    root.style.removeProperty('--accent');
+    root.style.removeProperty('--on-accent');
+    delete root.dataset.accent;
+    if (this.accentColorMode === 'preset') {
+      // Ink is the token default, so it needs no attribute.
+      if (this.accentPreset !== 'ink') root.dataset.accent = this.accentPreset;
+    } else if (this.accentColorMode === 'system') {
+      root.style.setProperty('--accent', 'AccentColor');
+      root.style.setProperty('--on-accent', 'AccentColorText');
+    } else if (this.customAccentColor) {
+      root.style.setProperty('--accent', this.customAccentColor);
+      root.style.setProperty('--on-accent', '#ffffff');
     }
   }
 
@@ -408,9 +419,16 @@ class SettingsStore {
       if (savedSolid === 'true' || savedSolid === 'false') {
         this.forceSolidBackdrop = savedSolid === 'true';
       }
-      const savedAccentMode = localStorage.getItem('jotter.accentColorMode');
-      if (savedAccentMode === 'system' || savedAccentMode === 'custom') {
+      const savedAccentMode = localStorage.getItem('jotter.accentMode');
+      if (savedAccentMode === 'preset' || savedAccentMode === 'system' || savedAccentMode === 'custom') {
         this.accentColorMode = savedAccentMode;
+      } else if (localStorage.getItem('jotter.accentColorMode') === 'custom') {
+        // Keep a custom accent chosen before presets existed. The old 'system' default becomes Ink.
+        this.accentColorMode = 'custom';
+      }
+      const savedPreset = localStorage.getItem('jotter.accentPreset');
+      if (isAccentPresetId(savedPreset)) {
+        this.accentPreset = savedPreset;
       }
       const savedAccentHex = localStorage.getItem('jotter.customAccentColor');
       if (savedAccentHex && /^#[0-9a-fA-F]{6}$/.test(savedAccentHex)) {

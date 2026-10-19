@@ -1,26 +1,31 @@
 /**
- * Jotter Fluent Design System Tokens (Windows 11)
- * Single source of truth for colors, spacing, radii, typography, and motion.
+ * Jotter design tokens: warm paper surfaces, one ink accent, bundled type.
+ * Single source of truth for color, type, spacing, radii and motion.
+ * Visual reference: design/README.md.
  */
 :root {
-  /* Typography Families */
-  --font-ui: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
-  --font-display: 'Segoe UI Variable Display', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
-  --font-mono: 'Cascadia Code', 'Consolas', ui-monospace, monospace;
+  /* Type families (bundled through @fontsource-variable in main.ts) */
+  --font-ui: 'Instrument Sans Variable', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --font-display: 'Literata Variable', 'Iowan Old Style', Georgia, serif;
+  --font-serif: var(--font-display);
+  --font-mono: 'JetBrains Mono Variable', 'Cascadia Code', Consolas, ui-monospace, monospace;
+  /* Note text. The writing-font setting swaps this between serif, sans and mono. */
+  --font-body: var(--font-serif);
 
-  /* Type Scale (strictly 12, 14, 16, 20, 28 px) */
-  --text-xs: 12px;
-  --text-sm: 14px;
-  --text-base: 16px;
-  --text-lg: 20px;
-  --text-xl: 28px;
+  /* Type scale: 11 is for meta text only; 13 is the UI default; 17 is note text */
+  --fs-11: 11px;
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-15: 15px;
+  --fs-17: 17px;
+  --fs-24: 24px;
+  --fs-32: 32px;
 
-  /* Line Heights */
   --leading-tight: 1.25;
-  --leading-normal: 1.5;
-  --leading-relaxed: 1.65;
+  --leading-normal: 1.45;
+  --leading-relaxed: 1.7;
 
-  /* 4 px Spacing Grid */
+  /* 4 px spacing grid */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -31,142 +36,182 @@
   --space-10: 40px;
   --space-12: 48px;
 
-  /* Corner Radii (4 px controls, 8 px cards/panels) */
+  /* Radii: controls, panels and popovers, dialogs */
   --radius-control: 4px;
-  --radius-card: 8px;
+  --radius-card: 6px;
+  --radius-dialog: 10px;
 
-  /* Layout & Hit Targets */
-  --control-min-height: 32px;
-  --editor-max-width: 700px;
-  --sidebar-default-width: 260px;
+  /* Layout and hit targets */
+  --control-min-height: 28px;
+  --row-height: 28px;
+  --bar-height: 40px;
+  --editor-max-width: 680px;
+  --sidebar-default-width: 248px;
   --sidebar-min-width: 180px;
   --sidebar-max-width: 480px;
 
-  /* Motion (120-200 ms ease-out) */
-  --transition-fast: 140ms ease-out;
+  /* Motion */
+  --transition-fast: 120ms ease-out;
   --transition-panel: 180ms ease-out;
 
-  /* Light Theme Colors (Fluent Windows 11 Default) */
-  --accent-fallback: #0067c0;
-  --accent-color: AccentColor;
-  --accent-text: AccentColorText;
+  /* Accent presets: each pairs a light-theme and a dark-theme value */
+  --accent-light: #2f4fa8;
+  --accent-dark: #93a9ee;
 
-  --bg-mica-tint: rgba(243, 243, 243, 0.62);
-  --bg-solid-fallback: #f3f3f3;
-  --bg-layer-1: rgba(255, 255, 255, 0.56);
-  --bg-card: rgba(255, 255, 255, 0.78);
-  --bg-card-solid: #ffffff;
-  --bg-elevated: #ffffff;
-  --bg-subtle: rgba(0, 0, 0, 0.038);
-  --bg-control: rgba(255, 255, 255, 0.75);
-  --bg-control-hover: rgba(0, 0, 0, 0.055);
-  --bg-control-active: rgba(0, 0, 0, 0.088);
-  --bg-code: rgba(0, 0, 0, 0.048);
+  /* Light theme: Paper */
+  --surface-app: #f3f1ea;
+  --surface-mica: rgba(243, 241, 234, 0.72);
+  --surface-editor: #fbfaf6;
+  --surface-raised: #ffffff;
+  --surface-field: #ffffff;
+  --surface-subtle: rgba(31, 29, 26, 0.04);
+  --surface-hover: #e9e6dc;
+  --surface-active: #e1ddd1;
+  --surface-code: #f1eee6;
 
-  --text-primary: #1b1b1b;
-  --text-secondary: #4f4f4f;
-  --text-muted: #595959;
-  --text-danger: #b32317;
+  --text-primary: #1f1d1a;
+  --text-secondary: #57534b;
+  --text-muted: #6f6b62;
+  --text-danger: #b3261e;
 
-  --border-subtle: rgba(0, 0, 0, 0.08);
-  --border-control: rgba(0, 0, 0, 0.16);
-  --border-strong: rgba(0, 0, 0, 0.28);
-  --focus-ring: #005fb8;
+  --line-subtle: #e2ded3;
+  --line-control: #cfc9bb;
+  --line-strong: #b3ad9f;
 
-  --selection-bg: rgba(0, 103, 192, 0.18);
-  --status-ok: #0e700e;
-  --status-warn: #8a4b00;
-  --status-danger: #b32317;
+  --accent: var(--accent-light);
+  --on-accent: #ffffff;
+  --accent-soft: color-mix(in srgb, var(--accent) 11%, transparent);
+  --selection: color-mix(in srgb, var(--accent) 18%, transparent);
+  --mark: #f6e27c;
 
-  /* Syntax Highlighting Tokens (WCAG AA >= 4.5:1 on light surfaces) */
-  --syn-heading: #0055a6;
-  --syn-emphasis: #1b1b1b;
-  --syn-code: #8c2d0f;
-  --syn-link: #005fb8;
-  --syn-quote: #4a4a4a;
-  --syn-meta: #595959;
+  --status-ok: #2f7a4f;
+  --status-warn: #8a5d08;
+  --status-danger: #b3261e;
+  --on-danger: #ffffff;
+
+  --shadow-popover: 0 1px 2px rgb(40 34 20 / 0.06), 0 12px 32px rgb(40 34 20 / 0.14);
+  --scrim: rgb(31 29 26 / 0.28);
+
+  --tag-1: #7a5cc4;
+  --tag-2: #2f8a6a;
+  --tag-3: #c27a12;
+  --tag-4: #c2475f;
+  --tag-5: #3b78c4;
+
+  /* Markdown syntax (AA contrast on --surface-editor) */
+  --syn-heading: var(--text-primary);
+  --syn-emphasis: var(--text-primary);
+  --syn-code: #8c4a0b;
+  --syn-link: var(--accent);
+  --syn-quote: var(--text-secondary);
+  --syn-meta: var(--text-muted);
 }
 
+:root[data-accent='moss'] { --accent-light: #3d6b35; --accent-dark: #9cc48f; }
+:root[data-accent='plum'] { --accent-light: #7b3f78; --accent-dark: #d6a3d3; }
+:root[data-accent='teal'] { --accent-light: #1d6b6c; --accent-dark: #7ccbc9; }
+:root[data-accent='rust'] { --accent-light: #a3472a; --accent-dark: #e59a7c; }
+:root[data-accent='graphite'] { --accent-light: #46443f; --accent-dark: #cfcac0; }
+:root[data-accent='amber'] { --accent-light: #8a5d08; --accent-dark: #e3b65a; }
+:root[data-accent='rose'] { --accent-light: #a6375a; --accent-dark: #ee9db5; }
+
+/* Dark theme: Night. Keep both blocks identical. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    --accent-fallback: #4cc2ff;
-    --bg-mica-tint: rgba(32, 32, 32, 0.58);
-    --bg-solid-fallback: #202020;
-    --bg-layer-1: rgba(38, 38, 38, 0.6);
-    --bg-card: rgba(42, 42, 42, 0.76);
-    --bg-card-solid: #282828;
-    --bg-elevated: #2c2c2c;
-    --bg-subtle: rgba(255, 255, 255, 0.048);
-    --bg-control: rgba(255, 255, 255, 0.065);
-    --bg-control-hover: rgba(255, 255, 255, 0.095);
-    --bg-control-active: rgba(255, 255, 255, 0.13);
-    --bg-code: rgba(255, 255, 255, 0.075);
+    color-scheme: dark;
+    --surface-app: #161512;
+    --surface-mica: rgba(22, 21, 18, 0.66);
+    --surface-editor: #1c1b18;
+    --surface-raised: #25231f;
+    --surface-field: #211f1c;
+    --surface-subtle: rgba(236, 232, 223, 0.05);
+    --surface-hover: #26241f;
+    --surface-active: #2e2c27;
+    --surface-code: #23211d;
 
-    --text-primary: #f5f5f5;
-    --text-secondary: #cccccc;
-    --text-muted: #adadad;
-    --text-danger: #ff99a4;
+    --text-primary: #ece8df;
+    --text-secondary: #b4afa3;
+    --text-muted: #8f8a7f;
+    --text-danger: #f2a49b;
 
-    --border-subtle: rgba(255, 255, 255, 0.09);
-    --border-control: rgba(255, 255, 255, 0.16);
-    --border-strong: rgba(255, 255, 255, 0.26);
-    --focus-ring: #4cc2ff;
+    --line-subtle: #2d2b26;
+    --line-control: #3d3a33;
+    --line-strong: #57534a;
 
-    --selection-bg: rgba(76, 194, 255, 0.22);
-    --status-ok: #6ccb5f;
-    --status-warn: #fce100;
-    --status-danger: #ff99a4;
+    --accent: var(--accent-dark);
+    --on-accent: #15161b;
+    --mark: rgb(232 196 70 / 0.34);
 
-    /* Syntax Highlighting Tokens (WCAG AA >= 4.5:1 on dark surfaces) */
-    --syn-heading: #60cdff;
-    --syn-emphasis: #f5f5f5;
-    --syn-code: #fbbf24;
-    --syn-link: #4cc2ff;
-    --syn-quote: #c2c2c2;
-    --syn-meta: #a8a8a8;
+    --status-ok: #7cc9a8;
+    --status-warn: #e3b65a;
+    --status-danger: #f2a49b;
+    --on-danger: #15161b;
+
+    --shadow-popover: 0 1px 2px rgb(0 0 0 / 0.3), 0 16px 40px rgb(0 0 0 / 0.45);
+    --scrim: rgb(0 0 0 / 0.5);
+
+    --tag-1: #b49cf0;
+    --tag-2: #7cc9a8;
+    --tag-3: #e8b45f;
+    --tag-4: #ef94a6;
+    --tag-5: #8fb6ee;
+
+    --syn-code: #e8b45f;
   }
 }
 
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --accent-fallback: #4cc2ff;
-  --bg-mica-tint: rgba(32, 32, 32, 0.58);
-  --bg-solid-fallback: #202020;
-  --bg-layer-1: rgba(38, 38, 38, 0.6);
-  --bg-card: rgba(42, 42, 42, 0.76);
-  --bg-card-solid: #282828;
-  --bg-elevated: #2c2c2c;
-  --bg-subtle: rgba(255, 255, 255, 0.048);
-  --bg-control: rgba(255, 255, 255, 0.065);
-  --bg-control-hover: rgba(255, 255, 255, 0.095);
-  --bg-control-active: rgba(255, 255, 255, 0.13);
-  --bg-code: rgba(255, 255, 255, 0.075);
+  --surface-app: #161512;
+  --surface-mica: rgba(22, 21, 18, 0.66);
+  --surface-editor: #1c1b18;
+  --surface-raised: #25231f;
+  --surface-field: #211f1c;
+  --surface-subtle: rgba(236, 232, 223, 0.05);
+  --surface-hover: #26241f;
+  --surface-active: #2e2c27;
+  --surface-code: #23211d;
 
-  --text-primary: #f5f5f5;
-  --text-secondary: #cccccc;
-  --text-muted: #adadad;
-  --text-danger: #ff99a4;
+  --text-primary: #ece8df;
+  --text-secondary: #b4afa3;
+  --text-muted: #8f8a7f;
+  --text-danger: #f2a49b;
 
-  --border-subtle: rgba(255, 255, 255, 0.09);
-  --border-control: rgba(255, 255, 255, 0.16);
-  --border-strong: rgba(255, 255, 255, 0.26);
-  --focus-ring: #4cc2ff;
+  --line-subtle: #2d2b26;
+  --line-control: #3d3a33;
+  --line-strong: #57534a;
 
-  --selection-bg: rgba(76, 194, 255, 0.22);
-  --status-ok: #6ccb5f;
-  --status-warn: #fce100;
-  --status-danger: #ff99a4;
+  --accent: var(--accent-dark);
+  --on-accent: #15161b;
+  --mark: rgb(232 196 70 / 0.34);
 
-  --syn-heading: #60cdff;
-  --syn-emphasis: #f5f5f5;
-  --syn-code: #fbbf24;
-  --syn-link: #4cc2ff;
-  --syn-quote: #c2c2c2;
-  --syn-meta: #a8a8a8;
+  --status-ok: #7cc9a8;
+  --status-warn: #e3b65a;
+  --status-danger: #f2a49b;
+  --on-danger: #15161b;
+
+  --shadow-popover: 0 1px 2px rgb(0 0 0 / 0.3), 0 16px 40px rgb(0 0 0 / 0.45);
+  --scrim: rgb(0 0 0 / 0.5);
+
+  --tag-1: #b49cf0;
+  --tag-2: #7cc9a8;
+  --tag-3: #e8b45f;
+  --tag-4: #ef94a6;
+  --tag-5: #8fb6ee;
+
+  --syn-code: #e8b45f;
 }
 
 :root[data-theme='light'] {
   color-scheme: light;
+}
+
+:root[data-font='sans'] {
+  --font-body: var(--font-ui);
+}
+
+:root[data-font='mono'] {
+  --font-body: var(--font-mono);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -178,28 +223,27 @@
 
 @media (forced-colors: active) {
   :root {
-    --accent-fallback: Highlight;
-    --accent-color: Highlight;
-    --accent-text: HighlightText;
-    --bg-mica-tint: Canvas;
-    --bg-solid-fallback: Canvas;
-    --bg-layer-1: Canvas;
-    --bg-card: Canvas;
-    --bg-card-solid: Canvas;
-    --bg-elevated: Canvas;
-    --bg-subtle: Canvas;
-    --bg-control: ButtonFace;
-    --bg-control-hover: Highlight;
-    --bg-control-active: Highlight;
-    --bg-code: Canvas;
+    --accent: Highlight;
+    --on-accent: HighlightText;
+    --accent-soft: Highlight;
+    --selection: Highlight;
+    --mark: Mark;
+    --surface-app: Canvas;
+    --surface-mica: Canvas;
+    --surface-editor: Canvas;
+    --surface-raised: Canvas;
+    --surface-field: Field;
+    --surface-subtle: Canvas;
+    --surface-hover: Highlight;
+    --surface-active: Highlight;
+    --surface-code: Canvas;
     --text-primary: CanvasText;
     --text-secondary: CanvasText;
     --text-muted: GrayText;
     --text-danger: LinkText;
-    --border-subtle: ButtonBorder;
-    --border-control: ButtonBorder;
-    --border-strong: ButtonBorder;
-    --focus-ring: Highlight;
+    --line-subtle: ButtonBorder;
+    --line-control: ButtonBorder;
+    --line-strong: ButtonBorder;
     --syn-heading: CanvasText;
     --syn-emphasis: CanvasText;
     --syn-code: CanvasText;
