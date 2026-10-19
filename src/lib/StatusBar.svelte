@@ -17,6 +17,11 @@
     }
     return parts;
   });
+
+  function showConflicts() {
+    settingsStore.setLeftSidebarView('conflicts');
+    if (settingsStore.sidebarCollapsed) settingsStore.toggleSidebar();
+  }
 </script>
 
 {#if settingsStore.focusMode === 'off'}
@@ -27,6 +32,13 @@
         <span class:current={i === crumbs.length - 1}>{crumb}</span>
       {/each}
     </nav>
+
+    {#if vaultStore.syncConflicts.length > 0}
+      <button type="button" class="conflicts" onclick={showConflicts}>
+        <Icon name="warning" size={12} />
+        {vaultStore.syncConflicts.length} sync {vaultStore.syncConflicts.length === 1 ? 'conflict' : 'conflicts'}
+      </button>
+    {/if}
 
     <span class="message" role="status" title={clipboardStore.statusBanner}>
       {clipboardStore.statusBanner}
@@ -45,6 +57,23 @@
 {/if}
 
 <style>
+  .conflicts {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 6px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--status-warn);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .conflicts:hover {
+    background: var(--surface-hover);
+  }
+
   .status-bar {
     display: flex;
     align-items: center;

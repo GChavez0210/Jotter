@@ -1,9 +1,9 @@
 [package]
 name = "jotter"
-version = "0.1.0"
+version = "0.1.1"
 description = "Windows-native Markdown notes app compatible with Obsidian vaults"
 authors = ["Jotter Contributors"]
-license = "MIT OR Apache-2.0"
+license = "MIT"
 edition = "2021"
 
 [lib]
@@ -25,7 +25,7 @@ window-vibrancy = "0.8"
 notify = "7.0"
 rusqlite = { version = "0.32", features = ["bundled"] }
 trash = "5.2"
-tantivy = { version = "0.22", default-features = false, features = ["mmap"] }
+tantivy = { version = "0.27", default-features = false }
 
 [dev-dependencies]
 tempfile = "3.14"

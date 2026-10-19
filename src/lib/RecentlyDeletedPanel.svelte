@@ -9,6 +9,7 @@
   let loading = $state(true);
   let errorMessage = $state('');
   let restoringId = $state<string | null>(null);
+  let refreshId = 0;
 
   const dateFormat = new Intl.DateTimeFormat(undefined, {
     dateStyle: 'medium',
@@ -16,15 +17,19 @@
   });
 
   async function refresh() {
+    const id = ++refreshId;
     loading = true;
     try {
-      entries = await listDeletedEntries();
+      const result = await listDeletedEntries();
+      if (id !== refreshId) return;
+      entries = result;
       errorMessage = '';
     } catch (err) {
+      if (id !== refreshId) return;
       entries = [];
       errorMessage = err instanceof Error ? err.message : String(err);
     } finally {
-      loading = false;
+      if (id === refreshId) loading = false;
     }
   }
 
@@ -44,7 +49,8 @@
 
   // Reload when the vault changes, including notes this window just deleted.
   $effect(() => {
-    void vaultStore.indexVersion;
+    void vaultStore.vaultSnapshot?.rootPath;
+    void vaultStore.deletedVersion;
     void refresh();
   });
 </script>

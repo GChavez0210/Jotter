@@ -1,6 +1,8 @@
 import { syntaxTree } from '@codemirror/language';
+import { createFrontmatterHideExtension } from './frontmatterPreview';
 import {
   Compartment,
+  StateEffect,
   EditorState,
   Range,
   type Extension,
@@ -20,12 +22,8 @@ import {
   inlineMathDecoration,
 } from './livePreviewBlocks';
 import type { EditingMode } from './types';
-
-const imageDataUrlCache = new Map<string, string>();
-
-export function clearImagePreviewCache() {
-  imageDataUrlCache.clear();
-}
+import { cachedImage, rememberImage, imagePreviewEpoch, IMAGE_REFRESH_EVENT } from './imagePreviewCache';
+const refreshImages = StateEffect.define<void>();
 
 export interface LivePreviewConfig {
   editingMode: EditingMode;
@@ -191,6 +189,7 @@ class HorizontalRuleWidget extends WidgetType {
 }
 
 class ImageEmbedWidget extends WidgetType {
+  readonly epoch = imagePreviewEpoch;
   constructor(
     readonly target: string,
     readonly altText: string,
@@ -202,6 +201,7 @@ class ImageEmbedWidget extends WidgetType {
   eq(other: ImageEmbedWidget): boolean {
     return (
       this.target === other.target &&
+      this.epoch === other.epoch &&
       this.altText === other.altText &&
       this.posFrom === other.posFrom
     );
@@ -224,13 +224,14 @@ class ImageEmbedWidget extends WidgetType {
     ) {
       img.src = cleanTarget;
     } else {
-      const cached = imageDataUrlCache.get(cleanTarget);
+      const cached = cachedImage(cleanTarget);
       if (cached) {
         img.src = cached;
       } else {
         void readVaultImageDataUrl(cleanTarget)
           .then((dataUrl) => {
-            imageDataUrlCache.set(cleanTarget, dataUrl);
+            if (this.epoch !== imagePreviewEpoch) return;
+            rememberImage(cleanTarget, dataUrl, this.epoch);
             img.src = dataUrl;
           })
           .catch(() => {
@@ -1103,10 +1104,15 @@ export function createLivePreviewExtension(
     const plugin = ViewPlugin.fromClass(
       class {
         decorations: DecorationSet;
+        private refresh: () => void;
 
         constructor(view: EditorView) {
           this.decorations = buildLivePreviewDecorations(view, config);
+          this.refresh = () => view.dispatch({ effects: refreshImages.of() });
+          window.addEventListener(IMAGE_REFRESH_EVENT, this.refresh);
         }
+
+        destroy() { window.removeEventListener(IMAGE_REFRESH_EVENT, this.refresh); }
 
         update(update: ViewUpdate) {
           const treeChanged =
@@ -1115,7 +1121,7 @@ export function createLivePreviewExtension(
             update.docChanged ||
             update.selectionSet ||
             update.viewportChanged ||
-            treeChanged
+            treeChanged || update.transactions.some((tr) => tr.effects.some((effect) => effect.is(refreshImages)))
           ) {
             this.decorations = buildLivePreviewDecorations(update.view, config);
           }
@@ -1129,7 +1135,7 @@ export function createLivePreviewExtension(
   }
 
   if (config.editingMode === 'live') {
-    extensions.push(createRichBlockExtension());
+    extensions.push(createRichBlockExtension(), createFrontmatterHideExtension());
   }
 
   if (config.typewriterScrolling) {

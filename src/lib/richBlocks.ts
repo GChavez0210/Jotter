@@ -3,6 +3,8 @@
  * export. Both libraries load on first use, so notes without math or diagrams pay nothing.
  */
 
+import { evaluateCalcBlock } from './calc';
+
 type KatexModule = typeof import('katex');
 type PeleModule = typeof import('pele/lazy');
 
@@ -116,7 +118,8 @@ export async function enhanceRenderedHtml(
 ): Promise<string> {
   const hasMath = html.includes('data-math-style');
   const hasDiagram = html.includes('language-mermaid');
-  if (!hasMath && !hasDiagram) return html;
+  const hasCalc = html.includes('language-calc');
+  if (!hasMath && !hasDiagram && !hasCalc) return html;
 
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const output: MathOutput = target === 'file' ? 'mathml' : 'html';
@@ -140,6 +143,16 @@ export async function enhanceRenderedHtml(
     figure.className = 'jotter-diagram';
     figure.innerHTML = await renderDiagram(code.textContent ?? '');
     code.parentElement?.replaceWith(figure);
+  }
+
+  // Calc blocks export with each result written after its line, as the editor shows them.
+  for (const code of Array.from(doc.querySelectorAll('pre > code.language-calc'))) {
+    const lines = (code.textContent ?? '').replace(/\n$/, '').split('\n');
+    const width = Math.max(...lines.map((l) => l.length));
+    const results = new Map(evaluateCalcBlock(lines).map((r) => [r.line, r.result]));
+    code.textContent = lines
+      .map((l, i) => (results.get(i) ? `${l.padEnd(width)}  = ${results.get(i)}` : l))
+      .join('\n');
   }
 
   const style = doc.createElement('style');

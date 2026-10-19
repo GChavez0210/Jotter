@@ -1,4 +1,22 @@
-# Manual Clipboard Verification Tests (Milestone 1)
+# Manual Verification Tests
+
+## Version 0.1.1 acceptance checks
+
+Install the 0.1.1 installer over 0.1.0, then use a disposable vault for these checks.
+
+1. **Close and save:** type a unique line and immediately press Alt+F4. Reopen the app and confirm the entire line is on disk. Repeat with the title-bar Close button and with tray Quit.
+2. **Failed save:** make a test note read-only through Windows file properties. Edit it and close the tab or window. Confirm the error appears and edits stay visible. Remove read-only, retry, and confirm the edits save.
+3. **Daily notes:** configure a template with `{{date}}`, `{{title}}`, and `{{time}}`. Press Ctrl+Shift+D twice. Confirm one note opens with the local date and the filled template.
+4. **Recently deleted:** delete a test note, open Recently deleted, and restore it. Confirm its original path and contents return. Confirm restore refuses to replace another note at that path.
+5. **Search:** put `receive` in a note and search for `recieve`. Confirm the result opens at the matching line.
+6. **Spell check:** type a misspelled word in each installed language. Check visible underlines and correction-menu behavior, then toggle spell check off and on in Settings.
+7. **Summon:** enable Ctrl+Alt+J in Settings → System. Switch to another app, press the shortcut, close Jotter to the tray, and summon it again. Disable the shortcut and confirm closing exits.
+8. **Snippets:** add a CSS file, reload snippets, and toggle it. Confirm the appearance updates. Restart and confirm the enabled choice persists.
+9. **Rendering/export:** test inline math, display math, and Mermaid both at top level and inside a blockquote. Four-space-indented math stays code. Export HTML and print to PDF in light and dark themes. Confirm diagrams remain legible and opening Print does not restyle the app.
+10. **Clipboard and images:** switch notes while a clipboard operation is pending. Confirm it does not change another note. Switch between vaults with different images at the same relative path; confirm the images update.
+11. **Names and folders:** create and rename `日a` and `éa`. Use folders named `A_B`, `AxB`, and `A%B`; rename or delete one and confirm the others retain tags, calendar entries, and backlinks.
+
+The automated desktop check validates the editor's spell-check attribute and native shortcut registration. It does not establish Windows dictionary coverage, correction-menu behavior, physical global-hotkey delivery from another app, or the final printer dialog's behavior.
 
 Run Jotter with `npm run tauri dev` (or `cargo tauri dev` if `cargo-tauri` is installed). The editor opens with a pre-loaded test note containing single line breaks, multiple consecutive blank lines, inline formatting, task lists, and Obsidian `[[wiki links]]`.
 
