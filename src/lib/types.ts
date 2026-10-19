@@ -125,3 +125,30 @@ export interface CssSnippet {
   css: string;
 }
 
+
+/** A checklist item with a due date. */
+export interface TaskEntry {
+  path: string;
+  title: string;
+  lineNumber: number;
+  text: string;
+  done: boolean;
+  /** `YYYY-MM-DD`. */
+  dueDate: string;
+  /** `HH:MM`, when the task has a time. */
+  dueTime: string | null;
+}
+
+/** One note's metadata, tags, and links, for the Home page and the tags-and-links view. */
+export interface NoteCard {
+  path: string;
+  title: string;
+  modifiedMs: number;
+  createdMs: number;
+  preview: string;
+  tags: string[];
+  /** Vault paths of the notes this note links to. */
+  linksTo: string[];
+  /** Number of other notes that link to this note. */
+  linkedFrom: number;
+}

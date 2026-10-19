@@ -282,6 +282,12 @@
       label: 'Insert Horizontal Rule (---)',
       action: () => onFormat('hr'),
     },
+    {
+      id: 'fmt-due-date',
+      category: 'Format',
+      label: 'Add Due Date to Task',
+      action: () => onFormat('due_date'),
+    },
     // Outliner
     {
       id: 'outline-zoom',
