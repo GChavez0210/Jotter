@@ -258,8 +258,14 @@ pub fn build_ics(calendar_name: &str, tasks: &[TaskEntry], now_ms: i64) -> Strin
     }
     fold_line(&format!("X-WR-CALNAME:{}", ics_escape(calendar_name)), &mut out);
 
+    // Identical tasks in one note would share a UID, which RFC 5545 forbids. The second and
+    // later copies add their occurrence index, so each UID stays stable across rewrites.
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     for task in tasks.iter().filter(|t| !t.done) {
-        let uid = fnv1a_64(&format!("{}\n{}\n{}", task.path, task.text, task.due_date));
+        let key = format!("{}\n{}\n{}", task.path, task.text, task.due_date);
+        let occurrence = seen.entry(key.clone()).or_insert(0);
+        let uid = if *occurrence == 0 { fnv1a_64(&key) } else { fnv1a_64(&format!("{key}\n{occurrence}")) };
+        *occurrence += 1;
         fold_line("BEGIN:VEVENT", &mut out);
         fold_line(&format!("UID:{uid:016x}@jotter"), &mut out);
         fold_line(&format!("DTSTAMP:{stamp}"), &mut out);
@@ -335,6 +341,27 @@ mod tests {
         assert!(ics.contains("SUMMARY:Pay rent\\, now\\; really"));
         assert!(!ics.contains("SUMMARY:Old"));
         assert!(ics.lines().all(|l| l.len() <= 75));
+    }
+
+    #[test]
+    fn invalid_times_leave_the_date_alone() {
+        let tasks = parse_due_tasks("- [ ] Late due:2026-10-20 25:00\n- [ ] Odd 📅 2026-10-20 12:60\n- [ ] Bracket [due:: 2026-10-20 24:00]\n");
+        assert_eq!(tasks.len(), 2);
+        assert!(tasks.iter().all(|t| t.due_date == "2026-10-20" && t.due_time.is_none()));
+    }
+
+    #[test]
+    fn identical_tasks_get_unique_stable_uids() {
+        let uids = |tasks: &[TaskEntry]| -> Vec<String> {
+            build_ics("Notes", tasks, 0).lines().filter(|l| l.starts_with("UID:")).map(String::from).collect()
+        };
+        let one = vec![task("A.md", "Water plants", "2026-10-20", None, false)];
+        let two = vec![one[0].clone(), task("A.md", "Water plants", "2026-10-20", None, false)];
+        let (first, both) = (uids(&one), uids(&two));
+        assert_eq!(both.len(), 2);
+        assert_ne!(both[0], both[1]);
+        assert_eq!(first[0], both[0]);
+        assert_eq!(both, uids(&two));
     }
 
     #[test]

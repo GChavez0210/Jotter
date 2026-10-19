@@ -55,7 +55,14 @@ function unquote(text: string): string {
 }
 
 function stripComment(text: string): string {
-  if (/^["']/.test(text)) return text;
+  // `key: # note` has no value, only a comment.
+  if (text.startsWith('#')) return '';
+  if (/^["']/.test(text)) {
+    // Keep the quoted scalar and drop a comment after its closing quote.
+    const quoted = /^(?:"(?:[^"\\]|\\.)*"|'(?:[^']|'')*')/.exec(text);
+    if (quoted && /^(?:\s+#.*)?\s*$/.test(text.slice(quoted[0].length))) return quoted[0];
+    return text;
+  }
   return text.replace(/\s+#.*$/, '');
 }
 
@@ -89,7 +96,8 @@ function parseScalar(text: string): { type: PropertyType; value: PropertyValue }
   }
   if (/^(true|false)$/i.test(value)) return { type: 'checkbox', value: value.toLowerCase() === 'true' };
   if (/^(null|~)?$/.test(value)) return { type: 'text', value: null };
-  if (NUMBER_RE.test(value)) return { type: 'number', value: Number(value) };
+  // A leading zero, as in a ZIP code `02134` or an ID `007`, would be lost as a number.
+  if (NUMBER_RE.test(value) && !/^[-+]?0\d/.test(value)) return { type: 'number', value: Number(value) };
   if (DATE_RE.test(value)) return { type: 'date', value };
   if (DATETIME_RE.test(value)) return { type: 'datetime', value };
   return { type: 'text', value };
@@ -147,6 +155,11 @@ export function parseFrontmatter(doc: string): Frontmatter | null {
     layout.push(properties.length - 1);
     i = j;
   }
+  // Every line must be a property, a comment, a stray list item, or blank. A note that opens with
+  // a thematic break, such as `---` / `Intro text` / `---`, has no frontmatter, and hiding it
+  // would hide text.
+  const yamlLine = (text: string) => !text.trim() || /^\s*(#|-(\s|$))/.test(text);
+  if (!layout.every((item) => typeof item === 'number' || yamlLine(item))) return null;
 
   let end = 0;
   for (let k = 0; k <= close; k++) end += lines[k].length + 1;

@@ -1,4 +1,13 @@
-import { EditorState, RangeSet, StateField, type Extension } from '@codemirror/state';
+import {
+  type ChangeSet,
+  EditorState,
+  RangeSet,
+  StateField,
+  type Text,
+  Transaction,
+  type Extension,
+  type TransactionSpec,
+} from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView } from '@codemirror/view';
 import { parseFrontmatter } from './frontmatter';
 
@@ -12,8 +21,7 @@ import { parseFrontmatter } from './frontmatter';
 const MAX_FRONTMATTER = 64 * 1024;
 
 function hiddenRange(state: EditorState): DecorationSet {
-  const head = state.doc.sliceString(0, MAX_FRONTMATTER);
-  const fm = parseFrontmatter(head);
+  const fm = parseFrontmatter(state.doc.sliceString(0, MAX_FRONTMATTER));
   if (!fm) return Decoration.none;
   // Block replacements must span whole lines, so stop before the closing fence's newline.
   const closing = state.doc.lineAt(Math.max(0, fm.end - 1));
@@ -27,17 +35,38 @@ export function positionAfterFrontmatter(doc: string): number {
   return Math.min(doc[fm.end - 1] === '\n' ? fm.end : fm.end + 1, doc.length);
 }
 
+/**
+ * True when an edit can change what frontmatter hides, so the field must reparse. With hidden
+ * frontmatter (`hiddenTo` is its end), only edits inside it or on the line after it count. With
+ * nothing hidden, only edits to the first line count, or any edit in the first 64 KB while the
+ * note opens with `---`, since typing the closing fence there completes the block.
+ */
+export function frontmatterNeedsReparse(doc: Text, changes: ChangeSet, hiddenTo: number | null): boolean {
+  let limit: number;
+  if (hiddenTo !== null) {
+    const closing = doc.lineAt(hiddenTo);
+    limit = closing.number < doc.lines ? doc.line(closing.number + 1).to : closing.to;
+  } else {
+    const first = doc.line(1);
+    limit = /^---[ \t]*$/.test(first.text) ? MAX_FRONTMATTER : first.to;
+  }
+  let touches = false;
+  changes.iterChangedRanges((fromA) => {
+    if (fromA <= limit) touches = true;
+  });
+  return touches;
+}
+
 export function createFrontmatterHideExtension(): Extension {
   const field = StateField.define<DecorationSet>({
     create: hiddenRange,
     update(value, tr) {
       if (!tr.docChanged) return value;
-      // Only edits that touch the top of the note can change the frontmatter.
-      let touchesTop = false;
-      tr.changes.iterChangedRanges((fromA) => {
-        if (fromA <= MAX_FRONTMATTER) touchesTop = true;
-      });
-      return touchesTop ? hiddenRange(tr.state) : value.map(tr.changes);
+      const hidden = value.iter();
+      const hiddenTo = hidden.value === null ? null : hidden.to;
+      return frontmatterNeedsReparse(tr.startState.doc, tr.changes, hiddenTo)
+        ? hiddenRange(tr.state)
+        : value.map(tr.changes);
     },
     provide: (f) => [
       EditorView.decorations.from(f),
@@ -47,6 +76,8 @@ export function createFrontmatterHideExtension(): Extension {
   // Keep the cursor out of the hidden lines, so typing never lands above the closing fence.
   const keepCursorOut = EditorState.transactionFilter.of((tr) => {
     if (!tr.selection && !tr.docChanged) return tr;
+    const typed = typedAfterClosingFence(tr);
+    if (typed) return typed;
     const sel = tr.newSelection.main;
     if (!sel.empty) return tr;
     // Read the field instead of reparsing, since this runs on every cursor move.
@@ -56,5 +87,32 @@ export function createFrontmatterHideExtension(): Extension {
     if (sel.head >= after) return tr;
     return [tr, { selection: { anchor: after }, sequential: true }];
   });
+
+  /**
+   * In a note that is only frontmatter with no final newline, the cursor can only sit at the
+   * end of the closing fence. Typing there would turn `---` into `---text` and break the block,
+   * so the input moves to a new line below the fence.
+   */
+  function typedAfterClosingFence(tr: Transaction): TransactionSpec | null {
+    if (!tr.docChanged || !tr.isUserEvent('input')) return null;
+    const end = tr.startState.doc.length;
+    const hidden = tr.startState.field(field).iter();
+    if (hidden.value === null || hidden.to !== end) return null;
+    let changes = 0;
+    // Asserted so TypeScript does not narrow it to null; the callback below assigns it.
+    let text = null as string | null;
+    tr.changes.iterChanges((fromA, toA, _fromB, _toB, inserted) => {
+      changes++;
+      if (fromA === end && toA === end) text = inserted.toString();
+    });
+    if (changes !== 1 || text === null || text.startsWith('\n')) return null;
+    return {
+      changes: { from: end, insert: `\n${text}` },
+      selection: { anchor: end + 1 + text.length },
+      userEvent: tr.annotation(Transaction.userEvent),
+      scrollIntoView: true,
+    };
+  }
+
   return [field, keepCursorOut];
 }

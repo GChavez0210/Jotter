@@ -837,7 +837,23 @@ fn pick_task_calendar_path(default_name: String) -> Result<Option<String>, Strin
     #[cfg(not(target_os = "windows"))]
     {
         let _ = default_name;
-        Ok(None)
+        Err(TASK_CALENDAR_PICKER_UNAVAILABLE.to_string())
+    }
+}
+
+/// Jotter's save dialog is a Win32 call, and the app has no cross-platform dialog plugin.
+/// Returning an error instead of `None` lets Settings explain why nothing opened, since `None`
+/// means the user cancelled.
+#[cfg(not(target_os = "windows"))]
+const TASK_CALENDAR_PICKER_UNAVAILABLE: &str =
+    "Choosing a task calendar file works only on Windows. This build has no file picker.";
+
+#[cfg(all(test, not(target_os = "windows")))]
+mod task_calendar_picker_tests {
+    #[test]
+    fn picker_reports_that_it_is_windows_only() {
+        let result = super::pick_task_calendar_path("Notes tasks".into());
+        assert_eq!(result, Err(super::TASK_CALENDAR_PICKER_UNAVAILABLE.to_string()));
     }
 }
 

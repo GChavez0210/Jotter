@@ -114,7 +114,7 @@
   ];
 </script>
 
-<div class="home" aria-label="Home">
+<div class="home" role="region" aria-label="Home">
   <header class="home-header">
     <h1>{vaultStore.vaultSnapshot?.name ?? 'Home'}</h1>
     <div class="header-actions">
