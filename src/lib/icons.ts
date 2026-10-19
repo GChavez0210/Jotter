@@ -58,4 +58,38 @@ export const fluentIcons = {
   add20: `<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
     <path d="M10 3a.5.5 0 0 1 .5.5v6h6a.5.5 0 0 1 0 1h-6v6a.5.5 0 0 1-1 0v-6h-6a.5.5 0 0 1 0-1h6v-6A.5.5 0 0 1 10 3Z" fill="currentColor"/>
   </svg>`,
+  bold16: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M4.5 2.5A.5.5 0 0 1 5 2h3.75a3.25 3.25 0 0 1 2.17 5.67A3.5 3.5 0 0 1 9.25 14H5a.5.5 0 0 1-.5-.5v-11ZM6 7h2.75a1.75 1.75 0 1 0 0-3.5H6V7Zm0 1.5v4h3.25a2 2 0 1 0 0-4H6Z" fill="currentColor"/>
+  </svg>`,
+  italic16: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M6.5 2.5A.5.5 0 0 1 7 2h5a.5.5 0 0 1 0 1H9.82l-2.6 10H9.5a.5.5 0 0 1 0 1H4a.5.5 0 0 1 0-1h2.18l2.6-10H7a.5.5 0 0 1-.5-.5Z" fill="currentColor"/>
+  </svg>`,
+  strikethrough16: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M2 8a.5.5 0 0 1 .5-.5h11a.5.5 0 0 1 0 1h-11A.5.5 0 0 1 2 8Zm6-5c-1.58 0-2.75.87-2.75 2.1 0 .64.31 1.13.9 1.48H4.78A2.74 2.74 0 0 1 4.25 5.1C4.25 3.28 5.83 2 8 2c1.98 0 3.43 1.08 3.63 2.68a.5.5 0 1 1-.99.13C10.5 3.67 9.44 3 8 3Zm2.72 6.5c.4.37.63.84.63 1.4 0 1.28-1.25 2.1-3.1 2.1-1.63 0-2.8-.72-3.01-1.91a.5.5 0 0 0-.99.17C4.55 12.93 6.08 14 8.25 14c2.42 0 4.1-1.24 4.1-3.1 0-.52-.14-.99-.4-1.4h-1.23Z" fill="currentColor"/>
+  </svg>`,
+  listBullet16: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M3 4a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm0 5a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm1 4a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM6 3a.5.5 0 0 0 0 1h7.5a.5.5 0 0 0 0-1H6Zm0 5a.5.5 0 0 0 0 1h7.5a.5.5 0 0 0 0-1H6Zm-.5 5.5A.5.5 0 0 1 6 13h7.5a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5Z" fill="currentColor"/>
+  </svg>`,
+  taskList16: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M5.854 3.146a.5.5 0 0 1 0 .708l-2 2a.5.5 0 0 1-.708 0l-1-1a.5.5 0 1 1 .708-.708L3.5 4.793l1.646-1.647a.5.5 0 0 1 .708 0ZM7.5 4a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1h-6Zm0 4a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1h-6Zm0 4a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1h-6ZM2.5 7.5A.5.5 0 0 1 3 7h1.5a.5.5 0 0 1 .5.5V9a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V7.5Zm.5 4a.5.5 0 0 0-.5.5v1.5a.5.5 0 0 0 .5.5h1.5a.5.5 0 0 0 .5-.5V12a.5.5 0 0 0-.5-.5H3Z" fill="currentColor"/>
+  </svg>`,
+  quote16: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M3.5 3A1.5 1.5 0 0 0 2 4.5v2A1.5 1.5 0 0 0 3.5 8H5v1a2 2 0 0 1-2 2 .5.5 0 0 0 0 1 3 3 0 0 0 3-3V4.5A1.5 1.5 0 0 0 4.5 3h-1ZM3 4.5a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5V7H3.5a.5.5 0 0 1-.5-.5v-2Zm7.5-1.5A1.5 1.5 0 0 0 9 4.5v2A1.5 1.5 0 0 0 10.5 8H12v1a2 2 0 0 1-2 2 .5.5 0 0 0 0 1 3 3 0 0 0 3-3V4.5A1.5 1.5 0 0 0 11.5 3h-1ZM10 4.5a.5.5 0 0 1 .5-.5h1a.5.5 0 0 1 .5.5V7h-1.5a.5.5 0 0 1-.5-.5v-2Z" fill="currentColor"/>
+  </svg>`,
+  table16: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M3.5 2A1.5 1.5 0 0 0 2 3.5v9A1.5 1.5 0 0 0 3.5 14h9a1.5 1.5 0 0 0 1.5-1.5v-9A1.5 1.5 0 0 0 12.5 2h-9ZM3 3.5a.5.5 0 0 1 .5-.5h9a.5.5 0 0 1 .5.5V6H3V3.5ZM3 7h4.5v2.5H3V7Zm5.5 0H13v2.5H8.5V7ZM3 10.5h4.5V13H3.5a.5.5 0 0 1-.5-.5v-2Zm5.5 0H13v2a.5.5 0 0 1-.5.5h-4v-2.5Z" fill="currentColor"/>
+  </svg>`,
+  link16: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M9.086 3.5a3 3 0 0 1 4.243 4.243l-1.768 1.767a.5.5 0 0 1-.707-.707l1.768-1.768a2 2 0 1 0-2.829-2.828L8.025 5.975a.5.5 0 1 1-.707-.707l1.768-1.768Zm-2.172 9a3 3 0 0 1-4.243-4.243l1.768-1.767a.5.5 0 1 1 .707.707L3.378 8.964a2 2 0 1 0 2.829 2.829l1.768-1.768a.5.5 0 0 1 .707.707L6.914 12.5Zm-1.06-3.354a.5.5 0 0 1 0-.707l3.535-3.535a.5.5 0 1 1 .707.707L6.561 9.146a.5.5 0 0 1-.707 0Z" fill="currentColor"/>
+  </svg>`,
+  eye16: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M8 3.5c3.21 0 5.79 2.02 6.84 4.27a.55.55 0 0 1 0 .46C13.79 10.48 11.21 12.5 8 12.5S2.21 10.48 1.16 8.23a.55.55 0 0 1 0-.46C2.21 5.52 4.79 3.5 8 3.5Zm0 1C5.32 4.5 3.12 6.17 2.18 8 3.12 9.83 5.32 11.5 8 11.5s4.88-1.67 5.82-3.5C12.88 6.17 10.68 4.5 8 4.5Zm0 1.5a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm0 1a1 1 0 1 0 0 2 1 1 0 0 0 0-2Z" fill="currentColor"/>
+  </svg>`,
+  maximize16: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M3 2.5a.5.5 0 0 0-.5.5v3a.5.5 0 0 0 1 0V3.5H6a.5.5 0 0 0 0-1H3Zm7 0a.5.5 0 0 0 0 1h2.5V6a.5.5 0 0 0 1 0V3a.5.5 0 0 0-.5-.5H10ZM3 9.5a.5.5 0 0 1 .5.5v2.5H6a.5.5 0 0 1 0 1H3a.5.5 0 0 1-.5-.5v-3a.5.5 0 0 1 .5-.5Zm10 0a.5.5 0 0 1 .5.5v3a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1 0-1h2.5V10a.5.5 0 0 1 .5-.5Z" fill="currentColor"/>
+  </svg>`,
+  search16: `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M6.5 2a4.5 4.5 0 1 0 2.81 8.02l3.33 3.33a.5.5 0 0 0 .71-.7l-3.33-3.34A4.5 4.5 0 0 0 6.5 2ZM3 6.5a3.5 3.5 0 1 1 7 0 3.5 3.5 0 0 1-7 0Z" fill="currentColor"/>
+  </svg>`,
 };
+

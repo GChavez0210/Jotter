@@ -25,6 +25,10 @@ export interface BackdropState {
 
 export type ThemePreference = 'system' | 'light' | 'dark';
 
+export type EditingMode = 'live' | 'source';
+
+export type FocusMode = 'off' | 'minimal' | 'zen';
+
 export type VaultNodeKind = 'file' | 'folder';
 
 export interface VaultNode {

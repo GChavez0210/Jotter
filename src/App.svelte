@@ -3,13 +3,16 @@
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import ClipboardInspector from './lib/ClipboardInspector.svelte';
   import CommandBar from './lib/CommandBar.svelte';
+  import CommandPalette from './lib/CommandPalette.svelte';
   import Editor from './lib/Editor.svelte';
   import FirstRunScreen from './lib/FirstRunScreen.svelte';
+  import FormattingToolbar from './lib/FormattingToolbar.svelte';
   import Sidebar from './lib/Sidebar.svelte';
   import StatusBar from './lib/StatusBar.svelte';
   import TabBar from './lib/TabBar.svelte';
   import { fluentIcons } from './lib/icons';
   import { listenVaultFsEvents } from './lib/ipc';
+  import type { MarkdownFormatCommandId } from './lib/markdownCommands';
   import { clipboardStore } from './lib/stores/clipboard.svelte';
   import { settingsStore } from './lib/stores/settings.svelte';
   import { tabsStore } from './lib/stores/tabs.svelte';
@@ -26,27 +29,94 @@
     await clipboardStore.refreshPreview(sample, settingsStore.copyMode);
   }
 
+  function handleFormatCommand(cmd: MarkdownFormatCommandId) {
+    editorRef?.executeMarkdownCommand(cmd);
+  }
+
+  function handleGlobalMouseMove(e: MouseEvent) {
+    if (settingsStore.focusMode === 'off') return;
+    if (e.clientY <= 12) {
+      settingsStore.topHoverReveal = true;
+    } else if (e.clientY > 64 && !settingsStore.showSettings) {
+      settingsStore.topHoverReveal = false;
+    }
+  }
+
   function handleGlobalKeyDown(e: KeyboardEvent) {
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+    const isMod = e.ctrlKey || e.metaKey;
+    const keyLower = e.key.toLowerCase();
+
+    // Command Palette (Ctrl+P) — works everywhere, including Zen mode
+    if (isMod && !e.shiftKey && keyLower === 'p') {
+      e.preventDefault();
+      settingsStore.showCommandPalette = !settingsStore.showCommandPalette;
+      return;
+    }
+
+    // Minimal Focus Mode (Ctrl+Shift+M)
+    if (isMod && e.shiftKey && keyLower === 'm') {
+      e.preventDefault();
+      settingsStore.toggleMinimalFocus();
+      return;
+    }
+
+    // Zen Fullscreen Focus Mode (F11)
+    if (e.key === 'F11') {
+      e.preventDefault();
+      settingsStore.toggleZenFocus();
+      return;
+    }
+
+    // Toggle Live / Source Mode (Ctrl+/)
+    if (isMod && e.key === '/') {
+      e.preventDefault();
+      settingsStore.toggleEditingMode();
+      return;
+    }
+
+    // Escape exits Focus Mode (Minimal or Zen) to the previous layout
+    if (e.key === 'Escape') {
+      if (settingsStore.showCommandPalette) {
+        settingsStore.showCommandPalette = false;
+        editorRef?.focusEditor();
+        return;
+      }
+      if (settingsStore.showSettings) {
+        settingsStore.showSettings = false;
+        return;
+      }
+      if (settingsStore.focusMode !== 'off') {
+        e.preventDefault();
+        settingsStore.exitFocusMode();
+        editorRef?.focusEditor();
+        return;
+      }
+    }
+
+    if (isMod && keyLower === 's' && !e.shiftKey) {
       e.preventDefault();
       if (tabsStore.activeTabPath) {
         void tabsStore.flushAutosaveFor(tabsStore.activeTabPath);
       }
-    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'w') {
+    } else if (isMod && keyLower === 'w') {
       if (tabsStore.activeTabPath) {
         e.preventDefault();
         void tabsStore.closeTab(tabsStore.activeTabPath);
       }
-    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
+    } else if (isMod && keyLower === 'n') {
       if (vaultStore.vaultSnapshot) {
         e.preventDefault();
         const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
         void vaultStore.createNoteInVault('', `Note ${stamp}`);
       }
-    } else if ((e.ctrlKey || e.metaKey) && e.key === '\\') {
+    } else if (isMod && e.key === '\\') {
       if (vaultStore.vaultSnapshot) {
         e.preventDefault();
-        settingsStore.toggleSidebar();
+        if (settingsStore.focusMode !== 'off') {
+          settingsStore.exitFocusMode();
+        } else {
+          settingsStore.toggleSidebar();
+        }
       }
     }
   }
@@ -88,12 +158,18 @@
   });
 </script>
 
-<svelte:window onkeydown={handleGlobalKeyDown} />
+<svelte:window
+  onkeydown={handleGlobalKeyDown}
+  onmousemove={handleGlobalMouseMove}
+/>
 
 <div
   class="app-shell"
   class:solid-backdrop={settingsStore.effectiveSolidBackdrop}
+  class:focus-minimal={settingsStore.focusMode === 'minimal'}
+  class:focus-zen={settingsStore.focusMode === 'zen'}
   data-backdrop={settingsStore.effectiveSolidBackdrop ? 'solid' : 'mica'}
+  data-focus-mode={settingsStore.focusMode}
 >
   <CommandBar
     onCopyTrigger={() => editorRef?.triggerCopyFromToolbar()}
@@ -113,7 +189,7 @@
   {:else}
     <main class="workspace">
       <div class="workspace-split">
-        {#if vaultStore.vaultSnapshot}
+        {#if vaultStore.vaultSnapshot && settingsStore.focusMode === 'off'}
           <Sidebar
             snapshot={vaultStore.vaultSnapshot}
             activeRelPath={tabsStore.activeTabPath}
@@ -133,7 +209,7 @@
         {/if}
 
         <section class="editor-column" aria-label="Editor workspace">
-          {#if vaultStore.vaultSnapshot}
+          {#if vaultStore.vaultSnapshot && settingsStore.focusMode === 'off'}
             <TabBar />
           {/if}
 
@@ -169,12 +245,19 @@
           {/if}
 
           <div class="editor-card">
+            {#if (tabsStore.scratchpadMode || tabsStore.activeTab) && settingsStore.focusMode === 'off'}
+              <FormattingToolbar onFormat={handleFormatCommand} />
+            {/if}
+
             {#if tabsStore.scratchpadMode}
               <Editor
                 bind:this={editorRef}
                 docId="__scratchpad__"
                 initialDoc={tabsStore.scratchpadContent}
                 copyMode={settingsStore.copyMode}
+                editingMode={settingsStore.editingMode}
+                dimInactiveParagraphs={settingsStore.dimInactiveParagraphs}
+                typewriterScrolling={settingsStore.typewriterScrolling}
                 onDocChange={(docId, content) =>
                   tabsStore.handleEditorDocChange(docId, content, () => {
                     if (settingsStore.showInspector) void refreshInspectorPreview();
@@ -192,6 +275,9 @@
                 docId={tabsStore.activeTab.relPath}
                 initialDoc={tabsStore.activeTab.content}
                 copyMode={settingsStore.copyMode}
+                editingMode={settingsStore.editingMode}
+                dimInactiveParagraphs={settingsStore.dimInactiveParagraphs}
+                typewriterScrolling={settingsStore.typewriterScrolling}
                 onDocChange={(docId, content) =>
                   tabsStore.handleEditorDocChange(docId, content)}
                 onCopyComplete={(payload, source) =>
@@ -228,11 +314,26 @@
         </section>
       </div>
 
-      <ClipboardInspector />
+      {#if settingsStore.focusMode === 'off'}
+        <ClipboardInspector />
+      {/if}
     </main>
   {/if}
 
   <StatusBar />
+
+  {#if settingsStore.showCommandPalette}
+    <CommandPalette
+      onFormat={handleFormatCommand}
+      onCopyTrigger={() => editorRef?.triggerCopyFromToolbar()}
+      onPastePlainTrigger={() => editorRef?.triggerPastePlainFromToolbar()}
+      onRefreshInspector={() => void refreshInspectorPreview()}
+      onClose={() => {
+        settingsStore.showCommandPalette = false;
+        editorRef?.focusEditor();
+      }}
+    />
+  {/if}
 </div>
 
 <style>
@@ -257,6 +358,12 @@
     padding: var(--space-3) var(--space-4);
     min-height: 0;
     overflow: hidden;
+  }
+
+  .app-shell.focus-minimal .workspace,
+  .app-shell.focus-zen .workspace {
+    padding: 0;
+    gap: 0;
   }
 
   .workspace-split {
@@ -303,6 +410,12 @@
     display: flex;
     flex-direction: column;
     transition: background-color var(--transition-fast);
+  }
+
+  .app-shell.focus-minimal .editor-card,
+  .app-shell.focus-zen .editor-card {
+    border: none;
+    border-radius: 0;
   }
 
   .solid-backdrop .editor-card {

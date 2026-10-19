@@ -1,6 +1,13 @@
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { designTokens } from '../designTokens';
 import { getBackdropState, syncWindowTheme } from '../ipc';
-import type { BackdropState, CopyMode, ThemePreference } from '../types';
+import type {
+  BackdropState,
+  CopyMode,
+  EditingMode,
+  FocusMode,
+  ThemePreference,
+} from '../types';
 
 export const COPY_MODE_LABELS: Record<CopyMode, { label: string; desc: string }> = {
   markdown_source: {
@@ -17,6 +24,11 @@ export const COPY_MODE_LABELS: Record<CopyMode, { label: string; desc: string }>
   },
 };
 
+interface SavedPreFocusLayout {
+  sidebarCollapsed: boolean;
+  showInspector: boolean;
+}
+
 class SettingsStore {
   copyMode = $state<CopyMode>('markdown_source');
   themePref = $state<ThemePreference>('system');
@@ -28,10 +40,20 @@ class SettingsStore {
     darkMode: null,
   });
 
+  // Milestone 3: Editing Mode, Focus Mode & Focus Options
+  editingMode = $state<EditingMode>('live');
+  focusMode = $state<FocusMode>('off');
+  typewriterScrolling = $state(false);
+  dimInactiveParagraphs = $state(false);
+  showCommandPalette = $state(false);
+  topHoverReveal = $state(false);
+
   sidebarWidth = $state<number>(designTokens.layout.sidebarDefaultWidth);
   sidebarCollapsed = $state(false);
   showSettings = $state(false);
   showInspector = $state(false);
+
+  private preFocusLayout: SavedPreFocusLayout | null = null;
 
   effectiveDark = $derived(
     this.themePref === 'system' ? this.systemIsDark : this.themePref === 'dark'
@@ -49,6 +71,101 @@ class SettingsStore {
       // ignore storage errors
     }
     onAfterChange?.();
+  }
+
+  setEditingMode(next: EditingMode) {
+    this.editingMode = next;
+    try {
+      localStorage.setItem('jotter.editingMode', next);
+    } catch {
+      // ignore
+    }
+  }
+
+  toggleEditingMode() {
+    this.setEditingMode(this.editingMode === 'live' ? 'source' : 'live');
+  }
+
+  setTypewriterScrolling(enabled: boolean) {
+    this.typewriterScrolling = enabled;
+    try {
+      localStorage.setItem('jotter.typewriterScrolling', String(enabled));
+    } catch {
+      // ignore
+    }
+  }
+
+  setDimInactiveParagraphs(enabled: boolean) {
+    this.dimInactiveParagraphs = enabled;
+    try {
+      localStorage.setItem('jotter.dimInactiveParagraphs', String(enabled));
+    } catch {
+      // ignore
+    }
+  }
+
+  setFocusMode(next: FocusMode) {
+    if (this.focusMode === 'off' && next !== 'off') {
+      this.preFocusLayout = {
+        sidebarCollapsed: this.sidebarCollapsed,
+        showInspector: this.showInspector,
+      };
+      try {
+        localStorage.setItem(
+          'jotter.preFocusLayout',
+          JSON.stringify(this.preFocusLayout)
+        );
+      } catch {
+        // ignore
+      }
+    } else if (next === 'off' && this.preFocusLayout) {
+      this.sidebarCollapsed = this.preFocusLayout.sidebarCollapsed;
+      this.showInspector = this.preFocusLayout.showInspector;
+      this.preFocusLayout = null;
+      try {
+        localStorage.setItem(
+          'jotter.sidebarCollapsed',
+          String(this.sidebarCollapsed)
+        );
+        localStorage.removeItem('jotter.preFocusLayout');
+      } catch {
+        // ignore
+      }
+    }
+
+    this.focusMode = next;
+    this.topHoverReveal = false;
+    this.showSettings = false;
+    try {
+      localStorage.setItem('jotter.focusMode', next);
+    } catch {
+      // ignore
+    }
+
+    void this.syncWindowFullscreen(next === 'zen');
+  }
+
+  toggleMinimalFocus() {
+    this.setFocusMode(this.focusMode === 'minimal' ? 'off' : 'minimal');
+  }
+
+  toggleZenFocus() {
+    this.setFocusMode(this.focusMode === 'zen' ? 'off' : 'zen');
+  }
+
+  exitFocusMode() {
+    if (this.focusMode !== 'off') {
+      this.setFocusMode('off');
+    }
+  }
+
+  private async syncWindowFullscreen(fullscreen: boolean) {
+    try {
+      const win = getCurrentWindow();
+      await win.setFullscreen(fullscreen);
+    } catch {
+      // ignore when running in browser preview outside Tauri
+    }
   }
 
   setThemePreference(next: ThemePreference) {
@@ -72,6 +189,14 @@ class SettingsStore {
 
   toggleSidebar() {
     this.sidebarCollapsed = !this.sidebarCollapsed;
+    try {
+      localStorage.setItem(
+        'jotter.sidebarCollapsed',
+        String(this.sidebarCollapsed)
+      );
+    } catch {
+      // ignore
+    }
   }
 
   applyThemeToDocument(pref: ThemePreference, sysDark: boolean) {
@@ -118,6 +243,45 @@ class SettingsStore {
       const savedWidth = Number(localStorage.getItem('jotter.sidebarWidth'));
       if (savedWidth >= 180 && savedWidth <= 480) {
         this.sidebarWidth = savedWidth;
+      }
+      const savedCollapsed = localStorage.getItem('jotter.sidebarCollapsed');
+      if (savedCollapsed === 'true' || savedCollapsed === 'false') {
+        this.sidebarCollapsed = savedCollapsed === 'true';
+      }
+      const savedEditingMode = localStorage.getItem(
+        'jotter.editingMode'
+      ) as EditingMode | null;
+      if (savedEditingMode === 'live' || savedEditingMode === 'source') {
+        this.editingMode = savedEditingMode;
+      }
+      const savedTypewriter = localStorage.getItem('jotter.typewriterScrolling');
+      if (savedTypewriter === 'true' || savedTypewriter === 'false') {
+        this.typewriterScrolling = savedTypewriter === 'true';
+      }
+      const savedDim = localStorage.getItem('jotter.dimInactiveParagraphs');
+      if (savedDim === 'true' || savedDim === 'false') {
+        this.dimInactiveParagraphs = savedDim === 'true';
+      }
+      const savedPreFocus = localStorage.getItem('jotter.preFocusLayout');
+      if (savedPreFocus) {
+        try {
+          this.preFocusLayout = JSON.parse(savedPreFocus) as SavedPreFocusLayout;
+        } catch {
+          this.preFocusLayout = null;
+        }
+      }
+      const savedFocusMode = localStorage.getItem(
+        'jotter.focusMode'
+      ) as FocusMode | null;
+      if (
+        savedFocusMode === 'off' ||
+        savedFocusMode === 'minimal' ||
+        savedFocusMode === 'zen'
+      ) {
+        this.focusMode = savedFocusMode;
+        if (savedFocusMode === 'zen') {
+          void this.syncWindowFullscreen(true);
+        }
       }
     } catch {
       // ignore

@@ -33,3 +33,12 @@
 - **Recycle Bin (`trash` crate)**: Deleting a note or folder uses `trash::delete` to move items to the Windows Recycle Bin rather than permanently unlinking them with `remove_file` / `remove_dir_all`.
 - **Windows Naming Rules**: Both the frontend (`src/lib/validation.ts`) and Rust backend (`vault::validate_windows_entry_name`) validate new and renamed note/folder names against Windows rules: reserved device names (`CON`, `PRN`, `AUX`, `NUL`, `COM0`–`COM9`, `LPT0`–`LPT9`, with or without extensions), invalid characters (`< > : " / \ | ? *` and control characters), leading dots, and trailing dots or spaces.
 
+## 7. Live Preview Mode & Focus Mode Architecture (Milestone 3)
+- **Cursor-Aware Live Preview (`src/lib/livePreview.ts`)**: Live mode uses a CodeMirror 6 `StateField<DecorationSet>` driven by `@codemirror/lang-markdown`'s GFM syntax tree. Formatting delimiters (`#` headings, `**` bold, `*` italic, `~~` strikethrough, `` ` `` inline code, `[label](url)` links, `[[wiki links]]`, `-` bullet lists, `- [ ]` task lists, `>` blockquotes, ` ``` ` code fences, `|` table pipes, and `---` horizontal rules) are replaced with inline styles or widgets when the selection/cursor is outside the node/line, and revealed as raw Markdown syntax immediately when the cursor enters the span or line.
+- **Interactive Task Checkboxes**: Task list markers (`- [ ]` / `- [x]`) render as interactive checkboxes (`TaskCheckboxWidget`) in Live mode that toggle `[ ]` ↔ `[x]` directly in the underlying Markdown document when clicked.
+- **Focus Mode (`Minimal` & `Zen`)**:
+  - **Minimal (`Ctrl+Shift+M`)** hides the sidebar, tabs, formatting toolbar, clipboard inspector, and status bar, leaving only the centered ~700 px editor canvas and a thin, low-contrast title bar.
+  - **Zen (`F11`)** enters native window fullscreen (`getCurrentWindow().setFullscreen(true)`) with only the text canvas visible.
+  - Moving the mouse to the top edge (`clientY <= 12`) temporarily reveals the command bar and menu; pressing `Esc` exits back to the previous layout (`preFocusLayout`). All layout and focus preferences (`editingMode`, `focusMode`, `typewriterScrolling`, `dimInactiveParagraphs`, `sidebarWidth`, `sidebarCollapsed`) persist per window in `localStorage`.
+
+

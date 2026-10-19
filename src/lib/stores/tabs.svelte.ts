@@ -10,11 +10,11 @@ export interface OpenTab {
   externalChangePending: boolean;
 }
 
-export const SAMPLE_NOTE = `# Jotter Clipboard Spike — Line Break Verification
+export const SAMPLE_NOTE = `# Jotter — Live Preview & Clipboard Verification
 
 Copy any block below with Ctrl+C (or the Copy button) and paste it into Google Chat, Slack, Gmail, Microsoft Word, or Windows Notepad.
 
-## 1. Consecutive Single Line Breaks
+## 1. Consecutive Single Line Breaks & Inline Formatting
 Line A: First line with **bold text** and *italic text*.
 Line B: Immediately below Line A (single newline, never collapsed into a space).
 Line C: Immediately below Line B with \`inline code\` and ~~strikethrough~~.
@@ -27,12 +27,25 @@ Paragraph 2: Separated from Paragraph 3 by two blank lines.
 
 Paragraph 3: Exact blank line count stays intact just like Windows Notepad.
 
-## 3. Obsidian Vault Syntax & Lists
+## 3. Obsidian Vault Syntax, Task Lists & Blockquotes
 See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] for #windows11 details.
 - [x] Write text/plain with real \\n line breaks
 - [x] Write text/html where every newline becomes <br>
-- [ ] Run manual paste checks in target apps
-> Tip: Press Ctrl+Shift+V anywhere in the editor to paste clipboard contents strictly as plain text.`;
+- [ ] Click this task checkbox in Live mode to toggle it directly
+> Tip: Place your cursor on any formatted line in Live mode to reveal its raw Markdown syntax, or press Ctrl+/ to switch between Live and Source modes.
+
+## 4. Tables & Code Blocks
+| Shortcut | Action | Mode |
+| --- | --- | --- |
+| Ctrl+Shift+M | Minimal Focus Mode | Editor + thin title bar |
+| F11 | Zen Full Screen Mode | Text canvas only |
+| Ctrl+P | Command Palette | Reachable everywhere |
+
+\`\`\`rust
+fn copy_preserves_newlines(input: &str) -> String {
+    input.replace("\\r\\n", "\\n")
+}
+\`\`\``;
 
 class TabsStore {
   openTabs = $state<OpenTab[]>([]);

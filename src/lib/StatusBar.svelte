@@ -4,33 +4,38 @@
   import { tabsStore } from './stores/tabs.svelte';
 </script>
 
-<footer class="status-bar" aria-label="Status bar">
-  <div class="status-left">
-    <span class="status-indicator">{clipboardStore.statusBanner}</span>
-    {#if clipboardStore.statusTimestamp}
-      <span class="status-time">({clipboardStore.statusTimestamp})</span>
-    {/if}
-  </div>
+{#if settingsStore.focusMode === 'off'}
+  <footer class="status-bar" aria-label="Status bar">
+    <div class="status-left">
+      <span class="status-indicator">{clipboardStore.statusBanner}</span>
+      {#if clipboardStore.statusTimestamp}
+        <span class="status-time">({clipboardStore.statusTimestamp})</span>
+      {/if}
+    </div>
 
-  <div class="status-right">
-    <span class="status-item" title="Active window backdrop">
-      Backdrop: {settingsStore.effectiveSolidBackdrop
-        ? 'Solid Fallback'
-        : 'Windows 11 Mica'}
-    </span>
-    <span class="status-item" title="Active color theme">
-      Theme: {settingsStore.effectiveDark ? 'Dark' : 'Light'} ({settingsStore.themePref})
-    </span>
-    {#if tabsStore.activeTab || tabsStore.scratchpadMode}
-      <span class="status-item">
-        {#if tabsStore.docStats.selectedChars > 0}
-          Selected: {tabsStore.docStats.selectedLines} ln, {tabsStore.docStats.selectedChars} ch ·
-        {/if}
-        {tabsStore.docStats.lines} ln · {tabsStore.docStats.words} words
+    <div class="status-right">
+      <span class="status-item" title="Active editor rendering mode">
+        Mode: {settingsStore.editingMode === 'live' ? 'Live' : 'Source'}
       </span>
-    {/if}
-  </div>
-</footer>
+      <span class="status-item" title="Active window backdrop">
+        Backdrop: {settingsStore.effectiveSolidBackdrop
+          ? 'Solid Fallback'
+          : 'Windows 11 Mica'}
+      </span>
+      <span class="status-item" title="Active color theme">
+        Theme: {settingsStore.effectiveDark ? 'Dark' : 'Light'} ({settingsStore.themePref})
+      </span>
+      {#if tabsStore.activeTab || tabsStore.scratchpadMode}
+        <span class="status-item">
+          {#if tabsStore.docStats.selectedChars > 0}
+            Selected: {tabsStore.docStats.selectedLines} ln, {tabsStore.docStats.selectedChars} ch ·
+          {/if}
+          {tabsStore.docStats.lines} ln · {tabsStore.docStats.words} words
+        </span>
+      {/if}
+    </div>
+  </footer>
+{/if}
 
 <style>
   .status-bar {
