@@ -1,10 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { getVersion } from '@tauri-apps/api/app';
   import Icon from './ui/Icon.svelte';
   import Button from './ui/Button.svelte';
   import IconButton from './ui/IconButton.svelte';
   import Segmented from './ui/Segmented.svelte';
   import Dialog from './ui/Dialog.svelte';
+  import ChoiceCards from './ui/ChoiceCards.svelte';
   import { COPY_MODE_LABELS, settingsStore } from './stores/settings.svelte';
   import { ACCENT_PRESETS } from './designTokens';
   import { vaultStore } from './stores/vault.svelte';
@@ -17,7 +19,8 @@
 
   let { onClose, onRefreshInspector }: Props = $props();
 
-  type SettingsSection = 'editor' | 'copy' | 'appearance' | 'vault';
+  type SettingsSection = 'editor' | 'copy' | 'appearance' | 'vault' | 'about';
+  let appVersion = $state('');
   let activeSection = $state<SettingsSection>('editor');
   let rebuildStatus = $state('');
   let isRebuilding = $state(false);
@@ -69,6 +72,11 @@
 
   onMount(() => {
     closeBtnRef?.focus();
+    getVersion()
+      .then((version) => (appVersion = version))
+      .catch(() => {
+        // Not running inside Tauri (browser preview).
+      });
   });
 </script>
 
@@ -115,6 +123,16 @@
         >
           <Icon name="folder-simple" />
           <span>Vault</span>
+        </button>
+        <button
+          type="button"
+          class="nav-item nav-bottom"
+          class:active={activeSection === 'about'}
+          aria-current={activeSection === 'about' ? 'page' : undefined}
+          onclick={() => (activeSection = 'about')}
+        >
+          <Icon name="info" />
+          <span>About</span>
         </button>
       </nav>
 
@@ -271,47 +289,31 @@
           <section class="settings-section" aria-labelledby="sec-appearance">
             <h3 id="sec-appearance" class="section-title">Appearance</h3>
             <p class="section-subtitle">
-              Theme, accent color and window backdrop.
+              Theme, accent, writing font and window backdrop.
             </p>
 
-            <div class="setting-card">
+            <div class="setting-card column-card">
               <div class="setting-info">
-                <div class="setting-label">Theme mode</div>
-                <div class="setting-desc">
-                  Follow your system setting, or always use Light or Dark.
-                </div>
+                <div class="setting-label">Theme</div>
+                <div class="setting-desc">System follows your operating system's light or dark setting.</div>
               </div>
-              <Segmented
-                label="Theme mode"
+              <ChoiceCards
+                label="Theme"
                 value={settingsStore.themePref}
                 options={[
                   { value: 'system', label: 'System' },
-                  { value: 'light', label: 'Light' },
-                  { value: 'dark', label: 'Dark' },
+                  { value: 'light', label: 'Paper' },
+                  { value: 'dark', label: 'Night' },
                 ]}
                 onchange={(pref) => settingsStore.setThemePreference(pref)}
-              />
-            </div>
-
-            <div class="setting-card">
-              <div class="setting-info">
-                <label for="toggle-mica" class="setting-label">
-                  Mica backdrop (Windows 11)
-                </label>
-                <div class="setting-desc">
-                  Let the desktop show through the window background. Off by default; Jotter uses solid paper surfaces instead.
-                </div>
-              </div>
-              <input
-                id="toggle-mica"
-                type="checkbox"
-                class="fluent-toggle"
-                checked={!settingsStore.forceSolidBackdrop}
-                onchange={(e) =>
-                  settingsStore.setForceSolidBackdrop(
-                    !(e.currentTarget as HTMLInputElement).checked
-                  )}
-              />
+              >
+                {#snippet preview(pref)}
+                  <span class="theme-preview {pref}" aria-hidden="true">
+                    <span class="tp-side"></span>
+                    <span class="tp-page"><span></span><span></span></span>
+                  </span>
+                {/snippet}
+              </ChoiceCards>
             </div>
 
             <div class="setting-card column-card">
@@ -336,24 +338,28 @@
 
               {#if settingsStore.accentColorMode === 'preset'}
                 <div class="accent-swatches" role="radiogroup" aria-label="Accent preset">
-                  {#each ACCENT_PRESETS as swatch}
+                  {#each ACCENT_PRESETS as swatch (swatch.id)}
+                    {@const selected = settingsStore.accentPreset === swatch.id}
                     <button
                       type="button"
                       role="radio"
-                      class="swatch-btn"
-                      class:active={settingsStore.accentPreset === swatch.id}
-                      aria-checked={settingsStore.accentPreset === swatch.id}
-                      style:background-color={swatch.light}
-                      title={swatch.label}
-                      aria-label={swatch.label}
+                      class="swatch"
+                      aria-checked={selected}
                       onclick={() => settingsStore.setAccentColor('preset', swatch.id)}
-                    ></button>
+                    >
+                      <span
+                        class="swatch-dot"
+                        class:active={selected}
+                        style:background-color={settingsStore.effectiveDark ? swatch.dark : swatch.light}
+                      ></span>
+                      {swatch.label}
+                    </button>
                   {/each}
                 </div>
               {:else if settingsStore.accentColorMode === 'custom'}
                 <div class="accent-swatches">
                   <label class="color-picker-label" title="Custom hex color">
-                    <span>Custom:</span>
+                    <span>Pick a color</span>
                     <input
                       type="color"
                       value={settingsStore.customAccentColor}
@@ -366,6 +372,48 @@
                   </label>
                 </div>
               {/if}
+            </div>
+
+            <div class="setting-card column-card">
+              <div class="setting-info">
+                <div class="setting-label">Writing font</div>
+                <div class="setting-desc">Font for note text. Titles and headings stay in Literata.</div>
+              </div>
+              <ChoiceCards
+                label="Writing font"
+                value={settingsStore.writingFont}
+                options={[
+                  { value: 'serif', label: 'Serif · Literata' },
+                  { value: 'sans', label: 'Sans · Instrument' },
+                  { value: 'mono', label: 'Mono · JetBrains' },
+                ]}
+                onchange={(font) => settingsStore.setWritingFont(font)}
+              >
+                {#snippet preview(font)}
+                  <span class="font-preview {font}" aria-hidden="true">Aa</span>
+                {/snippet}
+              </ChoiceCards>
+            </div>
+
+            <div class="setting-card">
+              <div class="setting-info">
+                <label for="toggle-mica" class="setting-label">
+                  Mica backdrop (Windows 11)
+                </label>
+                <div class="setting-desc">
+                  Tint the sidebar with the desktop behind the window. Off by default.
+                </div>
+              </div>
+              <input
+                id="toggle-mica"
+                type="checkbox"
+                class="fluent-toggle"
+                checked={!settingsStore.forceSolidBackdrop}
+                onchange={(e) =>
+                  settingsStore.setForceSolidBackdrop(
+                    !(e.currentTarget as HTMLInputElement).checked
+                  )}
+              />
             </div>
           </section>
         {:else if activeSection === 'vault'}
@@ -421,6 +469,20 @@
               />
             </div>
           </section>
+        {:else if activeSection === 'about'}
+          <section class="settings-section about" aria-labelledby="sec-about">
+            <div class="about-mark" aria-hidden="true">J</div>
+            <h3 id="sec-about" class="section-title">Jotter</h3>
+            {#if appVersion}
+              <p class="about-version">Version {appVersion}</p>
+            {/if}
+            <p class="about-desc">
+              Jotter is a Markdown notes app for plain-text folders. Your notes stay as
+              <code>.md</code> files on your own disk, it opens Obsidian vaults as they are,
+              and it copies text that pastes cleanly into chat, email and documents.
+            </p>
+            <p class="about-tagline">Developed in Mexico with love</p>
+          </section>
         {/if}
       </div>
     </div>
@@ -464,6 +526,10 @@
     cursor: pointer;
   }
 
+  .nav-bottom {
+    margin-top: auto;
+  }
+
   .nav-item:hover {
     background: var(--surface-hover);
     color: var(--text-primary);
@@ -492,6 +558,53 @@
   .settings-section {
     display: flex;
     flex-direction: column;
+  }
+
+  .about {
+    align-items: flex-start;
+    gap: var(--space-2);
+    padding-top: var(--space-4);
+  }
+
+  .about-mark {
+    display: grid;
+    place-items: center;
+    width: 48px;
+    height: 48px;
+    margin-bottom: var(--space-2);
+    border-radius: 12px;
+    background: var(--accent);
+    color: var(--on-accent);
+    font: 600 26px / 1 var(--font-display);
+  }
+
+  .about-version {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: var(--fs-13);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .about-desc {
+    max-width: 52ch;
+    margin: var(--space-3) 0 0;
+    color: var(--text-secondary);
+    font: var(--fs-15) / var(--leading-relaxed) var(--font-display);
+  }
+
+  .about-desc code {
+    font-family: var(--font-mono);
+    font-size: 0.86em;
+  }
+
+  .about-tagline {
+    align-self: stretch;
+    max-width: 52ch;
+    margin: var(--space-6) 0 0;
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--line-subtle);
+    color: var(--text-muted);
+    font: italic var(--fs-15) / 1.4 var(--font-display);
   }
 
   .section-title {
@@ -685,20 +798,128 @@
     gap: var(--space-3);
   }
 
-  .swatch-btn {
-    width: 28px;
-    height: 28px;
+  .accent-swatches[role='radiogroup'] {
+    display: grid;
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+    gap: var(--space-1);
+  }
+
+  .swatch {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
     padding: 0;
     border: 0;
-    border-radius: 50%;
-    box-shadow: 0 0 0 1px var(--line-subtle);
+    background: transparent;
+    color: var(--text-secondary);
+    font: var(--fs-12) var(--font-ui);
     cursor: pointer;
   }
 
-  .swatch-btn.active {
+  .swatch-dot {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px var(--line-subtle);
+  }
+
+  .swatch-dot.active {
     box-shadow:
       0 0 0 2px var(--surface-raised),
       0 0 0 4px var(--text-primary);
+  }
+
+  .swatch[aria-checked='true'] {
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  /* Theme previews use fixed paper and night colors so each card shows its own theme. */
+  .theme-preview {
+    display: flex;
+    height: 100%;
+    border: 1px solid var(--line-subtle);
+    border-radius: var(--radius-control);
+    overflow: hidden;
+  }
+
+  .tp-side {
+    width: 32%;
+  }
+
+  .tp-page {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 10px 8px;
+  }
+
+  .tp-page span {
+    height: 4px;
+    border-radius: 2px;
+    background: currentColor;
+    opacity: 0.45;
+  }
+
+  .tp-page span:last-child {
+    width: 60%;
+  }
+
+  .theme-preview.light {
+    color: #1f1d1a;
+  }
+
+  .theme-preview.light .tp-side {
+    background: #f3f1ea;
+  }
+
+  .theme-preview.light .tp-page {
+    background: #fbfaf6;
+  }
+
+  .theme-preview.dark {
+    color: #ece8df;
+  }
+
+  .theme-preview.dark .tp-side {
+    background: #161512;
+  }
+
+  .theme-preview.dark .tp-page {
+    background: #1c1b18;
+  }
+
+  .theme-preview.system {
+    background: linear-gradient(135deg, #fbfaf6 50%, #1c1b18 50%);
+  }
+
+  .theme-preview.system > span {
+    visibility: hidden;
+  }
+
+  .font-preview {
+    display: grid;
+    place-items: center;
+    height: 100%;
+    border-radius: var(--radius-control);
+    background: var(--surface-editor);
+    color: var(--text-primary);
+    font-size: 26px;
+  }
+
+  .font-preview.serif {
+    font-family: var(--font-display);
+  }
+
+  .font-preview.sans {
+    font-family: var(--font-ui);
+  }
+
+  .font-preview.mono {
+    font-family: var(--font-mono);
   }
 
   .color-picker-label {

@@ -32,6 +32,7 @@ interface SavedPreFocusLayout {
 }
 
 type AccentMode = 'preset' | 'system' | 'custom';
+export type WritingFont = 'serif' | 'sans' | 'mono';
 
 class SettingsStore {
   copyMode = $state<CopyMode>('markdown_source');
@@ -66,6 +67,7 @@ class SettingsStore {
   customAccentColor = $state<string>('#2f4fa8');
   showHiddenFiles = $state<boolean>(false);
   imageLinkFormat = $state<'wikilink' | 'markdown'>('wikilink');
+  writingFont = $state<WritingFont>('serif');
 
   sidebarWidth = $state<number>(designTokens.layout.sidebarDefaultWidth);
   sidebarCollapsed = $state(false);
@@ -194,6 +196,23 @@ class SettingsStore {
     } catch {
       // ignore
     }
+  }
+
+  /** Font for note text; titles stay in the display serif. Applied through `data-font` on the root. */
+  setWritingFont(font: WritingFont) {
+    this.writingFont = font;
+    this.applyWritingFontToDocument();
+    try {
+      localStorage.setItem('jotter.writingFont', font);
+    } catch {
+      // ignore
+    }
+  }
+
+  applyWritingFontToDocument() {
+    const root = document.documentElement;
+    if (this.writingFont === 'serif') delete root.dataset.font;
+    else root.dataset.font = this.writingFont;
   }
 
   setFocusMode(next: FocusMode) {
@@ -443,6 +462,11 @@ class SettingsStore {
       if (savedImgFormat === 'wikilink' || savedImgFormat === 'markdown') {
         this.imageLinkFormat = savedImgFormat;
       }
+      const savedFont = localStorage.getItem('jotter.writingFont');
+      if (savedFont === 'serif' || savedFont === 'sans' || savedFont === 'mono') {
+        this.writingFont = savedFont;
+      }
+      this.applyWritingFontToDocument();
       const savedPreFocus = localStorage.getItem('jotter.preFocusLayout');
       if (savedPreFocus) {
         try {

@@ -71,7 +71,7 @@
 
   --text-primary: #1f1d1a;
   --text-secondary: #57534b;
-  --text-muted: #6f6b62;
+  --text-muted: #67635a;
   --text-danger: #b3261e;
 
   --line-subtle: #e2ded3;
@@ -116,7 +116,7 @@
 :root[data-accent='teal'] { --accent-light: #1d6b6c; --accent-dark: #7ccbc9; }
 :root[data-accent='rust'] { --accent-light: #a3472a; --accent-dark: #e59a7c; }
 :root[data-accent='graphite'] { --accent-light: #46443f; --accent-dark: #cfcac0; }
-:root[data-accent='amber'] { --accent-light: #8a5d08; --accent-dark: #e3b65a; }
+:root[data-accent='amber'] { --accent-light: #7f5607; --accent-dark: #e3b65a; }
 :root[data-accent='rose'] { --accent-light: #a6375a; --accent-dark: #ee9db5; }
 
 /* Dark theme: Night. Keep both blocks identical. */

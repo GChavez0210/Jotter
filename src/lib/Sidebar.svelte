@@ -373,15 +373,8 @@
       <div class="tree-scroll">
         {#if snapshot.tree.length === 0}
           <div class="empty-tree">
-            <p>No Markdown notes in this vault yet.</p>
-            <button
-              type="button"
-              class="new-first-note-btn"
-              onclick={() => startNewEntry('note', '')}
-            >
-              <Icon name="file-plus" />
-              <span>Create first note</span>
-            </button>
+            <p>This vault has no notes yet.</p>
+            <Button icon="file-plus" onclick={() => startNewEntry('note', '')}>Write the first note</Button>
           </div>
         {:else}
           <ul class="tree-root" role="tree" aria-label="Notes and folders">
@@ -842,28 +835,17 @@
   }
 
   .empty-tree {
-    padding: var(--space-4) var(--space-3);
-    text-align: center;
-    color: var(--text-secondary);
-    font-size: var(--fs-12);
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: var(--space-2);
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-4);
+    color: var(--text-muted);
+    font-size: var(--fs-13);
   }
 
-  .new-first-note-btn {
-    min-height: var(--control-min-height);
-    padding: 0 var(--space-3);
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-    border-radius: var(--radius-control);
-    border: 1px solid var(--line-control);
-    background: var(--surface-field);
-    color: var(--text-primary);
-    font-size: var(--fs-12);
-    cursor: pointer;
+  .empty-tree p {
+    margin: 0;
   }
 
   .resize-handle {
