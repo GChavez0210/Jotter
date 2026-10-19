@@ -1,5 +1,18 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { BackdropState, ClipboardPayload, CopyRequest } from './types';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import type {
+  BackdropState,
+  CalendarDateField,
+  CalendarDaySummary,
+  CalendarNoteEntry,
+  ClipboardPayload,
+  CopyRequest,
+  NoteDocument,
+  RecentVault,
+  RenameEntryResult,
+  VaultFsEvent,
+  VaultSnapshot,
+} from './types';
 
 export async function copyToClipboard(req: CopyRequest): Promise<ClipboardPayload> {
   return invoke<ClipboardPayload>('copy_to_clipboard', { req });
@@ -19,4 +32,93 @@ export async function syncWindowTheme(darkMode: boolean | null): Promise<Backdro
 
 export async function getBackdropState(): Promise<BackdropState> {
   return invoke<BackdropState>('get_backdrop_state');
+}
+
+export async function pickVaultFolder(title?: string): Promise<string | null> {
+  return invoke<string | null>('pick_vault_folder', { title: title ?? null });
+}
+
+export async function openVault(path: string): Promise<VaultSnapshot> {
+  return invoke<VaultSnapshot>('open_vault', { path });
+}
+
+export async function createNewVault(
+  parentPath: string,
+  vaultName: string
+): Promise<VaultSnapshot> {
+  return invoke<VaultSnapshot>('create_new_vault', { parentPath, vaultName });
+}
+
+export async function getVaultSnapshot(): Promise<VaultSnapshot | null> {
+  return invoke<VaultSnapshot | null>('get_vault_snapshot');
+}
+
+export async function closeVault(): Promise<void> {
+  return invoke<void>('close_vault');
+}
+
+export async function getRecentVaults(): Promise<RecentVault[]> {
+  return invoke<RecentVault[]>('get_recent_vaults');
+}
+
+export async function removeRecentVaultEntry(path: string): Promise<RecentVault[]> {
+  return invoke<RecentVault[]>('remove_recent_vault_entry', { path });
+}
+
+export async function readNote(relPath: string): Promise<NoteDocument> {
+  return invoke<NoteDocument>('read_note', { relPath });
+}
+
+export async function createNote(
+  relPath: string,
+  initialContent?: string
+): Promise<[VaultSnapshot, NoteDocument]> {
+  return invoke<[VaultSnapshot, NoteDocument]>('create_note', {
+    relPath,
+    initialContent: initialContent ?? null,
+  });
+}
+
+export async function saveNote(
+  relPath: string,
+  content: string
+): Promise<NoteDocument> {
+  return invoke<NoteDocument>('save_note', { relPath, content });
+}
+
+export async function createFolder(relPath: string): Promise<VaultSnapshot> {
+  return invoke<VaultSnapshot>('create_folder', { relPath });
+}
+
+export async function renameEntry(
+  oldRelPath: string,
+  newRelPath: string
+): Promise<RenameEntryResult> {
+  return invoke<RenameEntryResult>('rename_entry', { oldRelPath, newRelPath });
+}
+
+export async function deleteEntry(relPath: string): Promise<VaultSnapshot> {
+  return invoke<VaultSnapshot>('delete_entry', { relPath });
+}
+
+export async function queryCalendarDays(
+  yearMonth: string,
+  field: CalendarDateField
+): Promise<CalendarDaySummary[]> {
+  return invoke<CalendarDaySummary[]>('query_calendar_days', { yearMonth, field });
+}
+
+export async function queryCalendarDateNotes(
+  date: string,
+  field: CalendarDateField
+): Promise<CalendarNoteEntry[]> {
+  return invoke<CalendarNoteEntry[]>('query_calendar_date_notes', { date, field });
+}
+
+export async function listenVaultFsEvents(
+  handler: (payload: VaultFsEvent) => void
+): Promise<UnlistenFn> {
+  return listen<VaultFsEvent>('vault-fs-event', (event) => {
+    handler(event.payload);
+  });
 }

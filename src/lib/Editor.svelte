@@ -16,8 +16,10 @@
   import type { ClipboardPayload, CopyMode } from './types';
 
   interface Props {
+    docId: string;
     initialDoc: string;
     copyMode: CopyMode;
+    onDocChange?: (docId: string, newContent: string) => void;
     onCopyComplete?: (payload: ClipboardPayload, source: 'copy' | 'cut') => void;
     onPastePlainComplete?: (charCount: number, lineCount: number) => void;
     onStatsChange?: (stats: {
@@ -31,8 +33,10 @@
   }
 
   let {
+    docId,
     initialDoc,
     copyMode,
+    onDocChange,
     onCopyComplete,
     onPastePlainComplete,
     onStatsChange,
@@ -41,6 +45,8 @@
 
   let editorHost: HTMLDivElement | undefined = $state();
   let view: EditorView | undefined;
+  let currentLoadedDocId = '';
+  let suppressChangeEmit = false;
 
   const markdownHighlight = HighlightStyle.define([
     {
@@ -111,10 +117,10 @@
       overflow: 'auto',
       padding: 'var(--space-6) var(--space-4) var(--space-8) var(--space-4)',
       fontFamily: 'var(--font-ui)',
-      lineHeight: '1.65',
+      lineHeight: 'var(--leading-relaxed)',
     },
     '.cm-content': {
-      maxWidth: '700px',
+      maxWidth: 'var(--editor-max-width)',
       margin: '0 auto',
       padding: '0 0 var(--space-8) 0',
       caretColor: 'var(--accent-color, var(--focus-ring))',
@@ -160,7 +166,10 @@
     });
   }
 
-  function getSelectedOrCurrentLineText(v: EditorView, fallbackToWholeDoc = false): {
+  function getSelectedOrCurrentLineText(
+    v: EditorView,
+    fallbackToWholeDoc = false
+  ): {
     text: string;
     from: number;
     to: number;
@@ -234,28 +243,9 @@
     }
   }
 
-  export async function triggerCopyFromToolbar() {
-    if (!view) return;
-    await performCustomCopy(view, 'copy', true);
-    view.focus();
-  }
-
-  export async function triggerPastePlainFromToolbar() {
-    if (!view) return;
-    await performPasteAsPlainText(view);
-    view.focus();
-  }
-
-  export function getCurrentCopyTargetText(): string {
-    if (!view) return initialDoc;
-    return getSelectedOrCurrentLineText(view, true).text;
-  }
-
-  onMount(() => {
-    if (!editorHost) return;
-
-    const state = EditorState.create({
-      doc: initialDoc,
+  function createEditorState(content: string): EditorState {
+    return EditorState.create({
+      doc: content,
       extensions: [
         history(),
         drawSelection(),
@@ -292,15 +282,63 @@
           if (update.docChanged || update.selectionSet) {
             emitStats(update.state);
           }
+          if (update.docChanged && !suppressChangeEmit) {
+            onDocChange?.(docId, update.state.doc.toString());
+          }
         }),
       ],
     });
+  }
 
+  $effect(() => {
+    if (view && docId !== currentLoadedDocId) {
+      currentLoadedDocId = docId;
+      suppressChangeEmit = true;
+      view.setState(createEditorState(initialDoc));
+      suppressChangeEmit = false;
+      emitStats(view.state);
+    }
+  });
+
+  export function replaceContentFromDisk(newContent: string) {
+    if (!view) return;
+    const currentText = view.state.doc.toString();
+    if (currentText === newContent) return;
+    const cursorOffset = Math.min(view.state.selection.main.head, newContent.length);
+    suppressChangeEmit = true;
+    view.dispatch({
+      changes: { from: 0, to: currentText.length, insert: newContent },
+      selection: { anchor: cursorOffset },
+    });
+    suppressChangeEmit = false;
+    emitStats(view.state);
+  }
+
+  export async function triggerCopyFromToolbar() {
+    if (!view) return;
+    await performCustomCopy(view, 'copy', true);
+    view.focus();
+  }
+
+  export async function triggerPastePlainFromToolbar() {
+    if (!view) return;
+    await performPasteAsPlainText(view);
+    view.focus();
+  }
+
+  export function getCurrentCopyTargetText(): string {
+    if (!view) return initialDoc;
+    return getSelectedOrCurrentLineText(view, true).text;
+  }
+
+  onMount(() => {
+    if (!editorHost) return;
+    currentLoadedDocId = docId;
+    const state = createEditorState(initialDoc);
     view = new EditorView({
       state,
       parent: editorHost,
     });
-
     emitStats(view.state);
     view.focus();
   });

@@ -1,166 +1,4 @@
-:root {
-  /* Typography */
-  --font-ui: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
-  --font-display: 'Segoe UI Variable Display', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
-  --font-mono: 'Cascadia Code', 'Consolas', ui-monospace, monospace;
-
-  /* Type scale (strictly 12, 14, 16, 20, 28 px) */
-  --text-xs: 12px;
-  --text-sm: 14px;
-  --text-base: 16px;
-  --text-lg: 20px;
-  --text-xl: 28px;
-
-  /* 4 px spacing grid */
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 20px;
-  --space-6: 24px;
-  --space-8: 32px;
-
-  /* Radii */
-  --radius-control: 4px;
-  --radius-card: 8px;
-
-  /* Hit target */
-  --control-min-height: 32px;
-
-  /* Motion */
-  --transition-fast: 140ms ease-out;
-
-  /* Light theme colors (Fluent Windows 11 default) */
-  --accent-fallback: #0067c0;
-  --accent-color: AccentColor;
-  --accent-text: AccentColorText;
-
-  --bg-mica-tint: rgba(243, 243, 243, 0.62);
-  --bg-solid-fallback: #f3f3f3;
-  --bg-card: rgba(255, 255, 255, 0.78);
-  --bg-card-solid: #ffffff;
-  --bg-subtle: rgba(0, 0, 0, 0.035);
-  --bg-control: rgba(255, 255, 255, 0.75);
-  --bg-control-hover: rgba(0, 0, 0, 0.055);
-  --bg-control-active: rgba(0, 0, 0, 0.085);
-  --bg-code: rgba(0, 0, 0, 0.045);
-
-  --text-primary: #1b1b1b;
-  --text-secondary: #5c5c5c;
-  --text-muted: #757575;
-
-  --border-subtle: rgba(0, 0, 0, 0.08);
-  --border-control: rgba(0, 0, 0, 0.14);
-  --border-strong: rgba(0, 0, 0, 0.24);
-  --focus-ring: #0067c0;
-
-  --selection-bg: rgba(0, 103, 192, 0.18);
-  --status-ok: #0f7b0f;
-  --status-badge-bg: rgba(15, 123, 15, 0.12);
-
-  /* Syntax tokens */
-  --syn-heading: #005fb8;
-  --syn-emphasis: #1f1f1f;
-  --syn-code: #9a3412;
-  --syn-link: #0067c0;
-  --syn-quote: #525252;
-  --syn-meta: #6e6e6e;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
-    --accent-fallback: #4cc2ff;
-    --bg-mica-tint: rgba(32, 32, 32, 0.58);
-    --bg-solid-fallback: #202020;
-    --bg-card: rgba(40, 40, 40, 0.74);
-    --bg-card-solid: #282828;
-    --bg-subtle: rgba(255, 255, 255, 0.045);
-    --bg-control: rgba(255, 255, 255, 0.065);
-    --bg-control-hover: rgba(255, 255, 255, 0.095);
-    --bg-control-active: rgba(255, 255, 255, 0.13);
-    --bg-code: rgba(255, 255, 255, 0.075);
-
-    --text-primary: #f5f5f5;
-    --text-secondary: #c2c2c2;
-    --text-muted: #9a9a9a;
-
-    --border-subtle: rgba(255, 255, 255, 0.085);
-    --border-control: rgba(255, 255, 255, 0.14);
-    --border-strong: rgba(255, 255, 255, 0.24);
-    --focus-ring: #4cc2ff;
-
-    --selection-bg: rgba(76, 194, 255, 0.24);
-    --status-ok: #6ccb5f;
-    --status-badge-bg: rgba(108, 203, 95, 0.15);
-
-    --syn-heading: #60cdff;
-    --syn-emphasis: #f5f5f5;
-    --syn-code: #f59e0b;
-    --syn-link: #4cc2ff;
-    --syn-quote: #b8b8b8;
-    --syn-meta: #8f8f8f;
-  }
-}
-
-:root[data-theme='dark'] {
-  color-scheme: dark;
-  --accent-fallback: #4cc2ff;
-  --bg-mica-tint: rgba(32, 32, 32, 0.58);
-  --bg-solid-fallback: #202020;
-  --bg-card: rgba(40, 40, 40, 0.74);
-  --bg-card-solid: #282828;
-  --bg-subtle: rgba(255, 255, 255, 0.045);
-  --bg-control: rgba(255, 255, 255, 0.065);
-  --bg-control-hover: rgba(255, 255, 255, 0.095);
-  --bg-control-active: rgba(255, 255, 255, 0.13);
-  --bg-code: rgba(255, 255, 255, 0.075);
-
-  --text-primary: #f5f5f5;
-  --text-secondary: #c2c2c2;
-  --text-muted: #9a9a9a;
-
-  --border-subtle: rgba(255, 255, 255, 0.085);
-  --border-control: rgba(255, 255, 255, 0.14);
-  --border-strong: rgba(255, 255, 255, 0.24);
-  --focus-ring: #4cc2ff;
-
-  --selection-bg: rgba(76, 194, 255, 0.24);
-  --status-ok: #6ccb5f;
-  --status-badge-bg: rgba(108, 203, 95, 0.15);
-
-  --syn-heading: #60cdff;
-  --syn-emphasis: #f5f5f5;
-  --syn-code: #f59e0b;
-  --syn-link: #4cc2ff;
-  --syn-quote: #b8b8b8;
-  --syn-meta: #8f8f8f;
-}
-
-:root[data-theme='light'] {
-  color-scheme: light;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  :root {
-    --transition-fast: 0ms;
-  }
-}
-
-@media (forced-colors: active) {
-  :root {
-    --bg-mica-tint: Canvas;
-    --bg-solid-fallback: Canvas;
-    --bg-card: Canvas;
-    --bg-card-solid: Canvas;
-    --bg-control: ButtonFace;
-    --bg-control-hover: Highlight;
-    --text-primary: CanvasText;
-    --text-secondary: CanvasText;
-    --border-subtle: ButtonBorder;
-    --border-control: ButtonBorder;
-    --focus-ring: Highlight;
-  }
-}
+@import './styles/design-tokens.css';
 
 *,
 *::before,
@@ -185,7 +23,8 @@ body,
 
 button,
 select,
-input {
+input,
+textarea {
   font-family: inherit;
   font-size: var(--text-sm);
   color: inherit;
@@ -194,6 +33,7 @@ input {
 button:focus-visible,
 select:focus-visible,
 input:focus-visible,
+textarea:focus-visible,
 [tabindex]:focus-visible {
   outline: 2px solid var(--accent-color, var(--focus-ring));
   outline-offset: 2px;

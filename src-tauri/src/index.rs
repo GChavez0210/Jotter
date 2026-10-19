@@ -1,6 +1,61 @@
+use std::fs;
+use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use rusqlite::{params, Connection};
 
+use crate::clipboard::strip_markdown_to_plain;
+use crate::links::split_yaml_frontmatter;
 use crate::types::{CalendarDateField, CalendarDaySummary, CalendarNoteEntry};
+
+/// Converts a `SystemTime` to milliseconds since UNIX_EPOCH.
+pub fn system_time_to_ms(time: SystemTime) -> i64 {
+    time.duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// Converts epoch milliseconds to an ISO `YYYY-MM-DD` date string (Howard Hinnant civil-from-days).
+pub fn ms_to_ymd_date(ms: i64) -> String {
+    let secs = ms.div_euclid(1000);
+    let days = secs.div_euclid(86_400);
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64; // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365; // [0, 399]
+    let y = (yoe as i64) + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    let year = if m <= 2 { y + 1 } else { y };
+    format!("{year:04}-{m:02}-{d:02}")
+}
+
+/// Extracts a concise single-line preview from a Markdown note (skipping YAML frontmatter and blank lines).
+pub fn extract_note_preview(content: &str) -> String {
+    let (body, _) = split_yaml_frontmatter(content);
+    let mut in_fence = false;
+
+    for line in body.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            in_fence = !in_fence;
+            continue;
+        }
+        if trimmed.is_empty() {
+            continue;
+        }
+        let plain = strip_markdown_to_plain(trimmed);
+        let clean = plain.trim();
+        if !clean.is_empty() {
+            let truncated: String = clean.chars().take(120).collect();
+            return truncated;
+        }
+    }
+
+    String::new()
+}
 
 /// Initializes the rebuildable SQLite metadata cache schema.
 pub fn init_index_schema(conn: &Connection) -> Result<(), String> {
@@ -48,6 +103,116 @@ pub fn upsert_note_entry(
         ],
     )
     .map_err(|e| format!("Failed to upsert note index entry: {e}"))?;
+    Ok(())
+}
+
+/// Indexes a single `.md` file from disk into the SQLite cache.
+pub fn index_single_file(
+    conn: &Connection,
+    vault_root: &Path,
+    abs_path: &Path,
+    override_modified_ms: Option<i64>,
+) -> Result<(), String> {
+    let rel = abs_path
+        .strip_prefix(vault_root)
+        .map_err(|e| format!("Path is outside vault root: {e}"))?;
+    let rel_str = rel
+        .components()
+        .map(|c| c.as_os_str().to_string_lossy())
+        .collect::<Vec<_>>()
+        .join("/");
+
+    let metadata = fs::metadata(abs_path)
+        .map_err(|e| format!("Failed to read metadata for {}: {e}", abs_path.display()))?;
+    let fs_mod_ms = metadata
+        .modified()
+        .map(system_time_to_ms)
+        .unwrap_or(0);
+    let modified_ms = override_modified_ms.unwrap_or(fs_mod_ms);
+    let created_ms = metadata
+        .created()
+        .map(system_time_to_ms)
+        .unwrap_or(modified_ms);
+
+    let content = fs::read_to_string(abs_path).unwrap_or_default();
+    let title = abs_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("Untitled")
+        .to_string();
+    let preview = extract_note_preview(&content);
+
+    let entry = CalendarNoteEntry {
+        path: rel_str,
+        title,
+        modified_ms,
+        created_ms,
+        preview,
+    };
+
+    upsert_note_entry(
+        conn,
+        &entry,
+        &ms_to_ymd_date(modified_ms),
+        &ms_to_ymd_date(created_ms),
+    )
+}
+
+/// Removes a note or all notes inside a folder (`rel_path` or `rel_path/%`) from the SQLite index.
+pub fn delete_indexed_path(conn: &Connection, rel_path: &str) -> Result<(), String> {
+    let prefix = format!("{rel_path}/%");
+    conn.execute(
+        "DELETE FROM notes WHERE path = ?1 OR path LIKE ?2",
+        params![rel_path, prefix],
+    )
+    .map_err(|e| format!("Failed to delete indexed path {rel_path}: {e}"))?;
+    Ok(())
+}
+
+/// Rebuilds the entire SQLite note index from `.md` files in `vault_root` (ignoring `.obsidian` and dot-entries).
+pub fn rebuild_index_from_vault(conn: &Connection, vault_root: &Path) -> Result<usize, String> {
+    init_index_schema(conn)?;
+    conn.execute("DELETE FROM notes", [])
+        .map_err(|e| format!("Failed to clear notes table: {e}"))?;
+
+    let mut count = 0;
+    walk_and_index_dir(conn, vault_root, vault_root, &mut count)?;
+    Ok(count)
+}
+
+fn walk_and_index_dir(
+    conn: &Connection,
+    vault_root: &Path,
+    current_dir: &Path,
+    count: &mut usize,
+) -> Result<(), String> {
+    let entries = fs::read_dir(current_dir)
+        .map_err(|e| format!("Failed to read directory {}: {e}", current_dir.display()))?;
+
+    for entry_res in entries {
+        let entry = match entry_res {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        // Ignore .obsidian, .git, and hidden/temp dot-files
+        if name_str.starts_with('.') {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            walk_and_index_dir(conn, vault_root, &path, count)?;
+        } else if path
+            .extension()
+            .and_then(|e| e.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+        {
+            index_single_file(conn, vault_root, &path, None)?;
+            *count += 1;
+        }
+    }
+
     Ok(())
 }
 
@@ -182,5 +347,37 @@ mod tests {
         // Most recently modified note comes first
         assert_eq!(notes_on_18[0].title, "Jotter");
         assert_eq!(notes_on_18[1].title, "2026-10-18");
+    }
+
+    #[test]
+    fn rebuild_index_skips_obsidian_folder_and_indexes_markdown_notes() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+
+        fs::create_dir_all(root.join(".obsidian")).unwrap();
+        fs::write(root.join(".obsidian/workspace.json"), "{}").unwrap();
+        fs::write(root.join(".obsidian/sneaky.md"), "# Ignored").unwrap();
+
+        fs::create_dir_all(root.join("Folder")).unwrap();
+        fs::write(
+            root.join("Welcome.md"),
+            "---\ntags: [intro]\n---\n# Welcome Note\nBody line",
+        )
+        .unwrap();
+        fs::write(root.join("Folder/SubNote.md"), "Second **note** preview").unwrap();
+
+        let conn = Connection::open_in_memory().unwrap();
+        let indexed_count = rebuild_index_from_vault(&conn, root).unwrap();
+        assert_eq!(indexed_count, 2);
+
+        let today = ms_to_ymd_date(system_time_to_ms(SystemTime::now()));
+        let notes = query_notes_on_date(&conn, &today, CalendarDateField::Modified).unwrap();
+        assert_eq!(notes.len(), 2);
+
+        delete_indexed_path(&conn, "Folder").unwrap();
+        let remaining = query_notes_on_date(&conn, &today, CalendarDateField::Modified).unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].path, "Welcome.md");
+        assert_eq!(remaining[0].preview, "Welcome Note");
     }
 }
