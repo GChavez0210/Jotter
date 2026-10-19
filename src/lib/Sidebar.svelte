@@ -3,6 +3,7 @@
   import FileTreeItem from './FileTreeItem.svelte';
   import RecentlyDeletedPanel from './RecentlyDeletedPanel.svelte';
   import SyncConflictsPanel from './SyncConflictsPanel.svelte';
+  import TagsLinksView from './TagsLinksView.svelte';
   import SearchPanel from './SearchPanel.svelte';
   import TagBrowserPanel from './TagBrowserPanel.svelte';
   import Icon from './ui/Icon.svelte';
@@ -298,7 +299,22 @@
 
     {#if settingsStore.leftSidebarView === 'files'}
       <div class="section-label">
-        <span>Folders</span>
+        <span class="nav-switch" role="radiogroup" aria-label="Organize notes by">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={settingsStore.notesNavigation === 'folders'}
+            class:on={settingsStore.notesNavigation === 'folders'}
+            onclick={() => settingsStore.setNotesNavigation('folders')}
+          >Folders</button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={settingsStore.notesNavigation === 'tags'}
+            class:on={settingsStore.notesNavigation === 'tags'}
+            onclick={() => settingsStore.setNotesNavigation('tags')}
+          >Tags &amp; links</button>
+        </span>
         <IconButton
           icon="file-plus"
           size="sm"
@@ -387,6 +403,8 @@
             <p>This vault has no notes yet.</p>
             <Button icon="file-plus" onclick={() => startNewEntry('note', '')}>Write the first note</Button>
           </div>
+        {:else if settingsStore.notesNavigation === 'tags'}
+          <TagsLinksView {activeRelPath} {onSelectFile} />
         {:else}
           <ul class="tree-root" role="tree" aria-label="Notes and folders">
             {#each snapshot.tree as node (node.relPath)}
@@ -619,8 +637,34 @@
     text-transform: uppercase;
   }
 
-  .section-label span {
+  .section-label > span {
     flex: 1;
+  }
+
+  .nav-switch {
+    display: flex;
+    gap: 2px;
+  }
+
+  .nav-switch button {
+    padding: 3px 6px;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    cursor: pointer;
+  }
+
+  .nav-switch button:hover {
+    color: var(--text-primary);
+  }
+
+  .nav-switch button.on {
+    background: var(--surface-hover);
+    color: var(--text-primary);
   }
 
   .sidebar-footer {

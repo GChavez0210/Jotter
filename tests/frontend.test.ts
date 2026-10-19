@@ -10,6 +10,9 @@ import { CalcError, evaluate, evaluateCalcBlock, formatNumber, inlineCalculation
 import { parseFrontmatter, removeProperty, renameProperty, serializeProperty, setProperty } from '../src/lib/frontmatter';
 import { itemAt, itemOnLine, moveItem, shiftItem } from '../src/lib/outliner';
 import { detectSyncProvider, findConflictCopies } from '../src/lib/syncConflicts';
+import { describeDueDate, findDueDate } from '../src/lib/dueDates';
+import { buildHomeSections, buildTagTree, type HomeSection } from '../src/lib/noteGraph';
+import type { NoteCard } from '../src/lib/types';
 import { invalidateImagePreviews, cachedImage, rememberImage, imagePreviewEpoch } from '../src/lib/imagePreviewCache';
 
 function dirtyTab() {
@@ -244,4 +247,55 @@ test('conflict copies match each provider and skip ambiguous names elsewhere', (
   assert.ok(findConflictCopies(paths, 'googledrive').some((c) => c.copyPath === 'Plan (1).md'));
   assert.ok(findConflictCopies(paths, 'icloud').some((c) => c.copyPath === 'Plan 2.md'));
   assert.ok(!findConflictCopies(['Chapter 2.md'], 'icloud').length);
+});
+
+test('due dates match the three task syntaxes and describe relative days', () => {
+  assert.equal(findDueDate('- [ ] Pay rent 📅 2026-11-01')?.date, '2026-11-01');
+  assert.equal(findDueDate('* [x] Call due:2026-10-20 09:30')?.time, '09:30');
+  assert.equal(findDueDate('* [x] Call due:2026-10-20 09:30')?.done, true);
+  assert.equal(findDueDate('1. [ ] Review [due:: 2026-10-31] notes')?.date, '2026-10-31');
+  assert.equal(findDueDate('- Plain due:2026-10-20'), null);
+  assert.equal(findDueDate('- [ ] overdue:2026-10-04'), null);
+  assert.equal(findDueDate('- [ ] Bad 📅 2026-02-30'), null);
+  const now = new Date(2026, 9, 19, 12);
+  assert.deepEqual(describeDueDate('2026-10-19', now), {label:'Today', overdue:false});
+  assert.deepEqual(describeDueDate('2026-10-20', now), {label:'Tomorrow', overdue:false});
+  assert.equal(describeDueDate('2026-10-01', now).overdue, true);
+});
+
+function card(path: string, extra: Partial<NoteCard> = {}): NoteCard {
+  return {path, title:path.replace(/\.md$/, '').split('/').pop()!, modifiedMs:0, createdMs:0, preview:'', tags:[], linksTo:[], linkedFrom:0, ...extra};
+}
+
+test('tag tree nests tags and counts each note once', () => {
+  const cards = [
+    card('A.md', {tags:['project', 'project/alpha']}),
+    card('B.md', {tags:['project/beta']}),
+    card('C.md'),
+  ];
+  const {roots, untagged} = buildTagTree(cards);
+  assert.deepEqual(roots.map((r) => r.tag), ['project']);
+  assert.equal(roots[0].total, 2);
+  assert.deepEqual(roots[0].children.map((c) => c.name), ['alpha', 'beta']);
+  assert.deepEqual(untagged.map((c) => c.path), ['C.md']);
+});
+
+test('home sections skip notes already shown and honor filters', () => {
+  const day = 24 * 60 * 60 * 1000;
+  const now = new Date(2026, 9, 19);
+  const cards = [
+    card('Work/A.md', {modifiedMs:now.getTime() - day, createdMs:1, linkedFrom:5, tags:['work']}),
+    card('Work/B.md', {modifiedMs:now.getTime() - 2 * day, createdMs:3, linkedFrom:1}),
+    card('Home/C.md', {modifiedMs:now.getTime() - 200 * day, createdMs:2}),
+  ];
+  const sections = [
+    {id:'o', kind:'recent-opened', title:'', limit:1, sort:'default', folder:'', tag:''},
+    {id:'m', kind:'recent-modified', title:'', limit:5, sort:'default', folder:'Work', tag:''},
+    {id:'l', kind:'most-linked', title:'', limit:5, sort:'default', folder:'', tag:''},
+    {id:'r', kind:'rediscover', title:'', limit:1, sort:'default', folder:'', tag:''},
+  ] as HomeSection[];
+  const result = buildHomeSections(sections, cards, {openedPaths:['Work/B.md', 'Work/A.md'], now});
+  assert.deepEqual(result.map((r) => r.cards.map((c) => c.path)), [['Work/B.md'], ['Work/A.md'], [], ['Home/C.md']]);
+  const tagged = buildHomeSections([{...sections[1], folder:'', tag:'#work'}], cards, {openedPaths:[], now});
+  assert.deepEqual(tagged[0].cards.map((c) => c.path), ['Work/A.md']);
 });
