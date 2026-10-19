@@ -1,0 +1,312 @@
+import { readNote, saveNote } from '../ipc';
+import { clipboardStore } from './clipboard.svelte';
+
+export interface OpenTab {
+  relPath: string;
+  title: string;
+  content: string;
+  savedContent: string;
+  dirty: boolean;
+  externalChangePending: boolean;
+}
+
+export const SAMPLE_NOTE = `# Jotter Clipboard Spike — Line Break Verification
+
+Copy any block below with Ctrl+C (or the Copy button) and paste it into Google Chat, Slack, Gmail, Microsoft Word, or Windows Notepad.
+
+## 1. Consecutive Single Line Breaks
+Line A: First line with **bold text** and *italic text*.
+Line B: Immediately below Line A (single newline, never collapsed into a space).
+Line C: Immediately below Line B with \`inline code\` and ~~strikethrough~~.
+
+## 2. Preserved Blank Lines (Single and Double Gaps)
+Paragraph 1: Separated from Paragraph 2 by one blank line.
+
+Paragraph 2: Separated from Paragraph 3 by two blank lines.
+
+
+Paragraph 3: Exact blank line count stays intact just like Windows Notepad.
+
+## 3. Obsidian Vault Syntax & Lists
+See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] for #windows11 details.
+- [x] Write text/plain with real \\n line breaks
+- [x] Write text/html where every newline becomes <br>
+- [ ] Run manual paste checks in target apps
+> Tip: Press Ctrl+Shift+V anywhere in the editor to paste clipboard contents strictly as plain text.`;
+
+class TabsStore {
+  openTabs = $state<OpenTab[]>([]);
+  activeTabPath = $state<string | null>(null);
+  scratchpadMode = $state(false);
+  scratchpadContent = $state(SAMPLE_NOTE);
+  docStats = $state({
+    lines: 0,
+    words: 0,
+    chars: 0,
+    selectedChars: 0,
+    selectedLines: 0,
+  });
+
+  private autosaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  activeTab = $derived(
+    this.openTabs.find((t) => t.relPath === this.activeTabPath) ?? null
+  );
+
+  resetTabs() {
+    this.clearAllTimers();
+    this.openTabs = [];
+    this.activeTabPath = null;
+  }
+
+  clearAllTimers() {
+    for (const timer of this.autosaveTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.autosaveTimers.clear();
+  }
+
+  async openNoteInTab(relPath: string) {
+    const existing = this.openTabs.find((t) => t.relPath === relPath);
+    if (existing) {
+      this.activeTabPath = existing.relPath;
+      return;
+    }
+
+    try {
+      const doc = await readNote(relPath);
+      const tab: OpenTab = {
+        relPath: doc.relPath,
+        title: doc.title,
+        content: doc.content,
+        savedContent: doc.content,
+        dirty: false,
+        externalChangePending: false,
+      };
+      this.openTabs = [...this.openTabs, tab];
+      this.activeTabPath = tab.relPath;
+      clipboardStore.setStatus(`Opened ${doc.relPath}`);
+    } catch (err) {
+      clipboardStore.setStatus(
+        `Error opening note: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+
+  addOrActivateCreatedDoc(relPath: string, title: string, content: string) {
+    const newTab: OpenTab = {
+      relPath,
+      title,
+      content,
+      savedContent: content,
+      dirty: false,
+      externalChangePending: false,
+    };
+    this.openTabs = [
+      ...this.openTabs.filter((t) => t.relPath !== relPath),
+      newTab,
+    ];
+    this.activeTabPath = relPath;
+  }
+
+  async closeTab(relPath: string, e?: MouseEvent) {
+    e?.stopPropagation();
+    await this.flushAutosaveFor(relPath);
+    const idx = this.openTabs.findIndex((t) => t.relPath === relPath);
+    if (idx < 0) return;
+
+    const nextTabs = this.openTabs.filter((t) => t.relPath !== relPath);
+    this.openTabs = nextTabs;
+
+    if (this.activeTabPath === relPath) {
+      if (nextTabs.length === 0) {
+        this.activeTabPath = null;
+      } else {
+        const nextIdx = Math.min(idx, nextTabs.length - 1);
+        this.activeTabPath = nextTabs[nextIdx].relPath;
+      }
+    }
+  }
+
+  handleEditorDocChange(
+    docId: string,
+    newContent: string,
+    onAfterScratchpadEdit?: () => void
+  ) {
+    if (docId === '__scratchpad__') {
+      this.scratchpadContent = newContent;
+      onAfterScratchpadEdit?.();
+      return;
+    }
+
+    this.openTabs = this.openTabs.map((t) =>
+      t.relPath === docId
+        ? {
+            ...t,
+            content: newContent,
+            dirty: newContent !== t.savedContent,
+          }
+        : t
+    );
+
+    this.scheduleAutosave(docId);
+  }
+
+  scheduleAutosave(relPath: string) {
+    const prev = this.autosaveTimers.get(relPath);
+    if (prev) clearTimeout(prev);
+    const timer = setTimeout(() => {
+      this.autosaveTimers.delete(relPath);
+      void this.flushAutosaveFor(relPath);
+    }, 380);
+    this.autosaveTimers.set(relPath, timer);
+  }
+
+  async flushAutosaveFor(relPath: string) {
+    const timer = this.autosaveTimers.get(relPath);
+    if (timer) {
+      clearTimeout(timer);
+      this.autosaveTimers.delete(relPath);
+    }
+
+    const tab = this.openTabs.find((t) => t.relPath === relPath);
+    if (!tab || !tab.dirty) return;
+
+    const contentToSave = tab.content;
+    try {
+      const savedDoc = await saveNote(relPath, contentToSave);
+      this.openTabs = this.openTabs.map((t) =>
+        t.relPath === relPath
+          ? {
+              ...t,
+              savedContent: contentToSave,
+              dirty: t.content !== contentToSave,
+              title: savedDoc.title,
+            }
+          : t
+      );
+      clipboardStore.setStatus(`Saved ${savedDoc.relPath}`);
+    } catch (err) {
+      clipboardStore.setStatus(
+        `Autosave failed: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+  }
+
+  async flushAllAutosaves() {
+    const paths = this.openTabs.filter((t) => t.dirty).map((t) => t.relPath);
+    for (const p of paths) {
+      await this.flushAutosaveFor(p);
+    }
+  }
+
+  updatePathsAfterRename(oldRelPath: string, newRelPath: string) {
+    const oldPrefix = `${oldRelPath}/`;
+
+    this.openTabs = this.openTabs.map((t) => {
+      if (t.relPath === oldRelPath) {
+        const base = newRelPath.split('/').pop() ?? newRelPath;
+        const title = base.toLowerCase().endsWith('.md')
+          ? base.slice(0, -3)
+          : base;
+        return { ...t, relPath: newRelPath, title };
+      }
+      if (t.relPath.startsWith(oldPrefix)) {
+        const updatedRel = `${newRelPath}/${t.relPath.slice(oldPrefix.length)}`;
+        return { ...t, relPath: updatedRel };
+      }
+      return t;
+    });
+
+    if (this.activeTabPath === oldRelPath) {
+      this.activeTabPath = newRelPath;
+    } else if (this.activeTabPath?.startsWith(oldPrefix)) {
+      this.activeTabPath = `${newRelPath}/${this.activeTabPath.slice(
+        oldPrefix.length
+      )}`;
+    }
+  }
+
+  removeTabsUnderPath(relPath: string) {
+    const prefix = `${relPath}/`;
+    for (const [k, timer] of this.autosaveTimers.entries()) {
+      if (k === relPath || k.startsWith(prefix)) {
+        clearTimeout(timer);
+        this.autosaveTimers.delete(k);
+      }
+    }
+
+    const remaining = this.openTabs.filter(
+      (t) => t.relPath !== relPath && !t.relPath.startsWith(prefix)
+    );
+    this.openTabs = remaining;
+    if (
+      this.activeTabPath &&
+      (this.activeTabPath === relPath || this.activeTabPath.startsWith(prefix))
+    ) {
+      this.activeTabPath =
+        remaining.length > 0 ? remaining[remaining.length - 1].relPath : null;
+    }
+  }
+
+  dismissExternalChangeBanner(relPath: string) {
+    this.openTabs = this.openTabs.map((t) =>
+      t.relPath === relPath ? { ...t, externalChangePending: false } : t
+    );
+  }
+
+  async reloadTabFromDisk(
+    relPath: string,
+    onReplaceActiveEditor?: (newContent: string) => void
+  ) {
+    try {
+      const doc = await readNote(relPath);
+      this.openTabs = this.openTabs.map((t) =>
+        t.relPath === relPath
+          ? {
+              ...t,
+              content: doc.content,
+              savedContent: doc.content,
+              dirty: false,
+              externalChangePending: false,
+            }
+          : t
+      );
+      if (this.activeTabPath === relPath) {
+        onReplaceActiveEditor?.(doc.content);
+      }
+      clipboardStore.setStatus(`Reloaded external changes: ${relPath}`);
+    } catch {
+      this.openTabs = this.openTabs.filter((t) => t.relPath !== relPath);
+      if (this.activeTabPath === relPath) {
+        this.activeTabPath =
+          this.openTabs.length > 0
+            ? this.openTabs[this.openTabs.length - 1].relPath
+            : null;
+      }
+    }
+  }
+
+  async handleExternalPathsChanged(
+    changedPaths: string[],
+    onReplaceActiveEditor?: (newContent: string) => void
+  ) {
+    for (const rel of changedPaths) {
+      const tab = this.openTabs.find(
+        (t) => t.relPath.toLowerCase() === rel.toLowerCase()
+      );
+      if (!tab) continue;
+
+      if (!tab.dirty) {
+        await this.reloadTabFromDisk(tab.relPath, onReplaceActiveEditor);
+      } else {
+        this.openTabs = this.openTabs.map((t) =>
+          t.relPath === tab.relPath ? { ...t, externalChangePending: true } : t
+        );
+        clipboardStore.setStatus(`External edit detected on ${tab.relPath}`);
+      }
+    }
+  }
+}
+
+export const tabsStore = new TabsStore();

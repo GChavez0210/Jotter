@@ -2,6 +2,7 @@
   import { fluentIcons } from './icons';
   import { pickVaultFolder } from './ipc';
   import type { RecentVault } from './types';
+  import { validateWindowsEntryName } from './validation';
 
   interface Props {
     recentVaults: RecentVault[];
@@ -25,6 +26,10 @@
   let createParentPath = $state('');
   let createVaultName = $state('My Notes');
   let manualOpenPath = $state('');
+
+  let vaultNameError = $derived(
+    mode === 'create' ? validateWindowsEntryName(createVaultName) : null
+  );
 
   async function handleOpenVaultClick() {
     try {
@@ -51,8 +56,8 @@
 
   function submitCreateVault(e: SubmitEvent) {
     e.preventDefault();
-    if (!createParentPath.trim() || !createVaultName.trim()) return;
-    onCreateVault(createParentPath.trim(), createVaultName.trim());
+    if (!createParentPath.trim() || vaultNameError) return;
+    onCreateVault(createParentPath.trim(), createVaultName.trimStart());
   }
 
   function submitManualOpen(e: SubmitEvent) {
@@ -158,10 +163,14 @@
             <input
               type="text"
               class="fluent-input"
+              aria-invalid={Boolean(vaultNameError)}
               placeholder="Work Notes"
               bind:value={createVaultName}
               required
             />
+            {#if vaultNameError}
+              <span class="error-banner" role="alert">{vaultNameError}</span>
+            {/if}
           </label>
           <div class="form-field">
             <span class="field-label">Parent folder</span>
@@ -190,7 +199,11 @@
             >
               Cancel
             </button>
-            <button type="submit" class="fluent-btn primary-btn">
+            <button
+              type="submit"
+              class="fluent-btn primary-btn"
+              disabled={Boolean(vaultNameError)}
+            >
               Create &amp; Open
             </button>
           </div>

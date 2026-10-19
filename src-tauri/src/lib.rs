@@ -6,7 +6,8 @@ pub mod types;
 pub mod vault;
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -18,8 +19,9 @@ use crate::clipboard::{
     build_clipboard_payload, read_plain_from_system_clipboard, write_to_system_clipboard,
 };
 use crate::index::{
-    delete_indexed_path, index_single_file, init_index_schema, query_calendar_month,
-    query_notes_on_date, rebuild_index_from_vault, system_time_to_ms,
+    apply_scanned_vault_index, delete_indexed_path, index_single_file, init_index_schema,
+    query_calendar_month, query_notes_on_date, rename_edit_log_paths, scan_dir_files_from_disk,
+    system_time_to_ms, upsert_scanned_note,
 };
 use crate::types::{
     BackdropState, CalendarDateField, CalendarDaySummary, CalendarNoteEntry, ClipboardPayload,
@@ -28,7 +30,7 @@ use crate::types::{
 use crate::vault::{
     create_vault_folder, create_vault_note, delete_vault_entry, load_recent_vaults,
     read_vault_note, record_recent_vault, remove_recent_vault, rename_vault_entry,
-    save_vault_note, scan_vault_snapshot,
+    save_vault_note, scan_vault_snapshot, validate_windows_entry_name,
 };
 
 pub struct AppState {
@@ -104,70 +106,161 @@ fn is_recent_self_write(
     false
 }
 
+/// Processes a debounced batch of changed relative paths incrementally:
+/// walks/reads any changed folders outside the SQLite lock, then updates SQLite
+/// with `delete_indexed_path` and `index_single_file` / `upsert_scanned_note`.
+fn process_watcher_batch(
+    vault_root: &Path,
+    sqlite_conn: &Arc<Mutex<Connection>>,
+    batch_rel_paths: &[String],
+) {
+    enum IncrementalOp {
+        Delete(String),
+        SingleFile(PathBuf),
+        DirFiles(String, Vec<crate::index::ScannedNoteFile>),
+    }
+
+    // 1. Perform any filesystem checks or directory walks WITHOUT holding the SQLite mutex
+    let mut ops = Vec::with_capacity(batch_rel_paths.len());
+    for rel_path in batch_rel_paths {
+        let abs_path = vault_root.join(rel_path);
+        if !abs_path.exists() {
+            ops.push(IncrementalOp::Delete(rel_path.clone()));
+        } else if abs_path.is_file() {
+            if abs_path
+                .extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+            {
+                ops.push(IncrementalOp::SingleFile(abs_path));
+            }
+        } else if abs_path.is_dir() {
+            if let Ok(scanned_dir_files) = scan_dir_files_from_disk(vault_root, &abs_path) {
+                ops.push(IncrementalOp::DirFiles(rel_path.clone(), scanned_dir_files));
+            }
+        }
+    }
+
+    // 2. Apply incremental SQLite updates
+    if let Ok(conn) = sqlite_conn.lock() {
+        for op in ops {
+            match op {
+                IncrementalOp::Delete(rel) => {
+                    let _ = delete_indexed_path(&conn, &rel);
+                }
+                IncrementalOp::SingleFile(abs) => {
+                    let _ = index_single_file(&conn, vault_root, &abs, None);
+                }
+                IncrementalOp::DirFiles(dir_rel, scanned_list) => {
+                    let _ = delete_indexed_path(&conn, &dir_rel);
+                    for scanned in &scanned_list {
+                        let _ = upsert_scanned_note(&conn, scanned, None);
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn start_vault_watcher(
     app_handle: AppHandle,
     vault_root: PathBuf,
     sqlite_conn: Arc<Mutex<Connection>>,
     recent_self_writes: Arc<Mutex<HashMap<String, Instant>>>,
 ) -> Result<RecommendedWatcher, String> {
+    let (tx, rx) = mpsc::channel::<Vec<String>>();
     let root_for_cb = vault_root.clone();
-    let mut watcher = notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-        let Ok(event) = res else {
-            return;
-        };
-        if matches!(event.kind, EventKind::Access(_)) {
-            return;
-        }
 
-        let mut changed_rel_paths = Vec::new();
-        for path in &event.paths {
-            let Ok(rel) = path.strip_prefix(&root_for_cb) else {
-                continue;
+    let mut watcher =
+        notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+            let Ok(event) = res else {
+                return;
             };
-            // Ignore .obsidian, .git, and temporary atomic write dot-files
-            if rel.components().any(|c| {
-                c.as_os_str()
-                    .to_str()
-                    .is_some_and(|s| s.starts_with('.'))
-            }) {
-                continue;
+            if matches!(event.kind, EventKind::Access(_)) {
+                return;
             }
-            let rel_str = rel
-                .components()
-                .map(|c| c.as_os_str().to_string_lossy())
-                .collect::<Vec<_>>()
-                .join("/");
-            if rel_str.is_empty() {
-                continue;
-            }
-            if is_recent_self_write(&recent_self_writes, &rel_str) {
-                continue;
-            }
-            if !changed_rel_paths.contains(&rel_str) {
-                changed_rel_paths.push(rel_str);
-            }
-        }
 
-        if changed_rel_paths.is_empty() {
-            return;
-        }
+            let mut changed_rel_paths = Vec::new();
+            for path in &event.paths {
+                let Ok(rel) = path.strip_prefix(&root_for_cb) else {
+                    continue;
+                };
+                // Ignore .obsidian, .git, and temporary atomic write dot-files
+                if rel.components().any(|c| {
+                    c.as_os_str()
+                        .to_str()
+                        .is_some_and(|s| s.starts_with('.'))
+                }) {
+                    continue;
+                }
+                let rel_str = rel
+                    .components()
+                    .map(|c| c.as_os_str().to_string_lossy())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                if rel_str.is_empty() {
+                    continue;
+                }
+                if is_recent_self_write(&recent_self_writes, &rel_str) {
+                    continue;
+                }
+                if !changed_rel_paths.contains(&rel_str) {
+                    changed_rel_paths.push(rel_str);
+                }
+            }
 
-        if let Ok(conn) = sqlite_conn.lock() {
-            let _ = rebuild_index_from_vault(&conn, &root_for_cb);
-        }
-
-        let _ = app_handle.emit(
-            "vault-fs-event",
-            VaultFsEvent {
-                changed_paths: changed_rel_paths,
-            },
-        );
-    })
-    .map_err(|e| format!("Failed to create filesystem watcher: {e}"))?;
+            if !changed_rel_paths.is_empty() {
+                let _ = tx.send(changed_rel_paths);
+            }
+        })
+        .map_err(|e| format!("Failed to create filesystem watcher: {e}"))?;
 
     watcher
         .watch(&vault_root, RecursiveMode::Recursive)
         .map_err(|e| format!("Failed to watch vault directory {}: {e}", vault_root.display()))?;
+
+    // Background debounce worker (300 ms quiet window, batched)
+    let root_for_worker = vault_root;
+    std::thread::spawn(move || {
+        let debounce_window = Duration::from_millis(300);
+        let max_batch_wait = Duration::from_millis(1200);
+
+        while let Ok(initial_paths) = rx.recv() {
+            let batch_start = Instant::now();
+            let mut batched = initial_paths;
+
+            while batch_start.elapsed() < max_batch_wait {
+                match rx.recv_timeout(debounce_window) {
+                    Ok(more_paths) => {
+                        for p in more_paths {
+                            if !batched.contains(&p) {
+                                batched.push(p);
+                            }
+                        }
+                    }
+                    Err(mpsc::RecvTimeoutError::Timeout) => break,
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        process_watcher_batch(&root_for_worker, &sqlite_conn, &batched);
+                        let _ = app_handle.emit(
+                            "vault-fs-event",
+                            VaultFsEvent {
+                                changed_paths: batched,
+                            },
+                        );
+                        return;
+                    }
+                }
+            }
+
+            process_watcher_batch(&root_for_worker, &sqlite_conn, &batched);
+            let _ = app_handle.emit(
+                "vault-fs-event",
+                VaultFsEvent {
+                    changed_paths: batched,
+                },
+            );
+        }
+    });
 
     Ok(watcher)
 }
@@ -239,8 +332,10 @@ fn open_vault(
     let vault_root = PathBuf::from(trimmed);
     let snapshot = scan_vault_snapshot(&vault_root)?;
 
+    // Walk the filesystem and read note previews BEFORE locking the SQLite mutex
+    let scanned_files = scan_dir_files_from_disk(&vault_root, &vault_root)?;
     if let Ok(conn) = state.sqlite_conn.lock() {
-        rebuild_index_from_vault(&conn, &vault_root)?;
+        apply_scanned_vault_index(&conn, &scanned_files)?;
     }
 
     let watcher = start_vault_watcher(
@@ -268,10 +363,8 @@ fn create_new_vault(
     parent_path: String,
     vault_name: String,
 ) -> Result<VaultSnapshot, String> {
-    let clean_name = vault_name.trim().trim_matches(|c| c == '/' || c == '\\');
-    if clean_name.is_empty() || clean_name.starts_with('.') || clean_name.contains("..") {
-        return Err("Please enter a valid vault folder name".to_string());
-    }
+    validate_windows_entry_name(&vault_name)?;
+    let clean_name = vault_name.trim_start();
 
     let parent = PathBuf::from(parent_path.trim());
     if !parent.exists() || !parent.is_dir() {
@@ -355,9 +448,9 @@ fn create_note(
     let (snapshot, doc) = create_vault_note(&vault_root, &rel_path, &content)?;
     mark_self_write(&state.recent_self_writes, &doc.rel_path);
 
+    let abs = vault_root.join(&doc.rel_path);
+    let now_ms = system_time_to_ms(SystemTime::now());
     if let Ok(conn) = state.sqlite_conn.lock() {
-        let abs = vault_root.join(&doc.rel_path);
-        let now_ms = system_time_to_ms(SystemTime::now());
         let _ = index_single_file(&conn, &vault_root, &abs, Some(now_ms));
     }
 
@@ -377,9 +470,9 @@ fn save_note(
     let (doc, changed) = save_vault_note(&vault_root, &normalized_rel, &content)?;
     if changed {
         mark_self_write(&state.recent_self_writes, &doc.rel_path);
+        let abs = vault_root.join(&doc.rel_path);
+        let now_ms = system_time_to_ms(SystemTime::now());
         if let Ok(conn) = state.sqlite_conn.lock() {
-            let abs = vault_root.join(&doc.rel_path);
-            let now_ms = system_time_to_ms(SystemTime::now());
             let _ = index_single_file(&conn, &vault_root, &abs, Some(now_ms));
         }
     }
@@ -406,8 +499,25 @@ fn rename_entry(
     mark_self_write(&state.recent_self_writes, &res.old_rel_path);
     mark_self_write(&state.recent_self_writes, &res.new_rel_path);
 
+    // Incrementally scan renamed destination outside the SQLite mutex if it is a folder
+    let new_abs = vault_root.join(&res.new_rel_path);
+    let is_single_file = new_abs.is_file();
+    let dir_scanned = if new_abs.is_dir() {
+        scan_dir_files_from_disk(&vault_root, &new_abs).ok()
+    } else {
+        None
+    };
+
     if let Ok(conn) = state.sqlite_conn.lock() {
-        let _ = rebuild_index_from_vault(&conn, &vault_root);
+        let _ = rename_edit_log_paths(&conn, &res.old_rel_path, &res.new_rel_path);
+        let _ = delete_indexed_path(&conn, &res.old_rel_path);
+        if is_single_file {
+            let _ = index_single_file(&conn, &vault_root, &new_abs, None);
+        } else if let Some(scanned_list) = dir_scanned {
+            for scanned in &scanned_list {
+                let _ = upsert_scanned_note(&conn, scanned, None);
+            }
+        }
     }
 
     Ok(res)

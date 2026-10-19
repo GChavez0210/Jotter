@@ -1,6 +1,7 @@
 <script lang="ts">
   import { fluentIcons } from './icons';
   import type { VaultNode } from './types';
+  import { validateWindowsEntryName } from './validation';
   import FileTreeItem from './FileTreeItem.svelte';
 
   interface Props {
@@ -39,6 +40,9 @@
   let isExpanded = $derived(Boolean(expandedPaths[node.relPath]));
   let isActive = $derived(activeRelPath === node.relPath);
   let isRenaming = $derived(renamingRelPath === node.relPath);
+  let renameError = $derived(
+    isRenaming ? validateWindowsEntryName(renameDraft) : null
+  );
 
   $effect(() => {
     if (isRenaming) {
@@ -69,14 +73,16 @@
     }
   }
 
+  function tryCommitRename() {
+    const err = validateWindowsEntryName(renameDraft);
+    if (err) return;
+    onCommitRename(node, renameDraft);
+  }
+
   function handleRenameKeyDown(e: KeyboardEvent) {
     if (e.key === 'Enter') {
       e.preventDefault();
-      if (renameDraft.trim()) {
-        onCommitRename(node, renameDraft.trim());
-      } else {
-        onCancelRename();
-      }
+      tryCommitRename();
     } else if (e.key === 'Escape') {
       e.preventDefault();
       onCancelRename();
@@ -84,30 +90,39 @@
   }
 </script>
 
-<li class="tree-node" role="treeitem" aria-expanded={isFolder ? isExpanded : undefined} aria-selected={isActive}>
+<li
+  class="tree-node"
+  role="treeitem"
+  aria-expanded={isFolder ? isExpanded : undefined}
+  aria-selected={isActive}
+>
   {#if isRenaming}
-    <div
-      class="tree-row rename-row"
-      style:padding-left="{depth * 16 + 8}px"
-    >
-      <span class="row-icon">
-        {@html isFolder ? fluentIcons.folder16 : fluentIcons.document16}
-      </span>
-      <!-- svelte-ignore a11y_autofocus -->
-      <input
-        type="text"
-        class="rename-input"
-        bind:value={renameDraft}
-        autofocus
-        onkeydown={handleRenameKeyDown}
-        onblur={() => {
-          if (renameDraft.trim()) {
-            onCommitRename(node, renameDraft.trim());
-          } else {
-            onCancelRename();
-          }
-        }}
-      />
+    <div class="rename-container" style:padding-left="{depth * 16 + 8}px">
+      <div class="tree-row rename-row">
+        <span class="row-icon">
+          {@html isFolder ? fluentIcons.folder16 : fluentIcons.document16}
+        </span>
+        <!-- svelte-ignore a11y_autofocus -->
+        <input
+          type="text"
+          class="rename-input"
+          class:invalid={Boolean(renameError)}
+          aria-invalid={Boolean(renameError)}
+          bind:value={renameDraft}
+          autofocus
+          onkeydown={handleRenameKeyDown}
+          onblur={() => {
+            if (!renameError) {
+              onCommitRename(node, renameDraft);
+            } else {
+              onCancelRename();
+            }
+          }}
+        />
+      </div>
+      {#if renameError}
+        <div class="inline-error" role="alert">{renameError}</div>
+      {/if}
     </div>
   {:else}
     <button
@@ -235,7 +250,15 @@
     flex: 1;
   }
 
+  .rename-container {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-right: var(--space-2);
+  }
+
   .rename-row {
+    padding-left: 0;
     gap: var(--space-2);
   }
 
@@ -249,5 +272,16 @@
     background: var(--bg-card-solid);
     color: var(--text-primary);
     font-size: var(--text-xs);
+  }
+
+  .rename-input.invalid {
+    border-color: var(--status-danger);
+  }
+
+  .inline-error {
+    font-size: var(--text-xs);
+    color: var(--text-danger);
+    padding: 2px var(--space-1);
+    line-height: 1.3;
   }
 </style>

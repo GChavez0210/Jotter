@@ -2,6 +2,7 @@
   import FileTreeItem from './FileTreeItem.svelte';
   import { fluentIcons } from './icons';
   import type { VaultNode, VaultSnapshot } from './types';
+  import { validateWindowsEntryName } from './validation';
 
   interface Props {
     snapshot: VaultSnapshot;
@@ -38,6 +39,10 @@
   let creatingParentRel = $state('');
   let creatingDraftName = $state('');
 
+  let creatingValidationError = $derived(
+    creatingKind ? validateWindowsEntryName(creatingDraftName) : null
+  );
+
   let contextMenu: {
     x: number;
     y: number;
@@ -66,11 +71,11 @@
 
   function submitNewEntry(e: SubmitEvent) {
     e.preventDefault();
-    const name = creatingDraftName.trim();
-    if (!name || !creatingKind) {
-      creatingKind = null;
-      return;
-    }
+    if (!creatingKind) return;
+    const err = validateWindowsEntryName(creatingDraftName);
+    if (err) return;
+
+    const name = creatingDraftName.trimStart();
     const kind = creatingKind;
     const parent = creatingParentRel;
     creatingKind = null;
@@ -87,10 +92,13 @@
   }
 
   function handleCommitRename(node: VaultNode, newName: string) {
+    const err = validateWindowsEntryName(newName);
+    if (err) return;
     renamingRelPath = null;
+    const cleanName = newName.trimStart();
     const slashIdx = node.relPath.lastIndexOf('/');
     const parentPrefix = slashIdx >= 0 ? `${node.relPath.slice(0, slashIdx)}/` : '';
-    const newRel = `${parentPrefix}${newName}`;
+    const newRel = `${parentPrefix}${cleanName}`;
     if (newRel !== node.relPath) {
       onRenameEntry(node.relPath, newRel);
     }
@@ -184,13 +192,21 @@
           <input
             type="text"
             class="create-input"
+            class:invalid={Boolean(creatingValidationError)}
+            aria-invalid={Boolean(creatingValidationError)}
             bind:value={creatingDraftName}
             autofocus
             onkeydown={(e) => {
               if (e.key === 'Escape') creatingKind = null;
             }}
           />
-          <button type="submit" class="mini-btn primary">Create</button>
+          <button
+            type="submit"
+            class="mini-btn primary"
+            disabled={Boolean(creatingValidationError)}
+          >
+            Create
+          </button>
           <button
             type="button"
             class="mini-btn"
@@ -199,13 +215,16 @@
             Cancel
           </button>
         </div>
+        {#if creatingValidationError}
+          <div class="inline-error" role="alert">{creatingValidationError}</div>
+        {/if}
       </form>
     {/if}
 
     {#if pendingDeleteNode}
-      <div class="delete-confirm-bar" role="alertdialog" aria-label="Confirm delete">
+      <div class="delete-confirm-bar" role="alertdialog" aria-label="Confirm move to Recycle Bin">
         <div class="delete-confirm-text">
-          Delete <strong>{pendingDeleteNode.name}</strong>?
+          Move <strong>{pendingDeleteNode.name}</strong> to the Recycle Bin?
         </div>
         <div class="delete-confirm-actions">
           <button
@@ -217,7 +236,7 @@
               onDeleteEntry(target.relPath);
             }}
           >
-            Delete
+            Move to Recycle Bin
           </button>
           <button
             type="button"
@@ -333,7 +352,7 @@
         }}
       >
         {@html fluentIcons.delete16}
-        <span>Delete (Del)</span>
+        <span>Move to Recycle Bin (Del)</span>
       </button>
     {/if}
   </div>
@@ -466,6 +485,16 @@
     font-size: var(--text-xs);
   }
 
+  .create-input.invalid {
+    border-color: var(--status-danger);
+  }
+
+  .inline-error {
+    font-size: var(--text-xs);
+    color: var(--text-danger);
+    line-height: 1.3;
+  }
+
   .mini-btn {
     min-height: var(--control-min-height);
     padding: 0 var(--space-2);
@@ -475,6 +504,11 @@
     color: var(--text-primary);
     font-size: var(--text-xs);
     cursor: pointer;
+  }
+
+  .mini-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .mini-btn.primary {
@@ -545,7 +579,7 @@
 
   .fluent-context-menu {
     position: fixed;
-    min-width: 184px;
+    min-width: 196px;
     background: var(--bg-elevated);
     border: 1px solid var(--border-control);
     border-radius: var(--radius-card);

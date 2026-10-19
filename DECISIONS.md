@@ -20,10 +20,16 @@
 - **`.obsidian` & Dot-Folder Exclusion**: Both `vault::scan_vault_snapshot` and `index::rebuild_index_from_vault` skip `.obsidian`, `.git`, and any dot-prefixed file or folder (including atomic write temporary files `.note.md.<pid>.<nanos>.tmp`).
 - **Derived Cache Storage**: The rebuildable SQLite metadata index (`vault_index_cache.sqlite`) and `recent_vaults.json` are stored under `%LOCALAPPDATA%\Jotter` so Jotter never creates hidden database files inside the user's Obsidian vault.
 
-## 4. SQLite Index & File Modification Times Under Sync Tools
+## 4. SQLite Index, `edit_log`, & File Modification Times Under Sync Tools
 - **Note on Sync Tools**: File synchronization tools (OneDrive, Dropbox, Syncthing, Git, Obsidian Sync) can alter filesystem `mtime` (`modified` timestamps) when syncing files across machines, which can skew a calendar view that relies solely on filesystem `mtime`.
-- **Decision**: The SQLite index is strictly a rebuildable cache derived from `.md` files in the vault. In addition to indexing filesystem `modified` and `created` timestamps (refreshed by `notify`), in-app save events pass an explicit save timestamp (`override_modified_ms`) into `index_single_file` while falling back to filesystem `mtime` on cache rebuild.
+- **Decision**: In addition to the rebuildable `notes_index` cache table, SQLite maintains an `edit_log (path, edited_ms)` table written on every in-app save (`record_edit_log`) and updated on note/folder rename (`rename_edit_log_paths`). `rebuild_index_from_vault` clears only `notes_index` and preserves `edit_log`. When indexing or rebuilding a note, its `modified_ms` column uses `MAX(edited_ms)` from `edit_log` when present and falls back to filesystem `mtime` otherwise.
 
-## 5. File Watching & Safe External Reloads
+## 5. File Watching, Incremental Indexing, & Safe External Reloads
+- **Debounced Incremental Watcher**: File system events from `notify` are batched on a background worker thread with a ~300 ms debounce window. Instead of running a full vault rebuild on every file change, only the affected paths are incrementally updated via `index_single_file` / `upsert_scanned_note` and `delete_indexed_path` (with full `rebuild_index_from_vault` run only on vault open). Filesystem walking (`scan_dir_files_from_disk`, `scan_single_file_from_disk`) always runs outside the SQLite `Mutex<Connection>`.
 - **Self-Write Suppression**: In-app atomic writes record their relative path and `Instant` in `recent_self_writes` (900 ms window) so the `notify` watcher ignores Jotter's own autosaves.
 - **Conflict-Safe Reloading**: When an external edit occurs on an open tab's `.md` file, clean tabs reload automatically from disk. If a tab has unsaved in-flight keystrokes, Jotter displays a non-destructive reload banner ("Reload from disk" / "Keep my edits") so user typing is never silently overwritten.
+
+## 6. Windows Recycle Bin Deletion & Filename Validation
+- **Recycle Bin (`trash` crate)**: Deleting a note or folder uses `trash::delete` to move items to the Windows Recycle Bin rather than permanently unlinking them with `remove_file` / `remove_dir_all`.
+- **Windows Naming Rules**: Both the frontend (`src/lib/validation.ts`) and Rust backend (`vault::validate_windows_entry_name`) validate new and renamed note/folder names against Windows rules: reserved device names (`CON`, `PRN`, `AUX`, `NUL`, `COM0`–`COM9`, `LPT0`–`LPT9`, with or without extensions), invalid characters (`< > : " / \ | ? *` and control characters), leading dots, and trailing dots or spaces.
+
