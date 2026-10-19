@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { getVersion } from '@tauri-apps/api/app';
+  import aboutLogo from '../assets/about-jack.png';
   import Icon from './ui/Icon.svelte';
   import Button from './ui/Button.svelte';
   import IconButton from './ui/IconButton.svelte';
@@ -471,17 +472,19 @@
           </section>
         {:else if activeSection === 'about'}
           <section class="settings-section about" aria-labelledby="sec-about">
-            <div class="about-mark" aria-hidden="true">J</div>
-            <h3 id="sec-about" class="section-title">Jotter</h3>
-            {#if appVersion}
-              <p class="about-version">Version {appVersion}</p>
-            {/if}
-            <p class="about-desc">
-              Jotter is a Markdown notes app for plain-text folders. Your notes stay as
-              <code>.md</code> files on your own disk, it opens Obsidian vaults as they are,
-              and it copies text that pastes cleanly into chat, email and documents.
-            </p>
-            <p class="about-tagline">Developed in Mexico with love</p>
+            <img class="about-mark" src={aboutLogo} alt="Jack playing card with a J and full crown" width="160" height="160" />
+            <div class="about-copy">
+              <h3 id="sec-about" class="section-title">Jotter</h3>
+              {#if appVersion}
+                <p class="about-version">Version {appVersion}</p>
+              {/if}
+              <p class="about-desc">
+                Jotter is a Markdown notes app for plain-text folders. Your notes stay as
+                <code>.md</code> files on your own disk, it opens Obsidian vaults as they are,
+                and it copies text that pastes cleanly into chat, email and documents.
+              </p>
+              <p class="about-tagline">Developed in Mexico with love</p>
+            </div>
           </section>
         {/if}
       </div>
@@ -561,21 +564,25 @@
   }
 
   .about {
+    flex-direction: row;
+    flex-wrap: wrap;
     align-items: flex-start;
-    gap: var(--space-2);
+    gap: var(--space-6);
     padding-top: var(--space-4);
   }
 
+  .about-copy {
+    flex: 1 1 240px;
+    min-width: 0;
+  }
+
   .about-mark {
-    display: grid;
-    place-items: center;
-    width: 48px;
-    height: 48px;
-    margin-bottom: var(--space-2);
-    border-radius: 12px;
-    background: var(--accent);
-    color: var(--on-accent);
-    font: 600 26px / 1 var(--font-display);
+    display: block;
+    width: 160px;
+    max-width: 100%;
+    height: auto;
+    flex-shrink: 0;
+    object-fit: contain;
   }
 
   .about-version {
