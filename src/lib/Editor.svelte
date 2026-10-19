@@ -13,12 +13,24 @@
   import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
   import { tags } from '@lezer/highlight';
   import { copyToClipboard, pastePlainFromClipboard } from './ipc';
-  import type { ClipboardPayload, CopyMode } from './types';
+  import {
+    createLivePreviewExtension,
+    livePreviewCompartment,
+  } from './livePreview';
+  import {
+    markdownFormattingKeymap,
+    runMarkdownCommand,
+    type MarkdownFormatCommandId,
+  } from './markdownCommands';
+  import type { ClipboardPayload, CopyMode, EditingMode } from './types';
 
   interface Props {
     docId: string;
     initialDoc: string;
     copyMode: CopyMode;
+    editingMode?: EditingMode;
+    dimInactiveParagraphs?: boolean;
+    typewriterScrolling?: boolean;
     onDocChange?: (docId: string, newContent: string) => void;
     onCopyComplete?: (payload: ClipboardPayload, source: 'copy' | 'cut') => void;
     onPastePlainComplete?: (charCount: number, lineCount: number) => void;
@@ -36,6 +48,9 @@
     docId,
     initialDoc,
     copyMode,
+    editingMode = 'live',
+    dimInactiveParagraphs = false,
+    typewriterScrolling = false,
     onDocChange,
     onCopyComplete,
     onPastePlainComplete,
@@ -125,8 +140,13 @@
       padding: '0 0 var(--space-8) 0',
       caretColor: 'var(--accent-color, var(--focus-ring))',
     },
+    '.cm-content.cm-typewriter-content': {
+      paddingTop: '42vh',
+      paddingBottom: '42vh',
+    },
     '.cm-line': {
-      padding: '0 var(--space-1)',
+      padding: '0 var(--space-2)',
+      transition: 'opacity var(--transition-fast)',
     },
     '.cm-activeLine': {
       backgroundColor: 'var(--bg-subtle)',
@@ -141,6 +161,193 @@
     '.cm-cursor, .cm-dropCursor': {
       borderLeftColor: 'var(--accent-color, var(--focus-ring))',
       borderLeftWidth: '2px',
+    },
+    /* Live Preview Inline & Block Styles */
+    '.cm-line.cm-live-h1': {
+      fontFamily: 'var(--font-display)',
+      fontSize: 'var(--text-xl)',
+      fontWeight: '600',
+      lineHeight: 'var(--leading-tight)',
+      paddingTop: 'var(--space-3)',
+      paddingBottom: 'var(--space-1)',
+      color: 'var(--syn-heading)',
+    },
+    '.cm-line.cm-live-h2': {
+      fontFamily: 'var(--font-display)',
+      fontSize: 'var(--text-lg)',
+      fontWeight: '600',
+      lineHeight: 'var(--leading-tight)',
+      paddingTop: 'var(--space-2)',
+      paddingBottom: '2px',
+      color: 'var(--syn-heading)',
+    },
+    '.cm-line.cm-live-h3': {
+      fontFamily: 'var(--font-display)',
+      fontSize: 'var(--text-base)',
+      fontWeight: '600',
+      color: 'var(--syn-heading)',
+    },
+    '.cm-line.cm-live-h4, .cm-line.cm-live-h5, .cm-line.cm-live-h6': {
+      fontSize: 'var(--text-sm)',
+      fontWeight: '600',
+      color: 'var(--syn-heading)',
+    },
+    '.cm-live-bold': {
+      fontWeight: '600',
+      color: 'var(--syn-emphasis)',
+    },
+    '.cm-live-italic': {
+      fontStyle: 'italic',
+      color: 'var(--syn-emphasis)',
+    },
+    '.cm-live-strike': {
+      textDecoration: 'line-through',
+      color: 'var(--text-muted)',
+    },
+    '.cm-live-inline-code': {
+      fontFamily: 'var(--font-mono)',
+      fontSize: '0.9em',
+      backgroundColor: 'var(--bg-code)',
+      color: 'var(--syn-code)',
+      padding: '1px 5px',
+      borderRadius: 'var(--radius-control)',
+      border: '1px solid var(--border-subtle)',
+    },
+    '.cm-live-link': {
+      color: 'var(--syn-link)',
+      textDecoration: 'underline',
+      textUnderlineOffset: '2px',
+    },
+    '.cm-live-wikilink-widget': {
+      display: 'inline-flex',
+      alignItems: 'center',
+      color: 'var(--syn-link)',
+      backgroundColor: 'var(--bg-subtle)',
+      border: '1px solid var(--border-subtle)',
+      borderRadius: 'var(--radius-control)',
+      padding: '0 6px',
+      fontSize: '0.95em',
+      fontWeight: '500',
+      cursor: 'pointer',
+      textDecoration: 'none',
+    },
+    '.cm-live-wikilink-widget:hover': {
+      backgroundColor: 'var(--bg-control-hover)',
+      borderColor: 'var(--accent-color, var(--accent-fallback))',
+    },
+    '.cm-live-wikilink-raw': {
+      color: 'var(--syn-link)',
+    },
+    '.cm-live-bullet-widget': {
+      display: 'inline-block',
+      width: '14px',
+      textAlign: 'center',
+      color: 'var(--accent-color, var(--accent-fallback))',
+      fontWeight: '700',
+    },
+    '.cm-live-ordered-mark': {
+      color: 'var(--accent-color, var(--accent-fallback))',
+      fontWeight: '600',
+    },
+    '.cm-live-task-widget': {
+      display: 'inline-flex',
+      alignItems: 'center',
+      verticalAlign: 'middle',
+      marginRight: '6px',
+    },
+    '.cm-live-task-checkbox': {
+      width: '15px',
+      height: '15px',
+      margin: '0',
+      cursor: 'pointer',
+      accentColor: 'var(--accent-color, var(--accent-fallback))',
+    },
+    '.cm-line.cm-live-task-done-line': {
+      color: 'var(--text-muted)',
+      textDecoration: 'line-through',
+    },
+    '.cm-line.cm-live-blockquote-line': {
+      borderLeft: '3px solid var(--accent-color, var(--accent-fallback))',
+      paddingLeft: 'var(--space-3)',
+      backgroundColor: 'var(--bg-subtle)',
+      color: 'var(--syn-quote)',
+      fontStyle: 'italic',
+    },
+    '.cm-line.cm-live-codeblock-line': {
+      fontFamily: 'var(--font-mono)',
+      fontSize: 'var(--text-sm)',
+      backgroundColor: 'var(--bg-code)',
+      borderLeft: '1px solid var(--border-subtle)',
+      borderRight: '1px solid var(--border-subtle)',
+      paddingLeft: 'var(--space-3)',
+      paddingRight: 'var(--space-3)',
+    },
+    '.cm-line.cm-live-codeblock-start': {
+      borderTop: '1px solid var(--border-subtle)',
+      borderTopLeftRadius: 'var(--radius-control)',
+      borderTopRightRadius: 'var(--radius-control)',
+      paddingTop: 'var(--space-1)',
+    },
+    '.cm-line.cm-live-codeblock-end': {
+      borderBottom: '1px solid var(--border-subtle)',
+      borderBottomLeftRadius: 'var(--radius-control)',
+      borderBottomRightRadius: 'var(--radius-control)',
+      paddingBottom: 'var(--space-1)',
+    },
+    '.cm-live-codeblock-badge': {
+      display: 'inline-block',
+      fontFamily: 'var(--font-mono)',
+      fontSize: '11px',
+      color: 'var(--text-muted)',
+      textTransform: 'uppercase',
+      letterSpacing: '0.04em',
+      userSelect: 'none',
+    },
+    '.cm-line.cm-live-table-line': {
+      fontFamily: 'var(--font-mono)',
+      fontSize: 'var(--text-sm)',
+      backgroundColor: 'var(--bg-subtle)',
+      borderLeft: '1px solid var(--border-subtle)',
+      borderRight: '1px solid var(--border-subtle)',
+      paddingLeft: 'var(--space-3)',
+      paddingRight: 'var(--space-3)',
+    },
+    '.cm-line.cm-live-table-header-line': {
+      fontWeight: '600',
+      borderTop: '1px solid var(--border-subtle)',
+      borderTopLeftRadius: 'var(--radius-control)',
+      borderTopRightRadius: 'var(--radius-control)',
+      color: 'var(--syn-heading)',
+    },
+    '.cm-line.cm-live-table-row-line': {
+      borderBottom: '1px solid var(--border-subtle)',
+    },
+    '.cm-live-table-pipe': {
+      display: 'inline-block',
+      padding: '0 var(--space-2)',
+      color: 'var(--border-control)',
+      userSelect: 'none',
+    },
+    '.cm-live-table-edge-pipe': {
+      display: 'inline-block',
+      width: '2px',
+    },
+    '.cm-live-table-sep-widget': {
+      display: 'block',
+      width: '100%',
+      height: '1px',
+      backgroundColor: 'var(--border-control)',
+      margin: '6px 0',
+    },
+    '.cm-live-hr-widget': {
+      display: 'block',
+      width: '100%',
+      height: '1px',
+      backgroundColor: 'var(--border-control)',
+      margin: '10px 0',
+    },
+    '.cm-line.cm-dimmed-paragraph-line': {
+      opacity: '0.32',
     },
   });
 
@@ -254,6 +461,13 @@
         placeholder('Write your Markdown note here...'),
         markdown(),
         syntaxHighlighting(markdownHighlight),
+        livePreviewCompartment.of(
+          createLivePreviewExtension({
+            editingMode,
+            dimInactiveParagraphs,
+            typewriterScrolling,
+          })
+        ),
         editorTheme,
         keymap.of([
           {
@@ -263,6 +477,7 @@
               return true;
             },
           },
+          ...markdownFormattingKeymap,
           ...defaultKeymap,
           ...historyKeymap,
         ]),
@@ -300,6 +515,23 @@
     }
   });
 
+  $effect(() => {
+    const mode = editingMode;
+    const dim = dimInactiveParagraphs;
+    const typewriter = typewriterScrolling;
+    if (view) {
+      view.dispatch({
+        effects: livePreviewCompartment.reconfigure(
+          createLivePreviewExtension({
+            editingMode: mode,
+            dimInactiveParagraphs: dim,
+            typewriterScrolling: typewriter,
+          })
+        ),
+      });
+    }
+  });
+
   export function replaceContentFromDisk(newContent: string) {
     if (!view) return;
     const currentText = view.state.doc.toString();
@@ -312,6 +544,15 @@
     });
     suppressChangeEmit = false;
     emitStats(view.state);
+  }
+
+  export function executeMarkdownCommand(cmd: MarkdownFormatCommandId) {
+    if (!view) return;
+    runMarkdownCommand(view, cmd);
+  }
+
+  export function focusEditor() {
+    view?.focus();
   }
 
   export async function triggerCopyFromToolbar() {
