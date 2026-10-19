@@ -8,6 +8,8 @@ import type {
   CalendarNoteEntry,
   ClipboardPayload,
   CopyRequest,
+  CssSnippet,
+  DeletedEntry,
   NoteDocument,
   RecentVault,
   RenameEntryResult,
@@ -153,16 +155,40 @@ export async function readVaultImageDataUrl(target: string): Promise<string> {
   return invoke<string>('read_vault_image_data_url', { target });
 }
 
+/** Asks where to save, then writes `html`. Resolves to `null` when the user cancels. */
 export async function exportActiveNoteHtml(
   title: string,
-  markdown: string,
-  darkMode: boolean
+  html: string
 ): Promise<string | null> {
-  return invoke<string | null>('export_active_note_html', {
-    title,
-    markdown,
-    darkMode,
-  });
+  return invoke<string | null>('export_active_note_html', { title, html });
+}
+
+export async function listDeletedEntries(): Promise<DeletedEntry[]> {
+  return invoke<DeletedEntry[]>('list_deleted_entries');
+}
+
+export async function restoreDeletedEntry(id: string): Promise<[string, VaultSnapshot]> {
+  return invoke<[string, VaultSnapshot]>('restore_deleted_entry', { id });
+}
+
+export async function listCssSnippets(): Promise<CssSnippet[]> {
+  return invoke<CssSnippet[]>('list_css_snippets');
+}
+
+export async function openSnippetsFolder(): Promise<void> {
+  return invoke<void>('open_snippets_folder');
+}
+
+export async function configureSummon(enabled: boolean, shortcut: string): Promise<void> {
+  return invoke<void>('configure_summon', { enabled, shortcut });
+}
+
+export async function quitApp(): Promise<void> {
+  return invoke<void>('quit_app');
+}
+
+export async function listenQuitRequested(handler: () => void): Promise<UnlistenFn> {
+  return listen('quit-requested', () => handler());
 }
 
 export async function renderNoteHtmlPreview(

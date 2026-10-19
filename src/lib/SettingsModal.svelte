@@ -10,6 +10,7 @@
   import ChoiceCards from './ui/ChoiceCards.svelte';
   import { COPY_MODE_LABELS, settingsStore } from './stores/settings.svelte';
   import { ACCENT_PRESETS } from './designTokens';
+  import { systemStore } from './stores/system.svelte';
   import { vaultStore } from './stores/vault.svelte';
   import type { CopyMode } from './types';
 
@@ -20,7 +21,7 @@
 
   let { onClose, onRefreshInspector }: Props = $props();
 
-  type SettingsSection = 'editor' | 'copy' | 'appearance' | 'vault' | 'about';
+  type SettingsSection = 'editor' | 'copy' | 'appearance' | 'vault' | 'system' | 'about';
   let appVersion = $state('');
   let activeSection = $state<SettingsSection>('editor');
   let rebuildStatus = $state('');
@@ -127,6 +128,16 @@
         </button>
         <button
           type="button"
+          class="nav-item"
+          class:active={activeSection === 'system'}
+          aria-current={activeSection === 'system' ? 'page' : undefined}
+          onclick={() => (activeSection = 'system')}
+        >
+          <Icon name="gear-six" />
+          <span>System</span>
+        </button>
+        <button
+          type="button"
           class="nav-item nav-bottom"
           class:active={activeSection === 'about'}
           aria-current={activeSection === 'about' ? 'page' : undefined}
@@ -211,6 +222,25 @@
                   settingsStore.setDimInactiveParagraphs(
                     (e.currentTarget as HTMLInputElement).checked
                   )}
+              />
+            </div>
+
+            <div class="setting-card">
+              <div class="setting-info">
+                <label for="toggle-spellcheck" class="setting-label">
+                  Check spelling
+                </label>
+                <div class="setting-desc">
+                  Underline misspelled words, using the languages installed in your operating system. Right-click a word for suggestions.
+                </div>
+              </div>
+              <input
+                id="toggle-spellcheck"
+                type="checkbox"
+                class="fluent-toggle"
+                checked={settingsStore.spellCheck}
+                onchange={(e) =>
+                  settingsStore.setSpellCheck((e.currentTarget as HTMLInputElement).checked)}
               />
             </div>
 
@@ -469,6 +499,125 @@
                 aria-label="Show hidden files"
               />
             </div>
+
+            <div class="setting-card column-card">
+              <div class="setting-info">
+                <div class="setting-label">Daily notes</div>
+                <div class="setting-desc">
+                  <kbd>Ctrl Shift D</kbd> opens today's note, named like <code>2026-10-19.md</code>, and creates it from the template note if it does not exist. In the template, <code>{'{{date}}'}</code> and <code>{'{{time}}'}</code> become the current date and time.
+                </div>
+              </div>
+              <div class="field-row">
+                <label class="text-field">
+                  <span>Folder</span>
+                  <input
+                    type="text"
+                    value={settingsStore.dailyFolder}
+                    placeholder="Vault root"
+                    onchange={(e) =>
+                      settingsStore.setDailyFolder((e.currentTarget as HTMLInputElement).value)}
+                  />
+                </label>
+                <label class="text-field">
+                  <span>Template note</span>
+                  <input
+                    type="text"
+                    value={settingsStore.dailyTemplatePath}
+                    placeholder="None"
+                    onchange={(e) =>
+                      settingsStore.setDailyTemplatePath(
+                        (e.currentTarget as HTMLInputElement).value
+                      )}
+                  />
+                </label>
+              </div>
+            </div>
+          </section>
+        {:else if activeSection === 'system'}
+          <section class="settings-section" aria-labelledby="sec-system">
+            <h3 id="sec-system" class="section-title">System</h3>
+            <p class="section-subtitle">
+              Bring Jotter to the front from any app, and customize its look with your own CSS.
+            </p>
+
+            <div class="setting-card column-card">
+              <div class="setting-row-top">
+                <div class="setting-info">
+                  <label for="toggle-summon" class="setting-label">Summon hotkey</label>
+                  <div class="setting-desc">
+                    Press the hotkey anywhere to show or hide Jotter. While this is on, Jotter keeps an icon in the tray and closing the window hides it instead of quitting. Quit from the tray icon.
+                  </div>
+                </div>
+                <input
+                  id="toggle-summon"
+                  type="checkbox"
+                  class="fluent-toggle"
+                  checked={settingsStore.summonEnabled}
+                  onchange={(e) =>
+                    settingsStore.setSummon((e.currentTarget as HTMLInputElement).checked)}
+                />
+              </div>
+              <label class="text-field">
+                <span>Hotkey</span>
+                <input
+                  type="text"
+                  value={settingsStore.summonShortcut}
+                  placeholder="Ctrl+Alt+J"
+                  onchange={(e) =>
+                    settingsStore.setSummon(
+                      settingsStore.summonEnabled,
+                      (e.currentTarget as HTMLInputElement).value
+                    )}
+                />
+              </label>
+              {#if systemStore.summonError}
+                <div class="field-error" role="alert">{systemStore.summonError}</div>
+              {/if}
+            </div>
+
+            <div class="setting-card column-card">
+              <div class="setting-row-top">
+                <div class="setting-info">
+                  <div class="setting-label">CSS snippets</div>
+                  <div class="setting-desc">
+                    Jotter loads <code>.css</code> files from its snippets folder on top of the theme. Turn each one on below.
+                  </div>
+                </div>
+                <div class="button-row">
+                  <Button icon="arrow-clockwise" onclick={() => void systemStore.reloadSnippets()}>
+                    Reload
+                  </Button>
+                  <Button icon="folder-open" onclick={() => void systemStore.openSnippetsFolder()}>
+                    Open folder
+                  </Button>
+                </div>
+              </div>
+              {#if systemStore.snippets.length === 0}
+                <div class="setting-desc">No snippets yet. Add a <code>.css</code> file to the folder, then reload.</div>
+              {:else}
+                <ul class="snippet-list">
+                  {#each systemStore.snippets as snippet (snippet.name)}
+                    <li>
+                      <label for="snippet-{snippet.name}">{snippet.name}</label>
+                      <input
+                        id="snippet-{snippet.name}"
+                        type="checkbox"
+                        class="fluent-toggle"
+                        checked={settingsStore.enabledSnippets.includes(snippet.name)}
+                        onchange={(e) =>
+                          settingsStore.setSnippetEnabled(
+                            snippet.name,
+                            (e.currentTarget as HTMLInputElement).checked
+                          )}
+                      />
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
+              {#if systemStore.snippetError}
+                <div class="field-error" role="alert">{systemStore.snippetError}</div>
+              {/if}
+            </div>
           </section>
         {:else if activeSection === 'about'}
           <section class="settings-section about" aria-labelledby="sec-about">
@@ -672,6 +821,65 @@
   .setting-desc code {
     font-family: var(--font-mono);
     font-size: 0.95em;
+  }
+
+  .field-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+
+  .text-field {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 180px;
+    color: var(--text-secondary);
+    font-size: var(--fs-12);
+  }
+
+  .text-field input {
+    min-height: var(--control-min-height);
+    padding: 0 var(--space-2);
+    border: 1px solid var(--line-control);
+    border-radius: var(--radius-control);
+    background: var(--surface-field);
+    color: var(--text-primary);
+    font: var(--fs-13) var(--font-ui);
+  }
+
+  .text-field input:focus-visible {
+    outline: 2px solid var(--focus-ring, var(--accent));
+    outline-offset: 0;
+  }
+
+  .field-error {
+    color: var(--text-danger);
+    font-size: var(--fs-12);
+  }
+
+  .button-row {
+    display: flex;
+    flex-shrink: 0;
+    gap: var(--space-2);
+  }
+
+  .snippet-list {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .snippet-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-2) 0;
+    font-family: var(--font-mono);
+    font-size: var(--fs-13);
   }
 
   .rebuild-status {

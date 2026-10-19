@@ -14,6 +14,11 @@ import {
   WidgetType,
 } from '@codemirror/view';
 import { readVaultImageDataUrl } from './ipc';
+import {
+  createRichBlockExtension,
+  findInlineMath,
+  inlineMathDecoration,
+} from './livePreviewBlocks';
 import type { EditingMode } from './types';
 
 const imageDataUrlCache = new Map<string, string>();
@@ -1055,6 +1060,26 @@ function buildLivePreviewDecorations(
     }
   }
 
+  // 5. Inline $math$ outside code, rendered with KaTeX unless the cursor is on it.
+  if (config.editingMode === 'live') {
+    for (const win of windows) {
+      for (let ln = win.startLine; ln <= win.endLine; ln++) {
+        const line = state.doc.line(ln);
+        if (!line.text.includes('$')) continue;
+        const spans = findInlineMath(line.text);
+        if (spans.length === 0 || lineIsInsideFence(state, line.from)) continue;
+        const inlineSpans = findInlineCodeSpansInLine(line.text);
+        for (const m of spans) {
+          if (inlineSpans.some((sp) => m.from < sp.to && m.to > sp.from)) continue;
+          const from = line.from + m.from;
+          const to = line.from + m.to;
+          if (isRangeTouchedBySelection(state, from, to)) continue;
+          decorations.push(inlineMathDecoration(m.tex, from, to));
+        }
+      }
+    }
+  }
+
   // Push accumulated line decorations
   for (const [lineFrom, classes] of lineClasses.entries()) {
     decorations.push(
@@ -1101,6 +1126,10 @@ export function createLivePreviewExtension(
       }
     );
     extensions.push(plugin);
+  }
+
+  if (config.editingMode === 'live') {
+    extensions.push(createRichBlockExtension());
   }
 
   if (config.typewriterScrolling) {

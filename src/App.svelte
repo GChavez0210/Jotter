@@ -15,17 +15,22 @@
   import Button from './lib/ui/Button.svelte';
   import {
     exportActiveNoteHtml,
+    listenQuitRequested,
     listenVaultFsEvents,
+    quitApp,
     renderNoteHtmlPreview,
   } from './lib/ipc';
+  import { enhanceRenderedHtml } from './lib/richBlocks';
   import type { MarkdownFormatCommandId } from './lib/markdownCommands';
   import { clipboardStore } from './lib/stores/clipboard.svelte';
   import { settingsStore } from './lib/stores/settings.svelte';
+  import { systemStore } from './lib/stores/system.svelte';
   import { tabsStore } from './lib/stores/tabs.svelte';
   import { vaultStore } from './lib/stores/vault.svelte';
 
   let editorRef: Editor | undefined = $state();
   let unlistenFsEvents: UnlistenFn | null = null;
+  let unlistenQuit: UnlistenFn | null = null;
   let missingWikiLinkPrompt = $state<{
     noteTarget: string;
     heading?: string;
@@ -75,11 +80,10 @@
   async function handleExportHtml() {
     const { title, markdown } = getActiveNoteTitleAndMarkdown();
     try {
-      const savedPath = await exportActiveNoteHtml(
-        title,
-        markdown,
-        settingsStore.effectiveDark
-      );
+      const dark = settingsStore.effectiveDark;
+      const rendered = await renderNoteHtmlPreview(title, markdown, dark);
+      const html = await enhanceRenderedHtml(rendered, 'file', dark);
+      const savedPath = await exportActiveNoteHtml(title, html);
       if (savedPath) {
         clipboardStore.setStatus(`Exported HTML to ${savedPath}`);
       }
@@ -91,9 +95,14 @@
   async function handleExportPdf() {
     const { title, markdown } = getActiveNoteTitleAndMarkdown();
     try {
-      const fullHtml = await renderNoteHtmlPreview(
+      const rendered = await renderNoteHtmlPreview(
         title,
         markdown,
+        settingsStore.effectiveDark
+      );
+      const fullHtml = await enhanceRenderedHtml(
+        rendered,
+        'print',
         settingsStore.effectiveDark
       );
       const match = fullHtml.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
@@ -219,6 +228,15 @@
       return;
     }
 
+    // Today's daily note (Ctrl+Shift+D)
+    if (isMod && e.shiftKey && keyLower === 'd') {
+      if (vaultStore.vaultSnapshot) {
+        e.preventDefault();
+        void vaultStore.openDailyNote();
+      }
+      return;
+    }
+
     // Minimal Focus Mode (Ctrl+Shift+M)
     if (isMod && e.shiftKey && keyLower === 'm') {
       e.preventDefault();
@@ -298,8 +316,36 @@
     }
   }
 
+  // Re-apply snippets when the user toggles one in Settings.
+  $effect(() => {
+    void settingsStore.enabledSnippets;
+    systemStore.applySnippets();
+  });
+
+  $effect(() => {
+    void settingsStore.summonEnabled;
+    void settingsStore.summonShortcut;
+    void systemStore.syncSummon();
+  });
+
   onMount(() => {
     const cleanupSettings = settingsStore.initFromStorageAndSystem();
+    void systemStore.reloadSnippets();
+
+    // Tray "Quit" asks the page first so pending edits reach disk.
+    void listenQuitRequested(async () => {
+      try {
+        await tabsStore.flushAllAutosaves();
+      } finally {
+        await quitApp();
+      }
+    })
+      .then((unlisten) => {
+        unlistenQuit = unlisten;
+      })
+      .catch(() => {
+        // ignore in browser preview
+      });
 
     void vaultStore.refreshRecentVaults().then(() => {
       try {
@@ -331,6 +377,7 @@
 
   onDestroy(() => {
     unlistenFsEvents?.();
+    unlistenQuit?.();
     tabsStore.clearAllTimers();
   });
 </script>

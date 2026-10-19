@@ -109,5 +109,19 @@ export interface SearchHit {
   matchCount: number;
 }
 
-export type LeftSidebarView = 'files' | 'search' | 'tags' | 'calendar';
+export type LeftSidebarView = 'files' | 'search' | 'tags' | 'calendar' | 'trash';
+
+/** A vault note or folder in the OS trash. */
+export interface DeletedEntry {
+  id: string;
+  name: string;
+  originalRelPath: string;
+  deletedMs: number;
+  isFolder: boolean;
+}
+
+export interface CssSnippet {
+  name: string;
+  css: string;
+}
 
