@@ -4,7 +4,7 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 
 ## [Unreleased]
 
-Roadmap Phase 2, first part.
+Roadmap Phase 2.
 
 ### Added
 
@@ -12,6 +12,9 @@ Roadmap Phase 2, first part.
 - **Properties form.** The note header edits YAML frontmatter as typed fields: text, list, number, checkbox, date, and date and time. Edits rewrite only the changed property and join the undo history. Live mode hides the raw YAML.
 - **Outliner.** `Alt+↑`/`Alt+↓` move list items with their children, `Tab`/`Shift+Tab` nest and un-nest them, margin arrows fold them, and `Ctrl+.` zooms into one item. The command palette has zoom, fold all, and unfold all.
 - **Cloud folder sync.** Jotter detects Dropbox, OneDrive, Google Drive, Box, and iCloud Drive vault folders, lists conflict copies in a Sync conflicts sidebar view and the status bar, and shows the detected client in Settings → Vault. The README describes the setup.
+- **Task due dates and calendar file.** Checklist items with `📅 2026-11-01`, `due:2026-11-01`, or `[due:: 2026-11-01]` go into the index. Live mode shows them as chips that turn red when overdue. Settings → Vault picks an `.ics` file that Jotter keeps current with open tasks.
+- **Tags and links view.** The Notes sidebar can list notes by nested tag, with each note expandable to the notes it links to.
+- **Home page.** With no note open, a page of note cards shows recently opened, edited, and created notes, the most linked notes, and a daily Rediscover pick. Sections are customizable per vault.
 
 ## [0.1.1] - 2026-10-19
 

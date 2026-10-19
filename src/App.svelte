@@ -29,6 +29,8 @@
   import { tabsStore } from './lib/stores/tabs.svelte';
   import { vaultStore } from './lib/stores/vault.svelte';
   import { taskCalendarStore } from './lib/stores/taskCalendar.svelte';
+  import { noteCardsStore } from './lib/stores/noteCards.svelte';
+  import HomePage from './lib/HomePage.svelte';
 
   let editorRef: Editor | undefined = $state();
   let unlistenFsEvents: UnlistenFn | null = null;
@@ -334,6 +336,17 @@
     void systemStore.syncSummon();
   });
 
+  function createUntitledNote() {
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    void vaultStore.createNoteInVault('', `Note ${stamp}`);
+  }
+
+  // Feeds the Home page's "Recently opened" section.
+  $effect(() => {
+    const path = tabsStore.activeTabPath;
+    if (path) untrack(() => noteCardsStore.recordOpened(path));
+  });
+
   // Every save, external change, and vault switch bumps the index version.
   $effect(() => {
     void vaultStore.indexVersion;
@@ -553,25 +566,21 @@
                 {#snippet header()}<NoteHeader onEdit={(change) => editorRef?.applyChange(change)} />{/snippet}
               </Editor>
             {:else}
+              {#if vaultStore.vaultSnapshot && settingsStore.showHomePage}
+                <div class="home-scroll">
+                  <HomePage onNewNote={createUntitledNote} />
+                </div>
+              {:else}
               <div class="no-open-note">
                 <div class="no-note-title">Nothing open</div>
                 <div class="no-note-desc">
                   Pick a note in the sidebar, press <kbd>Ctrl O</kbd> to find one by name, or start a new one.
                 </div>
-                <Button
-                  variant="primary"
-                  icon="file-plus"
-                  onclick={() => {
-                    const stamp = new Date()
-                      .toISOString()
-                      .slice(0, 19)
-                      .replace(/[:T]/g, '-');
-                    void vaultStore.createNoteInVault('', `Note ${stamp}`);
-                  }}
-                >
+                <Button variant="primary" icon="file-plus" onclick={createUntitledNote}>
                   New note
                 </Button>
               </div>
+              {/if}
             {/if}
           </div>
         </section>
@@ -685,6 +694,12 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+  }
+
+  .home-scroll {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
   }
 
   .no-open-note {
