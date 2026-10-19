@@ -3,17 +3,16 @@
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import BacklinksPanel from './lib/BacklinksPanel.svelte';
   import ClipboardInspector from './lib/ClipboardInspector.svelte';
-  import CommandBar from './lib/CommandBar.svelte';
   import CommandPalette from './lib/CommandPalette.svelte';
   import Editor from './lib/Editor.svelte';
   import FirstRunScreen from './lib/FirstRunScreen.svelte';
-  import FormattingToolbar from './lib/FormattingToolbar.svelte';
   import QuickSwitcher from './lib/QuickSwitcher.svelte';
   import SettingsModal from './lib/SettingsModal.svelte';
+  import NoteHeader from './lib/NoteHeader.svelte';
   import Sidebar from './lib/Sidebar.svelte';
   import StatusBar from './lib/StatusBar.svelte';
-  import TabBar from './lib/TabBar.svelte';
-  import { fluentIcons } from './lib/icons';
+  import TitleBar from './lib/TitleBar.svelte';
+  import Button from './lib/ui/Button.svelte';
   import {
     exportActiveNoteHtml,
     listenVaultFsEvents,
@@ -32,6 +31,12 @@
     heading?: string;
   } | null>(null);
   let printArticleHtml = $state('');
+
+  let sidebarVisible = $derived(
+    Boolean(vaultStore.vaultSnapshot) &&
+      settingsStore.focusMode === 'off' &&
+      !settingsStore.sidebarCollapsed
+  );
 
   $effect(() => {
     const target = tabsStore.pendingScrollTarget;
@@ -343,109 +348,92 @@
   data-backdrop={settingsStore.effectiveSolidBackdrop ? 'solid' : 'mica'}
   data-focus-mode={settingsStore.focusMode}
 >
-  <CommandBar
-    onCopyTrigger={() => editorRef?.triggerCopyFromToolbar()}
-    onPastePlainTrigger={() => editorRef?.triggerPastePlainFromToolbar()}
-    onRefreshInspector={() => void refreshInspectorPreview()}
-    onExportHtml={() => void handleExportHtml()}
-    onExportPdf={() => void handleExportPdf()}
-  />
-
-  {#if !vaultStore.vaultSnapshot && !tabsStore.scratchpadMode}
-    <FirstRunScreen
+  {#if vaultStore.vaultSnapshot && settingsStore.focusMode === 'off'}
+    <Sidebar
+      snapshot={vaultStore.vaultSnapshot}
       recentVaults={vaultStore.recentVaults}
-      errorMessage={vaultStore.onboardingError}
-      onOpenVaultPath={(path) => void vaultStore.openVaultByPath(path)}
-      onCreateVault={(parent, name) => void vaultStore.createVault(parent, name)}
-      onRemoveRecentVault={(path) => void vaultStore.removeRecent(path)}
-      onOpenScratchpad={() => (tabsStore.scratchpadMode = true)}
+      onOpenVault={(path) => void vaultStore.openVaultByPath(path)}
+      activeRelPath={tabsStore.activeTabPath}
+      width={settingsStore.sidebarWidth}
+      collapsed={settingsStore.sidebarCollapsed}
+      onResize={(w) => settingsStore.setSidebarWidth(w)}
+      onSelectFile={(relPath) => void tabsStore.openNoteInTab(relPath)}
+      onCreateNote={(parent, name) =>
+        void vaultStore.createNoteInVault(parent, name)}
+      onCreateFolder={(parent, name) =>
+        void vaultStore.createFolderInVault(parent, name)}
+      onRenameEntry={(oldRel, newRel) =>
+        void vaultStore.renameEntryInVault(oldRel, newRel)}
+      onDeleteEntry={(rel) => void vaultStore.deleteEntryInVault(rel)}
+      onSwitchVault={() => void vaultStore.switchVault()}
     />
-  {:else}
-    <main class="workspace">
-      <div class="workspace-split">
-        {#if vaultStore.vaultSnapshot && settingsStore.focusMode === 'off'}
-          <Sidebar
-            snapshot={vaultStore.vaultSnapshot}
-            activeRelPath={tabsStore.activeTabPath}
-            width={settingsStore.sidebarWidth}
-            collapsed={settingsStore.sidebarCollapsed}
-            onResize={(w) => settingsStore.setSidebarWidth(w)}
-            onSelectFile={(relPath) => void tabsStore.openNoteInTab(relPath)}
-            onCreateNote={(parent, name) =>
-              void vaultStore.createNoteInVault(parent, name)}
-            onCreateFolder={(parent, name) =>
-              void vaultStore.createFolderInVault(parent, name)}
-            onRenameEntry={(oldRel, newRel) =>
-              void vaultStore.renameEntryInVault(oldRel, newRel)}
-            onDeleteEntry={(rel) => void vaultStore.deleteEntryInVault(rel)}
-            onSwitchVault={() => void vaultStore.switchVault()}
-          />
-        {/if}
+  {/if}
 
-        <section class="editor-column" aria-label="Editor workspace">
-          {#if vaultStore.vaultSnapshot && settingsStore.focusMode === 'off'}
-            <TabBar />
-          {/if}
+  <div class="main-column">
+    <TitleBar {sidebarVisible} />
 
-          {#if missingWikiLinkPrompt}
-            <div class="external-reload-banner" role="alertdialog" aria-label="Create missing wiki link note">
-              <span>
-                Note <strong>[[{missingWikiLinkPrompt.noteTarget}]]</strong> does not exist in this vault yet. Would you like to create it?
-              </span>
-              <div class="external-reload-actions">
-                <button
-                  type="button"
-                  class="fluent-btn primary-btn"
-                  onclick={() => void confirmCreateMissingWikiNote()}
-                >
-                  Create & Open
-                </button>
-                <button
-                  type="button"
-                  class="fluent-btn"
-                  onclick={() => (missingWikiLinkPrompt = null)}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          {/if}
+    {#if !vaultStore.vaultSnapshot && !tabsStore.scratchpadMode}
+      <FirstRunScreen
+        recentVaults={vaultStore.recentVaults}
+        errorMessage={vaultStore.onboardingError}
+        onOpenVaultPath={(path) => void vaultStore.openVaultByPath(path)}
+        onCreateVault={(parent, name) => void vaultStore.createVault(parent, name)}
+        onRemoveRecentVault={(path) => void vaultStore.removeRecent(path)}
+        onOpenScratchpad={() => (tabsStore.scratchpadMode = true)}
+      />
+    {:else}
+      {#if missingWikiLinkPrompt}
+        <div class="external-reload-banner" role="alertdialog" aria-label="Create missing wiki link note">
+          <span>
+            Note <strong>[[{missingWikiLinkPrompt.noteTarget}]]</strong> does not exist in this vault yet. Would you like to create it?
+          </span>
+          <div class="external-reload-actions">
+            <Button
+              variant="primary"
+              onclick={() => void confirmCreateMissingWikiNote()}
+            >
+              Create & Open
+            </Button>
+            <Button
+              onclick={() => (missingWikiLinkPrompt = null)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      {/if}
 
-          {#if tabsStore.activeTab?.externalChangePending}
-            <div class="external-reload-banner" role="alert">
-              <span>
-                <strong>{tabsStore.activeTab.relPath}</strong> was modified outside Jotter while you have unsaved edits.
-              </span>
-              <div class="external-reload-actions">
-                <button
-                  type="button"
-                  class="fluent-btn primary-btn"
-                  onclick={() =>
-                    void tabsStore.reloadTabFromDisk(
-                      tabsStore.activeTab!.relPath,
-                      (newContent) => editorRef?.replaceContentFromDisk(newContent)
-                    )}
-                >
-                  Reload from disk
-                </button>
-                <button
-                  type="button"
-                  class="fluent-btn"
-                  onclick={() =>
-                    tabsStore.dismissExternalChangeBanner(
-                      tabsStore.activeTab!.relPath
-                    )}
-                >
-                  Keep my edits
-                </button>
-              </div>
-            </div>
-          {/if}
+      {#if tabsStore.activeTab?.externalChangePending}
+        <div class="external-reload-banner" role="alert">
+          <span>
+            <strong>{tabsStore.activeTab.relPath}</strong> was modified outside Jotter while you have unsaved edits.
+          </span>
+          <div class="external-reload-actions">
+            <Button
+              variant="primary"
+              onclick={() =>
+                void tabsStore.reloadTabFromDisk(
+                  tabsStore.activeTab!.relPath,
+                  (newContent) => editorRef?.replaceContentFromDisk(newContent)
+                )}
+            >
+              Reload from disk
+            </Button>
+            <Button
+              onclick={() =>
+                tabsStore.dismissExternalChangeBanner(
+                  tabsStore.activeTab!.relPath
+                )}
+            >
+              Keep my edits
+            </Button>
+          </div>
+        </div>
+      {/if}
 
+      <div class="work-row">
+        <section class="editor-column" aria-label="Editor">
           <div class="editor-card">
-            {#if (tabsStore.scratchpadMode || tabsStore.activeTab) && settingsStore.focusMode === 'off'}
-              <FormattingToolbar onFormat={handleFormatCommand} />
-            {/if}
 
             {#if tabsStore.scratchpadMode}
               <Editor
@@ -470,7 +458,9 @@
                   clipboardStore.handlePastePlainComplete(chars, lines)}
                 onStatsChange={(s) => (tabsStore.docStats = s)}
                 onError={(err) => clipboardStore.setStatus(`Clipboard error: ${err}`)}
-              />
+              >
+                {#snippet header()}<NoteHeader />{/snippet}
+              </Editor>
             {:else if tabsStore.activeTab}
               <Editor
                 bind:this={editorRef}
@@ -492,17 +482,18 @@
                   clipboardStore.handlePastePlainComplete(chars, lines)}
                 onStatsChange={(s) => (tabsStore.docStats = s)}
                 onError={(err) => clipboardStore.setStatus(`Clipboard error: ${err}`)}
-              />
+              >
+                {#snippet header()}<NoteHeader />{/snippet}
+              </Editor>
             {:else}
               <div class="no-open-note">
-                <div class="no-note-icon">{@html fluentIcons.note20}</div>
-                <div class="no-note-title">No note selected</div>
+                <div class="no-note-title">Nothing open</div>
                 <div class="no-note-desc">
-                  Select a note from the file tree on the left or create a new one.
+                  Pick a note in the sidebar, press <kbd>Ctrl O</kbd> to find one by name, or start a new one.
                 </div>
-                <button
-                  type="button"
-                  class="fluent-btn primary-btn"
+                <Button
+                  variant="primary"
+                  icon="file-plus"
                   onclick={() => {
                     const stamp = new Date()
                       .toISOString()
@@ -511,9 +502,8 @@
                     void vaultStore.createNoteInVault('', `Note ${stamp}`);
                   }}
                 >
-                  {@html fluentIcons.documentAdd16}
-                  <span>New Note (Ctrl+N)</span>
-                </button>
+                  New note
+                </Button>
               </div>
             {/if}
           </div>
@@ -527,10 +517,10 @@
       {#if settingsStore.focusMode === 'off'}
         <ClipboardInspector />
       {/if}
-    </main>
-  {/if}
+    {/if}
 
-  <StatusBar />
+    <StatusBar />
+  </div>
 
   {#if settingsStore.showQuickSwitcher}
     <QuickSwitcher
@@ -572,41 +562,30 @@
 </div>
 
 <style>
+  /* One flat window: sidebar | (title bar, editor, status bar). Hairlines split regions. */
   .app-shell {
     display: flex;
-    flex-direction: column;
     width: 100vw;
     height: 100vh;
-    background-color: var(--bg-mica-tint);
-    transition: background-color var(--transition-fast);
+    background-color: transparent;
   }
 
   .app-shell.solid-backdrop {
-    background-color: var(--bg-solid-fallback);
+    background-color: var(--surface-app);
   }
 
-  .workspace {
+  .main-column {
     flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--space-3);
-    padding: var(--space-3) var(--space-4);
-    min-height: 0;
-    overflow: hidden;
+    background: var(--surface-editor);
   }
 
-  .app-shell.focus-minimal .workspace,
-  .app-shell.focus-zen .workspace {
-    padding: 0;
-    gap: 0;
-  }
-
-  .workspace-split {
+  .work-row {
     flex: 1;
-    display: flex;
-    gap: var(--space-3);
     min-height: 0;
-    overflow: hidden;
+    display: flex;
   }
 
   .editor-column {
@@ -615,7 +594,6 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
   }
 
   .external-reload-banner {
@@ -623,11 +601,10 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--space-3);
-    padding: var(--space-2) var(--space-3);
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border-control);
-    border-radius: var(--radius-card);
-    font-size: var(--text-xs);
+    padding: var(--space-2) var(--space-4);
+    border-bottom: 1px solid var(--line-subtle);
+    background: var(--accent-soft);
+    font-size: var(--fs-13);
   }
 
   .external-reload-actions {
@@ -638,23 +615,9 @@
   .editor-card {
     flex: 1;
     min-height: 0;
-    background: var(--bg-card);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-card);
-    overflow: hidden;
     display: flex;
     flex-direction: column;
-    transition: background-color var(--transition-fast);
-  }
-
-  .app-shell.focus-minimal .editor-card,
-  .app-shell.focus-zen .editor-card {
-    border: none;
-    border-radius: 0;
-  }
-
-  .solid-backdrop .editor-card {
-    background: var(--bg-card-solid);
+    overflow: hidden;
   }
 
   .no-open-note {
@@ -669,52 +632,13 @@
     color: var(--text-secondary);
   }
 
-  .no-note-icon {
-    color: var(--accent-color, var(--accent-fallback));
-  }
-
   .no-note-title {
-    font-size: var(--text-lg);
-    font-weight: 600;
+    font: 600 var(--fs-24) / var(--leading-tight) var(--font-display);
     color: var(--text-primary);
   }
 
   .no-note-desc {
-    font-size: var(--text-xs);
+    font-size: var(--fs-13);
     max-width: 320px;
-  }
-
-  .fluent-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-2);
-    min-height: var(--control-min-height);
-    min-width: var(--control-min-height);
-    padding: 0 var(--space-3);
-    border-radius: var(--radius-control);
-    border: 1px solid var(--border-control);
-    background: var(--bg-control);
-    color: var(--text-primary);
-    font-size: var(--text-xs);
-    font-weight: 500;
-    cursor: pointer;
-    transition:
-      background-color var(--transition-fast),
-      border-color var(--transition-fast);
-  }
-
-  .fluent-btn:hover {
-    background: var(--bg-control-hover);
-  }
-
-  .fluent-btn.primary-btn {
-    background: var(--accent-color, var(--accent-fallback));
-    color: var(--accent-text, #ffffff);
-    border-color: transparent;
-  }
-
-  .fluent-btn.primary-btn:hover {
-    filter: brightness(1.06);
   }
 </style>

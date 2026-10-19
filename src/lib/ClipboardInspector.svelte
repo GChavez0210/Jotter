@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fluentIcons } from './icons';
+  import Icon from './ui/Icon.svelte';
   import { clipboardStore } from './stores/clipboard.svelte';
   import { COPY_MODE_LABELS, settingsStore } from './stores/settings.svelte';
 </script>
@@ -12,7 +12,7 @@
   >
     <div class="inspector-header">
       <div class="inspector-title">
-        {@html fluentIcons.checkmark16}
+        <Icon name="check" />
         <span>
           {clipboardStore.lastPayload.mode === 'plain'
             ? 'arboard::Clipboard::set_text Plain-Only Output (Plain)'
@@ -48,10 +48,9 @@
   .inspector-card {
     height: 184px;
     flex-shrink: 0;
-    background: var(--bg-card);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-card);
-    padding: var(--space-3);
+    background: var(--surface-editor);
+    border-top: 1px solid var(--line-subtle);
+    padding: var(--space-3) var(--space-4);
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
@@ -59,14 +58,14 @@
   }
 
   .inspector-card.solid-backdrop {
-    background: var(--bg-card-solid);
+    background: var(--surface-raised);
   }
 
   .inspector-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
   }
 
   .inspector-title {
@@ -94,21 +93,21 @@
     flex-direction: column;
     gap: var(--space-1);
     min-height: 0;
-    background: var(--bg-subtle);
-    border: 1px solid var(--border-subtle);
+    background: var(--surface-subtle);
+    border: 1px solid var(--line-subtle);
     border-radius: var(--radius-control);
     padding: var(--space-2);
   }
 
   .format-label {
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     font-weight: 600;
     color: var(--text-secondary);
   }
 
   .format-label code {
     font-family: var(--font-mono);
-    background: var(--bg-code);
+    background: var(--surface-code);
     padding: 1px 4px;
     border-radius: var(--radius-control);
   }
@@ -118,7 +117,7 @@
     margin: 0;
     overflow: auto;
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--fs-11);
     line-height: 1.45;
     color: var(--text-primary);
     white-space: pre-wrap;

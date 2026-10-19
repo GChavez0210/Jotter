@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { fluentIcons } from './icons';
+  import Icon from './ui/Icon.svelte';
+  import IconButton from './ui/IconButton.svelte';
+  import Button from './ui/Button.svelte';
   import { pickVaultFolder } from './ipc';
   import type { RecentVault } from './types';
   import { validateWindowsEntryName } from './validation';
@@ -70,11 +72,11 @@
 <div class="onboarding-container">
   <div class="onboarding-card" role="region" aria-label="Welcome to Jotter">
     <div class="hero-header">
-      <div class="hero-logo">{@html fluentIcons.note20}</div>
+      <div class="hero-logo" aria-hidden="true">J</div>
       <div class="hero-titles">
         <h1 class="hero-title">Jotter</h1>
         <p class="hero-subtitle">
-          Windows-native Markdown notes compatible with Obsidian vaults.
+          Plain Markdown notes in a folder you own. Opens Obsidian vaults as they are.
         </p>
       </div>
     </div>
@@ -88,27 +90,24 @@
         <div class="action-info">
           <div class="action-title">Open existing vault</div>
           <div class="action-desc">
-            Choose an existing folder of Markdown (<code>.md</code>) files.
+            Pick a folder of Markdown (<code>.md</code>) files.
           </div>
         </div>
         <div class="action-buttons">
-          <button
-            type="button"
-            class="fluent-btn primary-btn"
+          <Button
+            variant="primary"
+            icon="folder-open"
             onclick={handleOpenVaultClick}
           >
-            {@html fluentIcons.folderOpen20}
-            <span>Open vault</span>
-          </button>
-          <button
-            type="button"
-            class="fluent-btn"
+            Open vault
+          </Button>
+          <Button
             title="Enter folder path manually"
             onclick={() =>
               (mode = mode === 'open_manual' ? 'welcome' : 'open_manual')}
           >
-            <span>Enter path…</span>
-          </button>
+            Enter path…
+          </Button>
         </div>
       </div>
 
@@ -125,16 +124,17 @@
             />
           </label>
           <div class="form-actions">
-            <button
-              type="button"
-              class="fluent-btn"
+            <Button
               onclick={() => (mode = 'welcome')}
             >
               Cancel
-            </button>
-            <button type="submit" class="fluent-btn primary-btn">
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+            >
               Open folder
-            </button>
+            </Button>
           </div>
         </form>
       {/if}
@@ -143,17 +143,15 @@
         <div class="action-info">
           <div class="action-title">Create new vault</div>
           <div class="action-desc">
-            Create a fresh folder for your plain-text Markdown notes.
+            Start an empty folder for new notes.
           </div>
         </div>
-        <button
-          type="button"
-          class="fluent-btn"
+        <Button
+          icon="plus"
           onclick={() => (mode = mode === 'create' ? 'welcome' : 'create')}
         >
-          {@html fluentIcons.add20}
-          <span>Create vault</span>
-        </button>
+          Create vault
+        </Button>
       </div>
 
       {#if mode === 'create'}
@@ -182,30 +180,26 @@
                 bind:value={createParentPath}
                 required
               />
-              <button
-                type="button"
-                class="fluent-btn"
+              <Button
                 onclick={handleBrowseParentClick}
               >
                 Browse…
-              </button>
+              </Button>
             </div>
           </div>
           <div class="form-actions">
-            <button
-              type="button"
-              class="fluent-btn"
+            <Button
               onclick={() => (mode = 'welcome')}
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               type="submit"
-              class="fluent-btn primary-btn"
               disabled={Boolean(vaultNameError)}
             >
               Create &amp; Open
-            </button>
+            </Button>
           </div>
         </form>
       {/if}
@@ -222,21 +216,18 @@
                 class="recent-open-btn"
                 onclick={() => onOpenVaultPath(vault.path)}
               >
-                <span class="recent-icon">{@html fluentIcons.folder16}</span>
+                <span class="recent-icon"><Icon name="folder-simple" /></span>
                 <span class="recent-text">
                   <span class="recent-name">{vault.name}</span>
                   <span class="recent-path">{vault.path}</span>
                 </span>
               </button>
-              <button
-                type="button"
-                class="fluent-btn icon-only remove-recent-btn"
-                title="Remove from recent vaults"
-                aria-label="Remove {vault.name} from recent vaults"
+              <IconButton
+                icon="x"
+                label="Remove {vault.name} from recent vaults"
+                tooltip="Remove from recent vaults"
                 onclick={() => onRemoveRecentVault(vault.path)}
-              >
-                {@html fluentIcons.dismiss16}
-              </button>
+              />
             </li>
           {/each}
         </ul>
@@ -245,7 +236,7 @@
 
     <div class="scratchpad-footer">
       <button type="button" class="link-btn" onclick={onOpenScratchpad}>
-        Open Clipboard Spike Scratchpad without a vault
+        Try a scratchpad without a vault
       </button>
     </div>
   </div>
@@ -254,76 +245,69 @@
 <style>
   .onboarding-container {
     flex: 1;
+    min-height: 0;
+    overflow-y: auto;
     display: flex;
-    align-items: center;
     justify-content: center;
-    padding: var(--space-6);
-    overflow: auto;
+    padding: var(--space-12) var(--space-6);
   }
 
   .onboarding-card {
     width: 100%;
-    max-width: 580px;
-    background: var(--bg-card);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-card);
-    padding: var(--space-6);
+    max-width: 520px;
     display: flex;
     flex-direction: column;
-    gap: var(--space-5);
+    gap: var(--space-8);
   }
 
   .hero-header {
     display: flex;
-    align-items: center;
-    gap: var(--space-3);
+    flex-direction: column;
+    gap: var(--space-4);
   }
 
   .hero-logo {
-    width: 44px;
-    height: 44px;
-    border-radius: var(--radius-card);
-    background: var(--selection-bg);
-    color: var(--accent-color, var(--accent-fallback));
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-dialog);
+    background: var(--accent);
+    color: var(--on-accent);
+    font: 600 22px / 1 var(--font-display);
   }
 
   .hero-titles {
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
+    gap: var(--space-2);
   }
 
   .hero-title {
     margin: 0;
-    font-family: var(--font-display);
-    font-size: var(--text-xl);
-    font-weight: 600;
-    line-height: var(--leading-tight);
+    font: 600 var(--fs-32) / 1.15 var(--font-display);
+    letter-spacing: -0.01em;
   }
 
   .hero-subtitle {
     margin: 0;
-    font-size: var(--text-sm);
+    max-width: 44ch;
     color: var(--text-secondary);
+    font: var(--fs-17) / var(--leading-normal) var(--font-display);
   }
 
   .error-banner {
     padding: var(--space-2) var(--space-3);
-    border-radius: var(--radius-control);
-    border: 1px solid var(--status-danger);
+    border-radius: var(--radius-card);
+    background: color-mix(in srgb, var(--status-danger) 12%, transparent);
     color: var(--text-danger);
-    background: var(--bg-subtle);
-    font-size: var(--text-xs);
+    font-size: var(--fs-13);
   }
 
   .primary-actions {
     display: flex;
     flex-direction: column;
-    gap: var(--space-3);
+    border-top: 1px solid var(--line-subtle);
   }
 
   .action-row {
@@ -331,50 +315,43 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--space-4);
-    padding: var(--space-3) var(--space-4);
-    background: var(--bg-subtle);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-card);
+    padding: var(--space-4) 0;
+    border-bottom: 1px solid var(--line-subtle);
   }
 
   .action-info {
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
+    gap: 2px;
+    min-width: 0;
   }
 
   .action-title {
-    font-size: var(--text-base);
     font-weight: 600;
   }
 
   .action-desc {
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
+    color: var(--text-muted);
+    font-size: var(--fs-12);
   }
 
   .action-desc code {
     font-family: var(--font-mono);
-    background: var(--bg-code);
-    padding: 1px 4px;
-    border-radius: var(--radius-control);
+    font-size: 0.95em;
   }
 
   .action-buttons {
     display: flex;
-    align-items: center;
     gap: var(--space-2);
-    flex-shrink: 0;
+    flex: none;
   }
 
   .inline-form {
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
-    padding: var(--space-4);
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border-control);
-    border-radius: var(--radius-card);
+    padding: var(--space-4) 0;
+    border-bottom: 1px solid var(--line-subtle);
   }
 
   .form-field {
@@ -384,9 +361,9 @@
   }
 
   .field-label {
-    font-size: var(--text-xs);
-    font-weight: 600;
     color: var(--text-secondary);
+    font-size: var(--fs-12);
+    font-weight: 500;
   }
 
   .input-with-btn {
@@ -396,57 +373,29 @@
 
   .fluent-input {
     flex: 1;
-    min-height: var(--control-min-height);
+    min-width: 0;
+    height: 32px;
     padding: 0 var(--space-3);
-    border-radius: var(--radius-control);
-    border: 1px solid var(--border-control);
-    background: var(--bg-control);
+    border: 1px solid var(--line-control);
+    border-radius: var(--radius-card);
+    background: var(--surface-field);
     color: var(--text-primary);
-    font-size: var(--text-sm);
+    font: inherit;
+  }
+
+  .fluent-input:focus {
+    border-color: var(--accent);
+    outline: none;
+  }
+
+  .fluent-input[aria-invalid='true'] {
+    border-color: var(--status-danger);
   }
 
   .form-actions {
     display: flex;
     justify-content: flex-end;
     gap: var(--space-2);
-  }
-
-  .fluent-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-2);
-    min-height: var(--control-min-height);
-    min-width: var(--control-min-height);
-    padding: 0 var(--space-3);
-    border-radius: var(--radius-control);
-    border: 1px solid var(--border-control);
-    background: var(--bg-control);
-    color: var(--text-primary);
-    font-size: var(--text-xs);
-    font-weight: 500;
-    cursor: pointer;
-    transition:
-      background-color var(--transition-fast),
-      border-color var(--transition-fast);
-  }
-
-  .fluent-btn.icon-only {
-    padding: 0 var(--space-2);
-  }
-
-  .fluent-btn:hover {
-    background: var(--bg-control-hover);
-  }
-
-  .fluent-btn.primary-btn {
-    background: var(--accent-color, var(--accent-fallback));
-    color: var(--accent-text, #ffffff);
-    border-color: transparent;
-  }
-
-  .fluent-btn.primary-btn:hover {
-    filter: brightness(1.06);
   }
 
   .recent-section {
@@ -457,50 +406,49 @@
 
   .section-heading {
     margin: 0;
-    font-size: var(--text-xs);
-    font-weight: 600;
+    color: var(--text-muted);
+    font: 600 var(--fs-11) / 1 var(--font-ui);
+    letter-spacing: 0.06em;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--text-secondary);
   }
 
   .recent-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
   }
 
   .recent-item {
     display: flex;
     align-items: center;
-    gap: var(--space-2);
+    gap: var(--space-1);
   }
 
   .recent-open-btn {
     flex: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
     gap: var(--space-3);
-    min-height: 40px;
-    padding: var(--space-2) var(--space-3);
-    border-radius: var(--radius-control);
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-subtle);
+    padding: var(--space-2);
+    border: 0;
+    border-radius: var(--radius-card);
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
     text-align: left;
     cursor: pointer;
-    transition: background-color var(--transition-fast);
   }
 
   .recent-open-btn:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
   }
 
   .recent-icon {
-    color: var(--accent-color, var(--accent-fallback));
     display: inline-flex;
+    color: var(--text-muted);
   }
 
   .recent-text {
@@ -510,40 +458,34 @@
   }
 
   .recent-name {
-    font-size: var(--text-sm);
-    font-weight: 600;
-    color: var(--text-primary);
+    font-weight: 500;
   }
 
   .recent-path {
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
     overflow: hidden;
+    color: var(--text-muted);
+    font-size: var(--fs-12);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .scratchpad-footer {
-    border-top: 1px solid var(--border-subtle);
-    padding-top: var(--space-3);
     display: flex;
-    justify-content: center;
   }
 
   .link-btn {
-    min-height: var(--control-min-height);
-    padding: 0 var(--space-3);
+    padding: 0;
+    border: 0;
     background: transparent;
-    border: 1px solid transparent;
-    border-radius: var(--radius-control);
-    color: var(--accent-color, var(--accent-fallback));
-    font-size: var(--text-xs);
-    font-weight: 500;
+    color: var(--accent);
+    font: inherit;
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--accent) 40%, transparent);
+    text-underline-offset: 3px;
     cursor: pointer;
   }
 
   .link-btn:hover {
-    background: var(--bg-control-hover);
-    text-decoration: underline;
+    text-decoration-color: currentColor;
   }
 </style>

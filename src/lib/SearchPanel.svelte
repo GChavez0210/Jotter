@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fluentIcons } from './icons';
+  import Icon from './ui/Icon.svelte';
   import { searchVault } from './ipc';
   import { tabsStore } from './stores/tabs.svelte';
   import { vaultStore } from './stores/vault.svelte';
@@ -103,12 +103,12 @@
 <div class="search-panel" aria-label="Full-text vault search">
   <div class="search-box-wrap">
     <div class="search-input-container">
-      <span class="search-icon">{@html fluentIcons.search16}</span>
+      <span class="search-icon"><Icon name="magnifying-glass" /></span>
       <input
         bind:this={searchInputEl}
         type="search"
         class="search-input"
-        placeholder="Search notes (tantivy full-text)…"
+        placeholder="Search inside notes"
         aria-label="Search vault notes"
         bind:value={query}
       />
@@ -122,7 +122,7 @@
             searchInputEl?.focus();
           }}
         >
-          {@html fluentIcons.dismiss16}
+          <Icon name="x" />
         </button>
       {/if}
     </div>
@@ -140,7 +140,7 @@
   <div class="results-scroll">
     {#if !query.trim()}
       <div class="empty-hint">
-        Type keywords or phrases above to search across all Markdown notes in the vault.
+        Search the text of every note in this vault.
       </div>
     {:else if !searching && results.length === 0}
       <div class="empty-hint">
@@ -156,11 +156,10 @@
               onclick={() => handleSelectHit(hit)}
             >
               <div class="hit-header">
-                <span class="hit-icon">{@html fluentIcons.document16}</span>
+                <span class="hit-icon"><Icon name="file-text" /></span>
                 <span class="hit-title">{hit.title}</span>
-                <span class="hit-meta">
-                  L{hit.lineNumber} · {hit.matchCount}
-                  {hit.matchCount === 1 ? 'hit' : 'hits'}
+                <span class="hit-meta" title="First match on line {hit.lineNumber}">
+                  {hit.matchCount}
                 </span>
               </div>
               {#if hit.path !== `${hit.title}.md`}
@@ -193,31 +192,30 @@
   }
 
   .search-box-wrap {
-    padding: var(--space-2);
-    border-bottom: 1px solid var(--border-subtle);
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
+    padding: var(--space-1) var(--space-3) var(--space-2);
   }
 
   .search-input-container {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    min-height: var(--control-min-height);
+    height: 30px;
     padding: 0 var(--space-2);
-    border-radius: var(--radius-control);
-    border: 1px solid var(--border-control);
-    background: var(--bg-card-solid);
+    border: 1px solid var(--line-control);
+    border-radius: var(--radius-card);
+    background: var(--surface-editor);
+    color: var(--text-muted);
   }
 
   .search-input-container:focus-within {
-    border-color: var(--accent-color, var(--accent-fallback));
+    border-color: var(--accent);
   }
 
   .search-icon {
     display: inline-flex;
-    color: var(--text-secondary);
     flex-shrink: 0;
   }
 
@@ -225,138 +223,138 @@
     flex: 1;
     min-width: 0;
     border: none;
+    outline: none;
     background: transparent;
     color: var(--text-primary);
-    font-family: var(--font-ui);
-    font-size: var(--text-xs);
+    font: inherit;
+  }
+
+  /* The surrounding box shows focus with its accent border. */
+  .search-input:focus-visible {
     outline: none;
   }
 
+  .search-input::-webkit-search-cancel-button {
+    display: none;
+  }
+
   .clear-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
     border: none;
     border-radius: var(--radius-control);
     background: transparent;
-    color: var(--text-secondary);
+    color: var(--text-muted);
     cursor: pointer;
   }
 
   .clear-btn:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
     color: var(--text-primary);
   }
 
   .search-summary {
-    font-size: 11px;
-    color: var(--text-secondary);
     padding: 0 2px;
+    color: var(--text-muted);
+    font-size: var(--fs-12);
   }
 
   .results-scroll {
     flex: 1;
     overflow-y: auto;
-    padding: var(--space-2);
+    padding: 0 var(--space-2) var(--space-2);
   }
 
   .empty-hint {
-    padding: var(--space-4) var(--space-2);
-    text-align: center;
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
+    padding: var(--space-3) var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--fs-13);
   }
 
   .results-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
+    margin: 0;
+    padding: 0;
+    list-style: none;
   }
 
   .hit-card {
-    width: 100%;
-    text-align: left;
-    padding: var(--space-2) var(--space-3);
-    border-radius: var(--radius-control);
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-subtle);
-    color: var(--text-primary);
-    cursor: pointer;
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    transition:
-      background-color var(--transition-fast),
-      border-color var(--transition-fast);
+    gap: 2px;
+    width: 100%;
+    padding: var(--space-2);
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
   }
 
   .hit-card:hover {
-    background: var(--bg-control-hover);
-    border-color: var(--border-control);
+    background: var(--surface-hover);
   }
 
   .hit-header {
     display: flex;
     align-items: center;
-    gap: var(--space-1);
+    gap: var(--space-2);
     min-width: 0;
   }
 
   .hit-icon {
     display: inline-flex;
-    color: var(--accent-color, var(--accent-fallback));
     flex-shrink: 0;
+    color: var(--text-muted);
   }
 
   .hit-title {
-    font-size: var(--text-xs);
-    font-weight: 600;
+    flex: 1;
     overflow: hidden;
+    font-weight: 500;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex: 1;
   }
 
   .hit-meta {
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text-muted);
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border-subtle);
-    padding: 1px 5px;
-    border-radius: var(--radius-control);
     flex-shrink: 0;
+    color: var(--text-muted);
+    font-size: var(--fs-12);
+    font-variant-numeric: tabular-nums;
   }
 
   .hit-path {
-    font-size: 11px;
-    color: var(--text-muted);
     overflow: hidden;
+    padding-left: 24px;
+    color: var(--text-muted);
+    font-size: var(--fs-12);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .hit-snippet {
-    font-size: 11px;
-    line-height: 1.45;
+    display: -webkit-box;
+    overflow: hidden;
+    padding-left: 24px;
     color: var(--text-secondary);
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border-subtle);
-    border-radius: var(--radius-control);
-    padding: 4px 6px;
+    font-size: var(--fs-12);
+    line-height: 1.5;
     word-break: break-word;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
   }
 
   .snippet-mark {
-    background: var(--selection-bg);
-    color: var(--text-primary);
-    font-weight: 600;
-    padding: 0 2px;
+    padding: 0 1px;
     border-radius: 2px;
+    background: var(--mark);
+    color: inherit;
   }
 </style>

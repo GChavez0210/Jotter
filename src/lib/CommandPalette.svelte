@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { fluentIcons } from './icons';
+  import Icon from './ui/Icon.svelte';
+  import Dialog from './ui/Dialog.svelte';
   import type { MarkdownFormatCommandId } from './markdownCommands';
   import { settingsStore } from './stores/settings.svelte';
   import { tabsStore } from './stores/tabs.svelte';
@@ -462,189 +463,59 @@
       }
     }
   }
+
+  let listEl: HTMLDivElement | undefined = $state();
+
+  // Keep the keyboard selection visible while arrowing through a long list.
+  $effect(() => {
+    void selectedIndex;
+    listEl?.querySelector('.picker-row.selected')?.scrollIntoView({ block: 'nearest' });
+  });
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div
-  class="palette-backdrop"
-  onmousedown={(e) => {
-    if (e.target === e.currentTarget) onClose();
-  }}
-  onkeydown={handleKeyDown}
->
-  <div
-    class="palette-dialog"
-    role="dialog"
-    aria-modal="true"
-    aria-label="Command palette"
-  >
-    <div class="search-row">
-      <span class="search-icon">{@html fluentIcons.search16}</span>
-      <input
-        bind:this={searchInputEl}
-        type="text"
-        class="search-input"
-        placeholder="Type a command or shortcut (e.g. Minimal, Zen, Live, Bold, Table)..."
-        aria-label="Search commands"
-        bind:value={query}
-      />
-      <kbd class="esc-hint">Esc</kbd>
-    </div>
-
-    <div class="command-list" role="listbox" aria-label="Available commands">
-      {#if filteredCommands.length === 0}
-        <div class="empty-results">No matching commands found.</div>
-      {:else}
-        {#each filteredCommands as item, idx (item.id)}
-          <button
-            type="button"
-            role="option"
-            aria-selected={idx === selectedIndex}
-            class="command-row"
-            class:selected={idx === selectedIndex}
-            onmouseenter={() => (selectedIndex = idx)}
-            onclick={() => executeItem(item)}
-          >
-            <div class="cmd-left">
-              <span class="cmd-category">{item.category}</span>
-              <span class="cmd-label">{item.label}</span>
-            </div>
-            {#if item.shortcut}
-              <kbd class="cmd-shortcut">{item.shortcut}</kbd>
-            {/if}
-          </button>
-        {/each}
-      {/if}
-    </div>
+<Dialog label="Command palette" {onClose} onkeydown={handleKeyDown}>
+  <div class="picker-search">
+    <Icon name="magnifying-glass" />
+    <input
+      bind:this={searchInputEl}
+      type="text"
+      class="picker-input"
+      placeholder="Type a command"
+      aria-label="Search commands"
+      bind:value={query}
+    />
+    <kbd>Esc</kbd>
   </div>
-</div>
 
-<style>
-  .palette-backdrop {
-    position: fixed;
-    inset: 0;
-    z-index: 200;
-    background: rgba(0, 0, 0, 0.32);
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    padding-top: 10vh;
-  }
+  <div class="picker-list" bind:this={listEl} role="listbox" aria-label="Commands">
+    {#if filteredCommands.length === 0}
+      <div class="picker-empty">No command matches “{query.trim()}”.</div>
+    {:else}
+      {#each filteredCommands as item, idx (item.id)}
+        {#if idx === 0 || filteredCommands[idx - 1].category !== item.category}
+          <div class="picker-group">{item.category}</div>
+        {/if}
+        <button
+          type="button"
+          role="option"
+          aria-selected={idx === selectedIndex}
+          class="picker-row"
+          class:selected={idx === selectedIndex}
+          onmouseenter={() => (selectedIndex = idx)}
+          onclick={() => executeItem(item)}
+        >
+          <span class="picker-label">{item.label}</span>
+          {#if item.shortcut}
+            <kbd>{item.shortcut}</kbd>
+          {/if}
+        </button>
+      {/each}
+    {/if}
+  </div>
 
-  .palette-dialog {
-    width: min(560px, 92vw);
-    max-height: 70vh;
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border-control);
-    border-radius: var(--radius-card);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-
-  .search-row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding: var(--space-3);
-    border-bottom: 1px solid var(--border-subtle);
-  }
-
-  .search-icon {
-    display: inline-flex;
-    color: var(--text-secondary);
-  }
-
-  .search-input {
-    flex: 1;
-    border: none;
-    background: transparent;
-    color: var(--text-primary);
-    font-family: var(--font-ui);
-    font-size: var(--text-sm);
-    outline: none;
-  }
-
-  .esc-hint {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    padding: 2px 6px;
-    border-radius: var(--radius-control);
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-subtle);
-    color: var(--text-secondary);
-  }
-
-  .command-list {
-    overflow-y: auto;
-    padding: var(--space-2);
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .empty-results {
-    padding: var(--space-4);
-    text-align: center;
-    font-size: var(--text-xs);
-    color: var(--text-secondary);
-  }
-
-  .command-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3);
-    width: 100%;
-    min-height: 36px;
-    padding: var(--space-1) var(--space-3);
-    border: 1px solid transparent;
-    border-radius: var(--radius-control);
-    background: transparent;
-    color: var(--text-primary);
-    text-align: left;
-    cursor: pointer;
-    transition: background-color var(--transition-fast);
-  }
-
-  .command-row.selected {
-    background: var(--selection-bg);
-    border-color: var(--accent-color, var(--accent-fallback));
-  }
-
-  .cmd-left {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    min-width: 0;
-  }
-
-  .cmd-category {
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    background: var(--bg-subtle);
-    border: 1px solid var(--border-subtle);
-    padding: 1px 6px;
-    border-radius: var(--radius-control);
-    flex-shrink: 0;
-  }
-
-  .cmd-label {
-    font-size: var(--text-xs);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .cmd-shortcut {
-    font-family: var(--font-mono);
-    font-size: 11px;
-    padding: 2px 6px;
-    border-radius: var(--radius-control);
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-subtle);
-    color: var(--text-secondary);
-    flex-shrink: 0;
-  }
-</style>
+  <div class="picker-footer">
+    <span><kbd>↑</kbd> <kbd>↓</kbd> to move</span>
+    <span><kbd>Enter</kbd> to run</span>
+    <span><kbd>Esc</kbd> to close</span>
+  </div>
+</Dialog>

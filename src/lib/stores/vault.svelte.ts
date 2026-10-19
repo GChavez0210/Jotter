@@ -144,7 +144,11 @@ class VaultStore {
         `Opened vault "${snap.name}" (${snap.noteCount} notes)`
       );
     } catch (err) {
-      this.onboardingError = err instanceof Error ? err.message : String(err);
+      const message = err instanceof Error ? err.message : String(err);
+      this.onboardingError = message;
+      if (this.vaultSnapshot) {
+        clipboardStore.setStatus(`Could not open vault: ${message}`);
+      }
     }
   }
 
