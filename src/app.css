@@ -226,6 +226,19 @@ kbd {
   --pele-bg: #ffffff;
 }
 
+@media print {
+  .jotter-print-view .pele {
+    --pele-bg: #ffffff;
+    --pele-fg: #1b1b1b;
+    --pele-muted: #595959;
+    --pele-line: #4f4f4f;
+    --pele-surface: #f5f5f5;
+    --pele-surface-alt: #ebebeb;
+    --pele-border: #a8a8a8;
+    --pele-accent: #2f4fa8;
+  }
+}
+
 .jotter-render-error {
   font-family: var(--font-mono);
   font-size: var(--fs-13);

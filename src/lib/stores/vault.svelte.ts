@@ -1,3 +1,4 @@
+import { detectSyncProvider, findConflictCopies, type ConflictCopy } from '../syncConflicts';
 import {
   closeVault,
   createFolder,
@@ -17,6 +18,7 @@ import type { RecentVault, VaultNode, VaultSnapshot } from '../types';
 import { clipboardStore } from './clipboard.svelte';
 import { settingsStore } from './settings.svelte';
 import { tabsStore } from './tabs.svelte';
+import { invalidateImagePreviews } from '../imagePreviewCache';
 
 function findFirstFileNode(nodes: VaultNode[]): VaultNode | null {
   for (const node of nodes) {
@@ -66,6 +68,7 @@ class VaultStore {
   recentVaults = $state<RecentVault[]>([]);
   onboardingError = $state('');
   indexVersion = $state(0);
+  deletedVersion = $state(0);
 
   constructor() {
     tabsStore.onNoteSaved = () => {
@@ -75,6 +78,15 @@ class VaultStore {
 
   allFiles = $derived<VaultNode[]>(
     this.vaultSnapshot ? collectAllFiles(this.vaultSnapshot.tree) : []
+  );
+
+  /** The cloud client syncing the vault folder, guessed from its path. */
+  syncProvider = $derived(
+    this.vaultSnapshot ? detectSyncProvider(this.vaultSnapshot.rootPath) : null
+  );
+
+  syncConflicts = $derived<ConflictCopy[]>(
+    findConflictCopies(this.allFiles.map((f) => f.relPath), this.syncProvider)
   );
 
   bumpIndexVersion() {
@@ -144,8 +156,9 @@ class VaultStore {
   async openVaultByPath(path: string) {
     this.onboardingError = '';
     try {
-      await tabsStore.flushAllAutosaves();
+      if (!(await tabsStore.flushAllAutosaves())) return;
       const snap = await openVault(path);
+      invalidateImagePreviews(snap.rootPath);
       this.vaultSnapshot = snap;
       this.bumpIndexVersion();
       tabsStore.scratchpadMode = false;
@@ -175,8 +188,9 @@ class VaultStore {
   async createVault(parentPath: string, vaultName: string) {
     this.onboardingError = '';
     try {
-      await tabsStore.flushAllAutosaves();
+      if (!(await tabsStore.flushAllAutosaves())) return;
       const snap = await createNewVault(parentPath, vaultName);
+      invalidateImagePreviews(snap.rootPath);
       this.vaultSnapshot = snap;
       this.bumpIndexVersion();
       tabsStore.scratchpadMode = false;
@@ -198,12 +212,14 @@ class VaultStore {
   }
 
   async switchVault() {
-    await tabsStore.flushAllAutosaves();
+    if (!(await tabsStore.flushAllAutosaves())) return;
     try {
       await closeVault();
-    } catch {
-      // ignore
+    } catch (err) {
+      clipboardStore.setStatus(`Could not close vault: ${String(err)}`);
+      return;
     }
+    invalidateImagePreviews('');
     this.vaultSnapshot = null;
     this.bumpIndexVersion();
     tabsStore.scratchpadMode = false;
@@ -260,7 +276,7 @@ class VaultStore {
   }
 
   async renameEntryInVault(oldRelPath: string, newRelPath: string) {
-    await tabsStore.flushAllAutosaves();
+    if (!(await tabsStore.flushAllAutosaves())) return;
     try {
       const res = await renameEntry(oldRelPath, newRelPath);
       this.vaultSnapshot = res.snapshot;
@@ -277,8 +293,11 @@ class VaultStore {
   }
 
   async deleteEntryInVault(relPath: string) {
+    if (!(await tabsStore.flushAllAutosaves())) return;
     try {
       this.vaultSnapshot = await deleteEntry(relPath);
+      this.deletedVersion++;
+      invalidateImagePreviews();
       this.bumpIndexVersion();
       tabsStore.removeTabsUnderPath(relPath);
       clipboardStore.setStatus(`Moved ${relPath} to Recycle Bin`);
@@ -293,6 +312,8 @@ class VaultStore {
   async restoreDeletedEntry(id: string): Promise<boolean> {
     try {
       const [relPath, snap] = await restoreDeletedEntry(id);
+      this.deletedVersion++;
+      invalidateImagePreviews();
       this.vaultSnapshot = snap;
       this.bumpIndexVersion();
       if (relPath.toLowerCase().endsWith('.md')) {
@@ -354,6 +375,7 @@ class VaultStore {
     onReplaceActiveEditor?: (newContent: string) => void
   ) {
     if (!this.vaultSnapshot) return;
+    invalidateImagePreviews();
     try {
       const snap = await getVaultSnapshot();
       if (snap) this.vaultSnapshot = snap;

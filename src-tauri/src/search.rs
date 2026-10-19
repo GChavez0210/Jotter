@@ -115,13 +115,30 @@ impl VaultSearchIndex {
 
     /// Incrementally upserts a batch of scanned notes in a single Tantivy commit.
     pub fn upsert_batch(&self, files: &[ScannedNoteFile]) -> Result<(), String> {
-        if files.is_empty() {
+        self.apply_changes(&[], files)
+    }
+
+    pub fn apply_changes(
+        &self,
+        deletions: &[String],
+        files: &[ScannedNoteFile],
+    ) -> Result<(), String> {
+        if files.is_empty() && deletions.is_empty() {
             return Ok(());
         }
         let mut writer = self
             .writer
             .lock()
             .map_err(|e| format!("Failed to lock Tantivy writer for upsert: {e}"))?;
+
+        for path in deletions {
+            let path = normalize_search_rel_path(path);
+            if path.is_empty() {
+                continue;
+            }
+            writer.delete_term(Term::from_field_text(self.path_field, &path));
+            writer.delete_term(Term::from_field_text(self.path_prefix_field, &path));
+        }
 
         for f in files {
             let norm_path = normalize_search_rel_path(&f.path);
@@ -183,7 +200,10 @@ impl VaultSearchIndex {
         let query = self.build_query(trimmed);
 
         let top_docs = searcher
-            .search(&query, &TopDocs::with_limit(limit.max(1)))
+            .search(
+                &query,
+                &TopDocs::with_limit(limit.clamp(1, 100)).order_by_score(),
+            )
             .map_err(|e| format!("Tantivy search failed: {e}"))?;
 
         let query_tokens: Vec<String> = trimmed
@@ -504,7 +524,10 @@ mod tests {
         assert_eq!(hits[0].path, "Specs/Sub/Clipboard.md");
         assert!(
             hits[0].snippet_html.contains("<mark>Notepad</mark>")
-                || hits[0].snippet_html.to_lowercase().contains("<mark>notepad</mark>"),
+                || hits[0]
+                    .snippet_html
+                    .to_lowercase()
+                    .contains("<mark>notepad</mark>"),
             "Expected <mark> highlight in snippet: {}",
             hits[0].snippet_html
         );
@@ -535,7 +558,12 @@ mod tests {
         let root = temp.path();
         let search_idx = VaultSearchIndex::new().expect("create tantivy index");
         let docs = vec![
-            sample_scanned_in_dir(root, "Meeting.md", "Meeting", "We receive the budget on Friday."),
+            sample_scanned_in_dir(
+                root,
+                "Meeting.md",
+                "Meeting",
+                "We receive the budget on Friday.",
+            ),
             sample_scanned_in_dir(root, "Typo.md", "Typo", "I always recieve mail late."),
         ];
         search_idx.rebuild_from_scanned(&docs).unwrap();
@@ -543,7 +571,11 @@ mod tests {
         let hits = search_idx.search(Some(root), "recieve", 10).unwrap();
         let paths: Vec<&str> = hits.iter().map(|h| h.path.as_str()).collect();
         assert_eq!(paths, vec!["Typo.md", "Meeting.md"]);
-        assert!(hits[1].snippet_html.contains("<mark>receive</mark>"), "{}", hits[1].snippet_html);
+        assert!(
+            hits[1].snippet_html.contains("<mark>receive</mark>"),
+            "{}",
+            hits[1].snippet_html
+        );
 
         let hits = search_idx.search(Some(root), "budgte", 10).unwrap();
         assert_eq!(hits.len(), 1);
@@ -562,7 +594,10 @@ mod tests {
         search_idx.rebuild_from_scanned(&docs).unwrap();
 
         assert!(search_idx.search(Some(root), "cot", 10).unwrap().is_empty());
-        assert!(search_idx.search(Some(root), "\"recieve\"", 10).unwrap().is_empty());
+        assert!(search_idx
+            .search(Some(root), "\"recieve\"", 10)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -588,11 +623,9 @@ mod tests {
                 for i in 0..per_thread_count {
                     let rel_path = format!("Thread{thread_id}/Note_{i}.md");
                     let title = format!("Thread {thread_id} Note {i}");
-                    let content = format!(
-                        "# {title}\nConcurrentSharedKeyword thread_{thread_id}_item_{i}"
-                    );
-                    let scanned =
-                        sample_scanned_in_dir(&root_clone, &rel_path, &title, &content);
+                    let content =
+                        format!("# {title}\nConcurrentSharedKeyword thread_{thread_id}_item_{i}");
+                    let scanned = sample_scanned_in_dir(&root_clone, &rel_path, &title, &content);
                     idx_clone
                         .upsert_scanned_note(&scanned)
                         .expect("concurrent upsert must succeed without dropping");
