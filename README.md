@@ -26,6 +26,36 @@ When a vault is open, pasting an image from the Windows clipboard (such as a `Wi
 
 ---
 
+## Writing and Organizing
+
+### Math
+Write inline math as `$e^{i\pi} + 1 = 0$` and display math between `$$` lines. Live mode renders it with KaTeX; move the cursor into a block to edit the TeX, with a rendered preview below it. A `$` followed by a space, or a closing `$` followed by a digit, stays plain text, so `$5 and $10` is not treated as math.
+
+### Diagrams
+Fenced code blocks tagged `mermaid` render as diagrams through [Pele](https://github.com/obsidianmd/pele), a Mermaid renderer that follows Jotter's theme colors. A syntax error shows the message and line number in place of the diagram.
+
+Math and diagrams also appear in HTML export and in Print to PDF. Exported HTML files use MathML, so they need no extra fonts or stylesheets.
+
+### Daily Notes
+`Ctrl+Shift+D` opens today's note, `Daily/YYYY-MM-DD.md`. If the note does not exist, Jotter creates it from the template note `Templates/Daily.md`, replacing `{{date}}`, `{{title}}` and `{{time}}`. Without a template note, Jotter uses a built-in one. Set the folder and template in **Settings → Vault**.
+
+### Recently Deleted
+Notes and folders you delete go to the Recycle Bin. The **Recently deleted** sidebar view lists the ones from the open vault, newest first, and restores them to their original location. Jotter does not overwrite a file that now exists at that path.
+
+### Typo-Tolerant Search
+Full-text search (`Ctrl+Shift+F`) also finds words one or two letters off, so `recieve` finds `receive`. Exact matches rank first. Words of three letters or fewer, quoted phrases, and queries with operators such as `AND` or `title:` match exactly.
+
+### Spell Check
+The editor underlines misspelled words using the languages installed in Windows. Right-click a word for suggestions. Turn it off in **Settings → Editor**.
+
+### Summon Hotkey
+Turn on **Settings → System → Summon hotkey** to show or hide Jotter from any app with `Ctrl+Alt+J`, or a hotkey you choose. While it is on, Jotter keeps an icon in the tray, and closing the window hides it instead of quitting. Quit from the tray icon's menu; Jotter saves open notes before it exits.
+
+### CSS Snippets
+Put `.css` files in `%LOCALAPPDATA%\Jotter\snippets`, then turn each one on in **Settings → System → CSS snippets**. Snippets load after the theme, so they can override its colors, fonts and spacing. **Open folder** opens the snippets folder, and **Reload** picks up edits.
+
+---
+
 ## Keyboard Shortcuts
 
 ### File, Vault & Navigation
@@ -34,11 +64,13 @@ When a vault is open, pasting an image from the Windows clipboard (such as a `Wi
 | `Ctrl+N` | Create new Markdown note in vault |
 | `Ctrl+O` | Open Quick Switcher (fuzzy search by note title & path) |
 | `Ctrl+P` | Open Command Palette (available in all modes, including Zen mode) |
-| `Ctrl+Shift+F` | Open full-text Vault Search (`tantivy` with highlighted snippets) |
+| `Ctrl+Shift+F` | Open full-text Vault Search (`tantivy` with highlighted snippets, tolerates typos) |
+| `Ctrl+Shift+D` | Open today's daily note, creating it from the template if needed |
 | `Ctrl+S` | Flush autosave for the active note immediately |
 | `Ctrl+W` | Close active note tab |
 | `Ctrl+\` | Toggle left sidebar (or exit Focus Mode) |
-| `Ctrl+,` | Open Settings dialog (`Editor`, `Copy`, `Appearance`, `Vault`) |
+| `Ctrl+,` | Open Settings dialog (`Editor`, `Copy`, `Appearance`, `Vault`, `System`) |
+| `Ctrl+Alt+J` | Summon hotkey: show or hide Jotter from any app (off by default; set in Settings > System) |
 | `Ctrl+Shift+P` | Print / Export active note to PDF (`Microsoft Print to PDF`) |
 | `Esc` | Close active modal/dialog or exit Focus Mode (`Minimal` / `Zen`) |
 
@@ -119,3 +151,12 @@ npm run build
 ```
 
 See [MANUAL_TESTS.md](MANUAL_TESTS.md) for manual paste verification across Google Chat, Slack, Gmail, Word, and Notepad, and [DECISIONS.md](DECISIONS.md) for architectural and accessibility documentation. See [ROADMAP.md](ROADMAP.md) for planned features.
+
+## License
+
+Jotter is licensed under either of these, at your option:
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
+- MIT License ([LICENSE-MIT](LICENSE-MIT))
+
+Unless you explicitly state otherwise, any contribution you intentionally submit for inclusion in Jotter, as defined in the Apache-2.0 license, is dual licensed as above, without any additional terms or conditions.

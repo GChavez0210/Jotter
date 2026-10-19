@@ -1,6 +1,7 @@
 <script lang="ts">
   import CalendarView from './CalendarView.svelte';
   import FileTreeItem from './FileTreeItem.svelte';
+  import RecentlyDeletedPanel from './RecentlyDeletedPanel.svelte';
   import SearchPanel from './SearchPanel.svelte';
   import TagBrowserPanel from './TagBrowserPanel.svelte';
   import Icon from './ui/Icon.svelte';
@@ -72,6 +73,7 @@
     { id: 'search', label: 'Full-text search', icon: 'magnifying-glass', hint: 'Ctrl+Shift+F' },
     { id: 'tags', label: 'Tags', icon: 'tag' },
     { id: 'calendar', label: 'Calendar', icon: 'calendar-blank' },
+    { id: 'trash', label: 'Recently deleted', icon: 'trash' },
   ];
 
   function samePath(a: string, b: string): boolean {
@@ -406,6 +408,8 @@
       <TagBrowserPanel />
     {:else if settingsStore.leftSidebarView === 'calendar'}
       <CalendarView />
+    {:else if settingsStore.leftSidebarView === 'trash'}
+      <RecentlyDeletedPanel />
     {/if}
 
     <div class="sidebar-footer">
