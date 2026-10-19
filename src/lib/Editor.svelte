@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
   import { EditorState } from '@codemirror/state';
   import {
     EditorView,
@@ -678,13 +678,16 @@
   }
 
   $effect(() => {
-    if (view && docId !== currentLoadedDocId) {
-      currentLoadedDocId = docId;
-      suppressChangeEmit = true;
-      view.setState(createEditorState(initialDoc));
-      suppressChangeEmit = false;
-      emitStats(view.state);
-    }
+    // Read docId before the view check: this effect first runs before onMount creates
+    // the view, and a dependency read only after the check would never be tracked.
+    const nextDocId = docId;
+    if (!view || nextDocId === currentLoadedDocId) return;
+    currentLoadedDocId = nextDocId;
+    const nextDoc = untrack(() => initialDoc);
+    suppressChangeEmit = true;
+    view.setState(createEditorState(nextDoc));
+    suppressChangeEmit = false;
+    emitStats(view.state);
   });
 
   $effect(() => {
