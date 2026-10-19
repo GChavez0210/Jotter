@@ -153,6 +153,20 @@
         <span>Commands</span>
       </button>
 
+      {#if vaultStore.vaultSnapshot}
+        <button
+          type="button"
+          class="fluent-btn"
+          class:active-toggle={settingsStore.showRightPanel}
+          aria-pressed={settingsStore.showRightPanel}
+          title="Toggle Backlinks panel"
+          onclick={() => settingsStore.toggleRightPanel()}
+        >
+          {@html fluentIcons.backlink16}
+          <span>Backlinks</span>
+        </button>
+      {/if}
+
       <button
         type="button"
         class="fluent-btn"

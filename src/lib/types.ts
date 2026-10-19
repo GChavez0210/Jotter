@@ -85,3 +85,29 @@ export interface CalendarNoteEntry {
   createdMs: number;
   preview: string;
 }
+
+export interface BacklinkEntry {
+  sourcePath: string;
+  sourceTitle: string;
+  target: string;
+  heading: string | null;
+  alias: string | null;
+  lineNumber: number;
+  lineContext: string;
+}
+
+export interface TagSummary {
+  tag: string;
+  count: number;
+}
+
+export interface SearchHit {
+  path: string;
+  title: string;
+  snippetHtml: string;
+  lineNumber: number;
+  matchCount: number;
+}
+
+export type LeftSidebarView = 'files' | 'search' | 'tags' | 'calendar';
+

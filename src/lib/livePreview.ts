@@ -19,6 +19,7 @@ export interface LivePreviewConfig {
   editingMode: EditingMode;
   dimInactiveParagraphs: boolean;
   typewriterScrolling: boolean;
+  onWikiLinkClick?: (noteTarget: string, heading?: string) => void;
 }
 
 const VIEWPORT_MARGIN_LINES = 20;
@@ -166,8 +167,11 @@ class HorizontalRuleWidget extends WidgetType {
 class WikiLinkWidget extends WidgetType {
   constructor(
     readonly displayText: string,
-    readonly target: string,
-    readonly posFrom: number
+    readonly rawTarget: string,
+    readonly noteTarget: string,
+    readonly heading: string | undefined,
+    readonly posFrom: number,
+    readonly onWikiLinkClick?: (noteTarget: string, heading?: string) => void
   ) {
     super();
   }
@@ -175,7 +179,9 @@ class WikiLinkWidget extends WidgetType {
   eq(other: WikiLinkWidget): boolean {
     return (
       this.displayText === other.displayText &&
-      this.target === other.target &&
+      this.rawTarget === other.rawTarget &&
+      this.noteTarget === other.noteTarget &&
+      this.heading === other.heading &&
       this.posFrom === other.posFrom
     );
   }
@@ -184,15 +190,24 @@ class WikiLinkWidget extends WidgetType {
     const span = document.createElement('span');
     span.className = 'cm-live-wikilink-widget';
     span.textContent = this.displayText;
-    span.title = `Wiki link: [[${this.target}]] (click to edit)`;
+    span.title = `Open [[${this.rawTarget}]] (Alt+Click to edit syntax)`;
     span.addEventListener('mousedown', (e) => {
       e.preventDefault();
-      view.dispatch({
-        selection: { anchor: this.posFrom + 2 },
-      });
-      view.focus();
+      e.stopPropagation();
+      if (e.altKey || !this.onWikiLinkClick) {
+        view.dispatch({
+          selection: { anchor: this.posFrom + 2 },
+        });
+        view.focus();
+        return;
+      }
+      this.onWikiLinkClick(this.noteTarget, this.heading);
     });
     return span;
+  }
+
+  ignoreEvent(): boolean {
+    return true;
   }
 }
 
@@ -344,29 +359,40 @@ export function findInlineCodeSpansInLine(
   return spans;
 }
 
-function formatWikiLinkDisplay(inner: string): {
+export function parseWikiLinkInner(inner: string): {
   display: string;
-  target: string;
+  rawTarget: string;
+  noteTarget: string;
+  heading?: string;
 } {
   const pipeIdx = inner.indexOf('|');
-  if (pipeIdx >= 0) {
-    const target = inner.slice(0, pipeIdx).trim();
-    const alias = inner.slice(pipeIdx + 1).trim();
-    return {
-      display: alias || target,
-      target: target || inner,
-    };
-  }
-  const hashIdx = inner.indexOf('#');
-  if (hashIdx >= 0) {
-    const note = inner.slice(0, hashIdx).trim();
-    const heading = inner.slice(hashIdx + 1).trim();
-    if (note && heading) {
-      return { display: `${note} › ${heading}`, target: inner };
+  const targetPart =
+    pipeIdx >= 0 ? inner.slice(0, pipeIdx).trim() : inner.trim();
+  const aliasPart = pipeIdx >= 0 ? inner.slice(pipeIdx + 1).trim() : '';
+
+  const hashIdx = targetPart.indexOf('#');
+  const noteTarget =
+    hashIdx >= 0 ? targetPart.slice(0, hashIdx).trim() : targetPart;
+  const heading =
+    hashIdx >= 0 ? targetPart.slice(hashIdx + 1).trim() || undefined : undefined;
+
+  let display = targetPart;
+  if (aliasPart) {
+    display = aliasPart;
+  } else if (hashIdx >= 0) {
+    if (noteTarget && heading) {
+      display = `${noteTarget} › ${heading}`;
+    } else {
+      display = heading || noteTarget || inner.trim();
     }
-    return { display: heading || note || inner, target: inner };
   }
-  return { display: inner.trim(), target: inner.trim() };
+
+  return {
+    display,
+    rawTarget: inner.trim(),
+    noteTarget,
+    heading,
+  };
 }
 
 function buildLivePreviewDecorations(
@@ -857,10 +883,17 @@ function buildLivePreviewDecorations(
           }
 
           if (!isRangeTouchedBySelection(state, matchFrom, matchTo)) {
-            const { display, target } = formatWikiLinkDisplay(match[1]);
+            const parsed = parseWikiLinkInner(match[1]);
             decorations.push(
               Decoration.replace({
-                widget: new WikiLinkWidget(display, target, matchFrom),
+                widget: new WikiLinkWidget(
+                  parsed.display,
+                  parsed.rawTarget,
+                  parsed.noteTarget,
+                  parsed.heading,
+                  matchFrom,
+                  config.onWikiLinkClick
+                ),
               }).range(matchFrom, matchTo)
             );
           } else {

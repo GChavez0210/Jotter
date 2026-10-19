@@ -1,6 +1,10 @@
 <script lang="ts">
+  import CalendarView from './CalendarView.svelte';
   import FileTreeItem from './FileTreeItem.svelte';
+  import SearchPanel from './SearchPanel.svelte';
+  import TagBrowserPanel from './TagBrowserPanel.svelte';
   import { fluentIcons } from './icons';
+  import { settingsStore } from './stores/settings.svelte';
   import type { VaultNode, VaultSnapshot } from './types';
   import { validateWindowsEntryName } from './validation';
 
@@ -181,111 +185,170 @@
       </div>
     </div>
 
-    {#if creatingKind}
-      <form class="create-entry-bar" onsubmit={submitNewEntry}>
-        <div class="create-entry-label">
-          New {creatingKind}
-          {creatingParentRel ? `in ${creatingParentRel}` : 'in root'}:
-        </div>
-        <div class="create-entry-controls">
-          <!-- svelte-ignore a11y_autofocus -->
-          <input
-            type="text"
-            class="create-input"
-            class:invalid={Boolean(creatingValidationError)}
-            aria-invalid={Boolean(creatingValidationError)}
-            bind:value={creatingDraftName}
-            autofocus
-            onkeydown={(e) => {
-              if (e.key === 'Escape') creatingKind = null;
-            }}
-          />
-          <button
-            type="submit"
-            class="mini-btn primary"
-            disabled={Boolean(creatingValidationError)}
-          >
-            Create
-          </button>
-          <button
-            type="button"
-            class="mini-btn"
-            onclick={() => (creatingKind = null)}
-          >
-            Cancel
-          </button>
-        </div>
-        {#if creatingValidationError}
-          <div class="inline-error" role="alert">{creatingValidationError}</div>
-        {/if}
-      </form>
-    {/if}
+    <div class="sidebar-nav-tabs" role="tablist" aria-label="Sidebar views">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={settingsStore.leftSidebarView === 'files'}
+        class="nav-tab-btn"
+        class:active={settingsStore.leftSidebarView === 'files'}
+        title="Files"
+        onclick={() => settingsStore.setLeftSidebarView('files')}
+      >
+        {@html fluentIcons.folder16}
+        <span>Files</span>
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={settingsStore.leftSidebarView === 'search'}
+        class="nav-tab-btn"
+        class:active={settingsStore.leftSidebarView === 'search'}
+        title="Full-text search (Ctrl+Shift+F)"
+        onclick={() => settingsStore.setLeftSidebarView('search')}
+      >
+        {@html fluentIcons.search16}
+        <span>Search</span>
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={settingsStore.leftSidebarView === 'tags'}
+        class="nav-tab-btn"
+        class:active={settingsStore.leftSidebarView === 'tags'}
+        title="Tag browser"
+        onclick={() => settingsStore.setLeftSidebarView('tags')}
+      >
+        {@html fluentIcons.tag16}
+        <span>Tags</span>
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={settingsStore.leftSidebarView === 'calendar'}
+        class="nav-tab-btn"
+        class:active={settingsStore.leftSidebarView === 'calendar'}
+        title="Calendar view"
+        onclick={() => settingsStore.setLeftSidebarView('calendar')}
+      >
+        {@html fluentIcons.calendar16}
+        <span>Calendar</span>
+      </button>
+    </div>
 
-    {#if pendingDeleteNode}
-      <div class="delete-confirm-bar" role="alertdialog" aria-label="Confirm move to Recycle Bin">
-        <div class="delete-confirm-text">
-          Move <strong>{pendingDeleteNode.name}</strong> to the Recycle Bin?
-        </div>
-        <div class="delete-confirm-actions">
-          <button
-            type="button"
-            class="mini-btn danger"
-            onclick={() => {
-              const target = pendingDeleteNode!;
-              pendingDeleteNode = null;
-              onDeleteEntry(target.relPath);
-            }}
-          >
-            Move to Recycle Bin
-          </button>
-          <button
-            type="button"
-            class="mini-btn"
-            onclick={() => (pendingDeleteNode = null)}
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    {/if}
-
-    <div class="tree-scroll">
-      {#if snapshot.tree.length === 0}
-        <div class="empty-tree">
-          <p>No Markdown notes in this vault yet.</p>
-          <button
-            type="button"
-            class="new-first-note-btn"
-            onclick={() => startNewEntry('note', '')}
-          >
-            {@html fluentIcons.documentAdd16}
-            <span>Create first note</span>
-          </button>
-        </div>
-      {:else}
-        <ul class="tree-root" role="tree" aria-label="Notes and folders">
-          {#each snapshot.tree as node (node.relPath)}
-            <FileTreeItem
-              {node}
-              depth={0}
-              {activeRelPath}
-              {expandedPaths}
-              {renamingRelPath}
-              {onSelectFile}
-              onToggleFolder={toggleFolder}
-              onStartRename={handleStartRename}
-              onCommitRename={handleCommitRename}
-              onCancelRename={() => (renamingRelPath = null)}
-              onContextMenu={(e, n) => handleContextMenu(e, n)}
-              onRequestDelete={(n) => {
-                contextMenu = null;
-                pendingDeleteNode = n;
+    {#if settingsStore.leftSidebarView === 'files'}
+      {#if creatingKind}
+        <form class="create-entry-bar" onsubmit={submitNewEntry}>
+          <div class="create-entry-label">
+            New {creatingKind}
+            {creatingParentRel ? `in ${creatingParentRel}` : 'in root'}:
+          </div>
+          <div class="create-entry-controls">
+            <!-- svelte-ignore a11y_autofocus -->
+            <input
+              type="text"
+              class="create-input"
+              class:invalid={Boolean(creatingValidationError)}
+              aria-invalid={Boolean(creatingValidationError)}
+              bind:value={creatingDraftName}
+              autofocus
+              onkeydown={(e) => {
+                if (e.key === 'Escape') creatingKind = null;
               }}
             />
-          {/each}
-        </ul>
+            <button
+              type="submit"
+              class="mini-btn primary"
+              disabled={Boolean(creatingValidationError)}
+            >
+              Create
+            </button>
+            <button
+              type="button"
+              class="mini-btn"
+              onclick={() => (creatingKind = null)}
+            >
+              Cancel
+            </button>
+          </div>
+          {#if creatingValidationError}
+            <div class="inline-error" role="alert">{creatingValidationError}</div>
+          {/if}
+        </form>
       {/if}
-    </div>
+
+      {#if pendingDeleteNode}
+        <div class="delete-confirm-bar" role="alertdialog" aria-label="Confirm move to Recycle Bin">
+          <div class="delete-confirm-text">
+            Move <strong>{pendingDeleteNode.name}</strong> to the Recycle Bin?
+          </div>
+          <div class="delete-confirm-actions">
+            <button
+              type="button"
+              class="mini-btn danger"
+              onclick={() => {
+                const target = pendingDeleteNode!;
+                pendingDeleteNode = null;
+                onDeleteEntry(target.relPath);
+              }}
+            >
+              Move to Recycle Bin
+            </button>
+            <button
+              type="button"
+              class="mini-btn"
+              onclick={() => (pendingDeleteNode = null)}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      {/if}
+
+      <div class="tree-scroll">
+        {#if snapshot.tree.length === 0}
+          <div class="empty-tree">
+            <p>No Markdown notes in this vault yet.</p>
+            <button
+              type="button"
+              class="new-first-note-btn"
+              onclick={() => startNewEntry('note', '')}
+            >
+              {@html fluentIcons.documentAdd16}
+              <span>Create first note</span>
+            </button>
+          </div>
+        {:else}
+          <ul class="tree-root" role="tree" aria-label="Notes and folders">
+            {#each snapshot.tree as node (node.relPath)}
+              <FileTreeItem
+                {node}
+                depth={0}
+                {activeRelPath}
+                {expandedPaths}
+                {renamingRelPath}
+                {onSelectFile}
+                onToggleFolder={toggleFolder}
+                onStartRename={handleStartRename}
+                onCommitRename={handleCommitRename}
+                onCancelRename={() => (renamingRelPath = null)}
+                onContextMenu={(e, n) => handleContextMenu(e, n)}
+                onRequestDelete={(n) => {
+                  contextMenu = null;
+                  pendingDeleteNode = n;
+                }}
+              />
+            {/each}
+          </ul>
+        {/if}
+      </div>
+    {:else if settingsStore.leftSidebarView === 'search'}
+      <SearchPanel />
+    {:else if settingsStore.leftSidebarView === 'tags'}
+      <TagBrowserPanel />
+    {:else if settingsStore.leftSidebarView === 'calendar'}
+      <CalendarView />
+    {/if}
 
     <!-- Resize Sash -->
     <div
@@ -380,6 +443,47 @@
     gap: var(--space-1);
     padding: var(--space-2);
     border-bottom: 1px solid var(--border-subtle);
+  }
+
+  .sidebar-nav-tabs {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 2px;
+    padding: 4px var(--space-2);
+    border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-subtle);
+  }
+
+  .nav-tab-btn {
+    min-height: var(--control-min-height);
+    padding: 0 4px;
+    border-radius: var(--radius-control);
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 11px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    cursor: pointer;
+    transition:
+      background-color var(--transition-fast),
+      color var(--transition-fast),
+      border-color var(--transition-fast);
+  }
+
+  .nav-tab-btn:hover {
+    background: var(--bg-control-hover);
+    color: var(--text-primary);
+  }
+
+  .nav-tab-btn.active {
+    background: var(--bg-card-solid);
+    color: var(--text-primary);
+    border-color: var(--border-control);
+    font-weight: 600;
   }
 
   .vault-switcher-btn {

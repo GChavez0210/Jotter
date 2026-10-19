@@ -148,3 +148,48 @@ pub struct RenameEntryResult {
 pub struct VaultFsEvent {
     pub changed_paths: Vec<String>,
 }
+
+/// Outgoing `[[wiki link]]` occurrence with 1-based line number and line context for SQLite indexing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexedLink {
+    pub source_path: String,
+    pub target: String,
+    pub heading: Option<String>,
+    pub alias: Option<String>,
+    pub line_number: usize,
+    pub line_context: String,
+}
+
+/// Backlink entry returned for the active note in the right-hand Backlinks panel.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BacklinkEntry {
+    pub source_path: String,
+    pub source_title: String,
+    pub target: String,
+    pub heading: Option<String>,
+    pub alias: Option<String>,
+    pub line_number: usize,
+    pub line_context: String,
+}
+
+/// Tag summary entry for the Tag Browser panel.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagSummary {
+    pub tag: String,
+    pub count: usize,
+}
+
+/// Full-text search hit returned by the Tantivy search index.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchHit {
+    pub path: String,
+    pub title: String,
+    pub snippet_html: String,
+    pub line_number: usize,
+    pub match_count: usize,
+}
+

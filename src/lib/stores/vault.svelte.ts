@@ -25,10 +25,65 @@ function findFirstFileNode(nodes: VaultNode[]): VaultNode | null {
   return null;
 }
 
+function collectAllFiles(nodes: VaultNode[], out: VaultNode[] = []): VaultNode[] {
+  for (const node of nodes) {
+    if (node.kind === 'file') {
+      out.push(node);
+    } else if (node.children.length > 0) {
+      collectAllFiles(node.children, out);
+    }
+  }
+  return out;
+}
+
+export function stripMdExt(pathOrName: string): string {
+  return pathOrName.replace(/\.md$/i, '');
+}
+
 class VaultStore {
   vaultSnapshot = $state<VaultSnapshot | null>(null);
   recentVaults = $state<RecentVault[]>([]);
   onboardingError = $state('');
+  indexVersion = $state(0);
+
+  constructor() {
+    tabsStore.onNoteSaved = () => {
+      this.bumpIndexVersion();
+    };
+  }
+
+  allFiles = $derived<VaultNode[]>(
+    this.vaultSnapshot ? collectAllFiles(this.vaultSnapshot.tree) : []
+  );
+
+  bumpIndexVersion() {
+    this.indexVersion += 1;
+  }
+
+  /**
+   * Resolves a wiki-link target (e.g. `Architecture` or `Specs/Architecture` or `Specs/Architecture.md`)
+   * to a matching `VaultNode` in the open vault, or `null` if missing.
+   */
+  resolveWikiTarget(rawTarget: string): VaultNode | null {
+    const clean = stripMdExt(rawTarget.trim().replace(/\\/g, '/')).toLowerCase();
+    if (!clean) return null;
+
+    // 1. Exact relative path match (without .md)
+    for (const file of this.allFiles) {
+      if (stripMdExt(file.relPath).toLowerCase() === clean) {
+        return file;
+      }
+    }
+
+    // 2. Match by note title / filename stem
+    for (const file of this.allFiles) {
+      if (stripMdExt(file.name).toLowerCase() === clean) {
+        return file;
+      }
+    }
+
+    return null;
+  }
 
   async refreshRecentVaults() {
     try {
@@ -44,6 +99,7 @@ class VaultStore {
       await tabsStore.flushAllAutosaves();
       const snap = await openVault(path);
       this.vaultSnapshot = snap;
+      this.bumpIndexVersion();
       tabsStore.scratchpadMode = false;
       tabsStore.resetTabs();
       try {
@@ -70,6 +126,7 @@ class VaultStore {
       await tabsStore.flushAllAutosaves();
       const snap = await createNewVault(parentPath, vaultName);
       this.vaultSnapshot = snap;
+      this.bumpIndexVersion();
       tabsStore.scratchpadMode = false;
       tabsStore.resetTabs();
       try {
@@ -96,6 +153,7 @@ class VaultStore {
       // ignore
     }
     this.vaultSnapshot = null;
+    this.bumpIndexVersion();
     tabsStore.scratchpadMode = false;
     tabsStore.resetTabs();
     try {
@@ -114,7 +172,7 @@ class VaultStore {
     }
   }
 
-  async createNoteInVault(parentFolderRel: string, noteName: string) {
+  async createNoteInVault(parentFolderRel: string, noteName: string): Promise<string | null> {
     const targetRel = parentFolderRel
       ? `${parentFolderRel}/${noteName}`
       : noteName;
@@ -122,12 +180,15 @@ class VaultStore {
       const titleBase = noteName.replace(/\.md$/i, '');
       const [snap, doc] = await createNote(targetRel, `# ${titleBase}\n\n`);
       this.vaultSnapshot = snap;
+      this.bumpIndexVersion();
       tabsStore.addOrActivateCreatedDoc(doc.relPath, doc.title, doc.content);
       clipboardStore.setStatus(`Created ${doc.relPath}`);
+      return doc.relPath;
     } catch (err) {
       clipboardStore.setStatus(
         `Failed to create note: ${err instanceof Error ? err.message : String(err)}`
       );
+      return null;
     }
   }
 
@@ -137,6 +198,7 @@ class VaultStore {
       : folderName;
     try {
       this.vaultSnapshot = await createFolder(targetRel);
+      this.bumpIndexVersion();
       clipboardStore.setStatus(`Created folder ${targetRel}`);
     } catch (err) {
       clipboardStore.setStatus(
@@ -150,6 +212,7 @@ class VaultStore {
     try {
       const res = await renameEntry(oldRelPath, newRelPath);
       this.vaultSnapshot = res.snapshot;
+      this.bumpIndexVersion();
       tabsStore.updatePathsAfterRename(res.oldRelPath, res.newRelPath);
       clipboardStore.setStatus(
         `Renamed ${res.oldRelPath} → ${res.newRelPath}`
@@ -164,6 +227,7 @@ class VaultStore {
   async deleteEntryInVault(relPath: string) {
     try {
       this.vaultSnapshot = await deleteEntry(relPath);
+      this.bumpIndexVersion();
       tabsStore.removeTabsUnderPath(relPath);
       clipboardStore.setStatus(`Moved ${relPath} to Recycle Bin`);
     } catch (err) {
@@ -184,6 +248,7 @@ class VaultStore {
     } catch {
       // ignore
     }
+    this.bumpIndexVersion();
     await tabsStore.handleExternalPathsChanged(
       changedPaths,
       onReplaceActiveEditor

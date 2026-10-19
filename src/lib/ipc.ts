@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
   BackdropState,
+  BacklinkEntry,
   CalendarDateField,
   CalendarDaySummary,
   CalendarNoteEntry,
@@ -10,6 +11,8 @@ import type {
   NoteDocument,
   RecentVault,
   RenameEntryResult,
+  SearchHit,
+  TagSummary,
   VaultFsEvent,
   VaultSnapshot,
 } from './types';
@@ -115,6 +118,25 @@ export async function queryCalendarDateNotes(
   return invoke<CalendarNoteEntry[]>('query_calendar_date_notes', { date, field });
 }
 
+export async function getBacklinks(relPath: string): Promise<BacklinkEntry[]> {
+  return invoke<BacklinkEntry[]>('get_backlinks', { relPath });
+}
+
+export async function getAllTags(): Promise<TagSummary[]> {
+  return invoke<TagSummary[]>('get_all_tags');
+}
+
+export async function getNotesByTag(tag: string): Promise<CalendarNoteEntry[]> {
+  return invoke<CalendarNoteEntry[]>('get_notes_by_tag', { tag });
+}
+
+export async function searchVault(
+  query: string,
+  limit = 40
+): Promise<SearchHit[]> {
+  return invoke<SearchHit[]>('search_vault', { query, limit });
+}
+
 export async function listenVaultFsEvents(
   handler: (payload: VaultFsEvent) => void
 ): Promise<UnlistenFn> {
@@ -122,3 +144,4 @@ export async function listenVaultFsEvents(
     handler(event.payload);
   });
 }
+

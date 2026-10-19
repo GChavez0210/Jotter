@@ -99,10 +99,54 @@
     {
       id: 'toggle-sidebar',
       category: 'Focus & View',
-      label: 'Toggle File Tree Sidebar',
+      label: 'Toggle Left Sidebar',
       shortcut: 'Ctrl+\\',
       action: () => settingsStore.toggleSidebar(),
     },
+    ...(vaultStore.vaultSnapshot
+      ? [
+          {
+            id: 'quick-switcher',
+            category: 'Navigation',
+            label: 'Quick Switcher: Fuzzy Open Note by Name',
+            shortcut: 'Ctrl+O',
+            action: () => (settingsStore.showQuickSwitcher = true),
+          },
+          {
+            id: 'view-search',
+            category: 'Navigation',
+            label: 'Open Full-Text Vault Search Panel',
+            shortcut: 'Ctrl+Shift+F',
+            action: () => settingsStore.setLeftSidebarView('search'),
+          },
+          {
+            id: 'view-tags',
+            category: 'Navigation',
+            label: 'Open Tag Browser Panel',
+            action: () => settingsStore.setLeftSidebarView('tags'),
+          },
+          {
+            id: 'view-calendar',
+            category: 'Navigation',
+            label: 'Open Calendar View',
+            action: () => settingsStore.setLeftSidebarView('calendar'),
+          },
+          {
+            id: 'view-files',
+            category: 'Navigation',
+            label: 'Open File Tree View',
+            action: () => settingsStore.setLeftSidebarView('files'),
+          },
+          {
+            id: 'toggle-backlinks',
+            category: 'Focus & View',
+            label: `${
+              settingsStore.showRightPanel ? 'Hide' : 'Show'
+            } Right Backlinks Panel`,
+            action: () => settingsStore.toggleRightPanel(),
+          },
+        ]
+      : []),
     // Markdown Formatting
     {
       id: 'fmt-bold',

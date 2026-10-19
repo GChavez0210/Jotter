@@ -47,11 +47,19 @@ fn copy_preserves_newlines(input: &str) -> String {
 }
 \`\`\``;
 
+export interface PendingScrollTarget {
+  relPath: string;
+  heading?: string;
+  lineNumber?: number;
+  seq: number;
+}
+
 class TabsStore {
   openTabs = $state<OpenTab[]>([]);
   activeTabPath = $state<string | null>(null);
   scratchpadMode = $state(false);
   scratchpadContent = $state(SAMPLE_NOTE);
+  pendingScrollTarget = $state<PendingScrollTarget | null>(null);
   docStats = $state({
     lines: 0,
     words: 0,
@@ -60,6 +68,8 @@ class TabsStore {
     selectedLines: 0,
   });
 
+  onNoteSaved: (() => void) | null = null;
+  private scrollSeq = 0;
   private autosaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   activeTab = $derived(
@@ -70,6 +80,11 @@ class TabsStore {
     this.clearAllTimers();
     this.openTabs = [];
     this.activeTabPath = null;
+    this.pendingScrollTarget = null;
+  }
+
+  clearPendingScrollTarget() {
+    this.pendingScrollTarget = null;
   }
 
   clearAllTimers() {
@@ -79,10 +94,23 @@ class TabsStore {
     this.autosaveTimers.clear();
   }
 
-  async openNoteInTab(relPath: string) {
-    const existing = this.openTabs.find((t) => t.relPath === relPath);
+  async openNoteInTab(
+    relPath: string,
+    options?: { heading?: string; lineNumber?: number }
+  ) {
+    const existing = this.openTabs.find(
+      (t) => t.relPath.toLowerCase() === relPath.toLowerCase()
+    );
     if (existing) {
       this.activeTabPath = existing.relPath;
+      if (options?.heading || options?.lineNumber) {
+        this.pendingScrollTarget = {
+          relPath: existing.relPath,
+          heading: options.heading,
+          lineNumber: options.lineNumber,
+          seq: ++this.scrollSeq,
+        };
+      }
       return;
     }
 
@@ -98,6 +126,14 @@ class TabsStore {
       };
       this.openTabs = [...this.openTabs, tab];
       this.activeTabPath = tab.relPath;
+      if (options?.heading || options?.lineNumber) {
+        this.pendingScrollTarget = {
+          relPath: tab.relPath,
+          heading: options.heading,
+          lineNumber: options.lineNumber,
+          seq: ++this.scrollSeq,
+        };
+      }
       clipboardStore.setStatus(`Opened ${doc.relPath}`);
     } catch (err) {
       clipboardStore.setStatus(
@@ -198,6 +234,7 @@ class TabsStore {
             }
           : t
       );
+      this.onNoteSaved?.();
       clipboardStore.setStatus(`Saved ${savedDoc.relPath}`);
     } catch (err) {
       clipboardStore.setStatus(

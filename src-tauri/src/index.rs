@@ -5,10 +5,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::clipboard::strip_markdown_to_plain;
-use crate::links::split_yaml_frontmatter;
-use crate::types::{CalendarDateField, CalendarDaySummary, CalendarNoteEntry};
+use crate::links::{extract_tags, parse_wiki_links_with_lines, split_yaml_frontmatter};
+use crate::types::{
+    BacklinkEntry, CalendarDateField, CalendarDaySummary, CalendarNoteEntry, IndexedLink,
+    TagSummary,
+};
 
-/// Filesystem metadata scanned from a `.md` note without holding the SQLite mutex.
+/// Filesystem metadata and parsed links/tags scanned from a `.md` note without holding the SQLite mutex.
 #[derive(Debug, Clone)]
 pub struct ScannedNoteFile {
     pub path: String,
@@ -16,6 +19,19 @@ pub struct ScannedNoteFile {
     pub fs_modified_ms: i64,
     pub created_ms: i64,
     pub preview: String,
+    pub content: String,
+    pub links: Vec<IndexedLink>,
+    pub tags: Vec<String>,
+}
+
+/// Normalizes a wiki-link target for case-insensitive matching (strips `.md` suffix, normalizes slashes).
+pub fn normalize_link_target(raw: &str) -> String {
+    let slash_norm = raw.trim().replace('\\', "/");
+    let stripped = slash_norm
+        .strip_suffix(".md")
+        .or_else(|| slash_norm.strip_suffix(".MD"))
+        .unwrap_or(&slash_norm);
+    stripped.trim().to_lowercase()
 }
 
 /// Converts a `SystemTime` to milliseconds since UNIX_EPOCH.
@@ -67,7 +83,7 @@ pub fn extract_note_preview(content: &str) -> String {
     String::new()
 }
 
-/// Initializes the rebuildable SQLite metadata cache schema (`notes` and persistent `edit_log`).
+/// Initializes the rebuildable SQLite metadata cache schema (`notes`, `links`, `note_tags`, and persistent `edit_log`).
 pub fn init_index_schema(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS notes (
@@ -84,9 +100,27 @@ pub fn init_index_schema(conn: &Connection) -> Result<(), String> {
             path TEXT NOT NULL,
             edited_ms INTEGER NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS links (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_path TEXT NOT NULL,
+            target TEXT NOT NULL,
+            target_norm TEXT NOT NULL,
+            heading TEXT,
+            alias TEXT,
+            line_number INTEGER NOT NULL,
+            line_context TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS note_tags (
+            path TEXT NOT NULL,
+            tag TEXT NOT NULL,
+            PRIMARY KEY (path, tag)
+        );
         CREATE INDEX IF NOT EXISTS idx_notes_modified_date ON notes(modified_date);
         CREATE INDEX IF NOT EXISTS idx_notes_created_date ON notes(created_date);
-        CREATE INDEX IF NOT EXISTS idx_edit_log_path_ms ON edit_log(path, edited_ms DESC);",
+        CREATE INDEX IF NOT EXISTS idx_edit_log_path_ms ON edit_log(path, edited_ms DESC);
+        CREATE INDEX IF NOT EXISTS idx_links_source_path ON links(source_path);
+        CREATE INDEX IF NOT EXISTS idx_links_target_norm ON links(target_norm);
+        CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag);",
     )
     .map_err(|e| format!("Failed to initialize SQLite index schema: {e}"))
 }
@@ -181,6 +215,62 @@ pub fn upsert_note_entry(
     Ok(())
 }
 
+/// Replaces all outgoing `links` rows for `source_path`.
+pub fn replace_note_links(
+    conn: &Connection,
+    source_path: &str,
+    links: &[IndexedLink],
+) -> Result<(), String> {
+    conn.execute(
+        "DELETE FROM links WHERE source_path = ?1",
+        params![source_path],
+    )
+    .map_err(|e| format!("Failed to clear links for {source_path}: {e}"))?;
+
+    for link in links {
+        let target_norm = normalize_link_target(&link.target);
+        if target_norm.is_empty() {
+            continue;
+        }
+        conn.execute(
+            "INSERT INTO links (source_path, target, target_norm, heading, alias, line_number, line_context)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                source_path,
+                link.target,
+                target_norm,
+                link.heading,
+                link.alias,
+                link.line_number as i64,
+                link.line_context
+            ],
+        )
+        .map_err(|e| format!("Failed to insert link for {source_path}: {e}"))?;
+    }
+
+    Ok(())
+}
+
+/// Replaces all `note_tags` rows for `path`.
+pub fn replace_note_tags(
+    conn: &Connection,
+    path: &str,
+    tags: &[String],
+) -> Result<(), String> {
+    conn.execute("DELETE FROM note_tags WHERE path = ?1", params![path])
+        .map_err(|e| format!("Failed to clear tags for {path}: {e}"))?;
+
+    for tag in tags {
+        conn.execute(
+            "INSERT OR IGNORE INTO note_tags (path, tag) VALUES (?1, ?2)",
+            params![path, tag],
+        )
+        .map_err(|e| format!("Failed to insert tag {tag} for {path}: {e}"))?;
+    }
+
+    Ok(())
+}
+
 /// Scans a single `.md` file from disk without holding the SQLite lock.
 pub fn scan_single_file_from_disk(
     vault_root: &Path,
@@ -213,6 +303,8 @@ pub fn scan_single_file_from_disk(
         .unwrap_or("Untitled")
         .to_string();
     let preview = extract_note_preview(&content);
+    let links = parse_wiki_links_with_lines(&rel_str, &content);
+    let tags = extract_tags(&content);
 
     Ok(ScannedNoteFile {
         path: rel_str,
@@ -220,6 +312,9 @@ pub fn scan_single_file_from_disk(
         fs_modified_ms,
         created_ms,
         preview,
+        content,
+        links,
+        tags,
     })
 }
 
@@ -270,8 +365,8 @@ fn walk_and_scan_dir(
     Ok(())
 }
 
-/// Upserts a pre-scanned `.md` file into SQLite, consulting `edit_log` for the latest in-app
-/// `edited_ms` and falling back to `scanned.fs_modified_ms` otherwise.
+/// Upserts a pre-scanned `.md` file into SQLite (`notes`, `links`, and `note_tags`),
+/// consulting `edit_log` for the latest in-app `edited_ms` and falling back to `scanned.fs_modified_ms`.
 pub fn upsert_scanned_note(
     conn: &Connection,
     scanned: &ScannedNoteFile,
@@ -298,7 +393,10 @@ pub fn upsert_scanned_note(
         &entry,
         &ms_to_ymd_date(effective_mod_ms),
         &ms_to_ymd_date(scanned.created_ms),
-    )
+    )?;
+    replace_note_links(conn, &scanned.path, &scanned.links)?;
+    replace_note_tags(conn, &scanned.path, &scanned.tags)?;
+    Ok(())
 }
 
 /// Indexes a single `.md` file from disk into the SQLite cache.
@@ -314,25 +412,39 @@ pub fn index_single_file(
     upsert_scanned_note(conn, &scanned, override_modified_ms)
 }
 
-/// Removes a note or all notes inside a folder (`rel_path` or `rel_path/%`) from the `notes` table.
+/// Removes a note or all notes inside a folder (`rel_path` or `rel_path/%`) from `notes`, `links`, and `note_tags`.
 pub fn delete_indexed_path(conn: &Connection, rel_path: &str) -> Result<(), String> {
     let prefix = format!("{rel_path}/%");
     conn.execute(
         "DELETE FROM notes WHERE path = ?1 OR path LIKE ?2",
         params![rel_path, prefix],
     )
-    .map_err(|e| format!("Failed to delete indexed path {rel_path}: {e}"))?;
+    .map_err(|e| format!("Failed to delete indexed path {rel_path} from notes: {e}"))?;
+    conn.execute(
+        "DELETE FROM links WHERE source_path = ?1 OR source_path LIKE ?2",
+        params![rel_path, prefix],
+    )
+    .map_err(|e| format!("Failed to delete indexed path {rel_path} from links: {e}"))?;
+    conn.execute(
+        "DELETE FROM note_tags WHERE path = ?1 OR path LIKE ?2",
+        params![rel_path, prefix],
+    )
+    .map_err(|e| format!("Failed to delete indexed path {rel_path} from note_tags: {e}"))?;
     Ok(())
 }
 
-/// Applies a pre-scanned list of vault files to rebuild the `notes` table while preserving `edit_log`.
+/// Applies a pre-scanned list of vault files to rebuild `notes`, `links`, and `note_tags` while preserving `edit_log`.
 pub fn apply_scanned_vault_index(
     conn: &Connection,
     scanned_files: &[ScannedNoteFile],
 ) -> Result<usize, String> {
     init_index_schema(conn)?;
-    conn.execute("DELETE FROM notes", [])
-        .map_err(|e| format!("Failed to clear notes table: {e}"))?;
+    conn.execute_batch(
+        "DELETE FROM notes;
+         DELETE FROM links;
+         DELETE FROM note_tags;",
+    )
+    .map_err(|e| format!("Failed to clear derived index tables: {e}"))?;
 
     for scanned in scanned_files {
         upsert_scanned_note(conn, scanned, None)?;
@@ -341,11 +453,117 @@ pub fn apply_scanned_vault_index(
     Ok(scanned_files.len())
 }
 
-/// Rebuilds the SQLite `notes` index from `.md` files in `vault_root` (ignoring `.obsidian` and dot-entries),
-/// while preserving all rows in `edit_log`.
+/// Rebuilds the SQLite `notes`, `links`, and `note_tags` tables from `.md` files in `vault_root`
+/// (ignoring `.obsidian` and dot-entries), while preserving all rows in `edit_log`.
 pub fn rebuild_index_from_vault(conn: &Connection, vault_root: &Path) -> Result<usize, String> {
     let scanned = scan_dir_files_from_disk(vault_root, vault_root)?;
     apply_scanned_vault_index(conn, &scanned)
+}
+
+/// Queries all backlinks pointing to `active_rel_path` (matching by note stem/title or relative path).
+pub fn query_backlinks_for_note(
+    conn: &Connection,
+    active_rel_path: &str,
+) -> Result<Vec<BacklinkEntry>, String> {
+    let rel_norm = normalize_link_target(active_rel_path);
+    let stem_norm = active_rel_path
+        .rsplit('/')
+        .next()
+        .map(normalize_link_target)
+        .unwrap_or_else(|| rel_norm.clone());
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT l.source_path, COALESCE(n.title, l.source_path), l.target, l.heading, l.alias, l.line_number, l.line_context
+             FROM links l
+             LEFT JOIN notes n ON n.path = l.source_path
+             WHERE (l.target_norm = ?1 OR l.target_norm = ?2)
+               AND l.source_path != ?3
+             ORDER BY l.source_path ASC, l.line_number ASC",
+        )
+        .map_err(|e| format!("Failed to prepare backlinks query: {e}"))?;
+
+    let rows = stmt
+        .query_map(params![rel_norm, stem_norm, active_rel_path], |row| {
+            Ok(BacklinkEntry {
+                source_path: row.get(0)?,
+                source_title: row.get(1)?,
+                target: row.get(2)?,
+                heading: row.get(3)?,
+                alias: row.get(4)?,
+                line_number: row.get::<_, i64>(5)? as usize,
+                line_context: row.get(6)?,
+            })
+        })
+        .map_err(|e| format!("Failed to execute backlinks query: {e}"))?;
+
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(|e| format!("Failed to read backlink row: {e}"))?);
+    }
+    Ok(out)
+}
+
+/// Queries all tags across the vault with their note counts, sorted by count descending then tag name.
+pub fn query_all_tags(conn: &Connection) -> Result<Vec<TagSummary>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT tag, COUNT(*) AS cnt
+             FROM note_tags
+             GROUP BY tag
+             ORDER BY cnt DESC, tag ASC",
+        )
+        .map_err(|e| format!("Failed to prepare tags query: {e}"))?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(TagSummary {
+                tag: row.get(0)?,
+                count: row.get::<_, usize>(1)?,
+            })
+        })
+        .map_err(|e| format!("Failed to execute tags query: {e}"))?;
+
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(|e| format!("Failed to read tag summary row: {e}"))?);
+    }
+    Ok(out)
+}
+
+/// Queries all notes containing a given `tag`, sorted by `modified_ms` descending.
+pub fn query_notes_by_tag(
+    conn: &Connection,
+    tag: &str,
+) -> Result<Vec<CalendarNoteEntry>, String> {
+    let clean_tag = tag.trim().trim_start_matches('#');
+    let mut stmt = conn
+        .prepare(
+            "SELECT n.path, n.title, n.modified_ms, n.created_ms, n.preview
+             FROM notes n
+             INNER JOIN note_tags t ON n.path = t.path
+             WHERE LOWER(t.tag) = LOWER(?1)
+             ORDER BY n.modified_ms DESC",
+        )
+        .map_err(|e| format!("Failed to prepare notes-by-tag query: {e}"))?;
+
+    let rows = stmt
+        .query_map(params![clean_tag], |row| {
+            Ok(CalendarNoteEntry {
+                path: row.get(0)?,
+                title: row.get(1)?,
+                modified_ms: row.get(2)?,
+                created_ms: row.get(3)?,
+                preview: row.get(4)?,
+            })
+        })
+        .map_err(|e| format!("Failed to execute notes-by-tag query: {e}"))?;
+
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row.map_err(|e| format!("Failed to read tagged note row: {e}"))?);
+    }
+    Ok(out)
 }
 
 /// Queries per-day note counts for a given `year_month` prefix (e.g. `"2026-10"`).
@@ -563,5 +781,67 @@ mod tests {
             query_notes_on_date(&conn, &today, CalendarDateField::Modified).unwrap();
         assert_eq!(today_notes.len(), 1);
         assert_eq!(today_notes[0].path, "ExternalNote.md");
+    }
+
+    #[test]
+    fn indexes_links_into_sqlite_and_queries_backlinks_incrementally() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let root = temp.path();
+
+        fs::create_dir_all(root.join("Specs")).unwrap();
+        fs::write(
+            root.join("Specs/Clipboard Engine.md"),
+            "# Clipboard Engine\nCore spec for #clipboard and #windows11.",
+        )
+        .unwrap();
+        fs::write(
+            root.join("Daily.md"),
+            "---\ntags: [daily, windows11]\n---\n# Daily Log\nReviewed [[Clipboard Engine#Overview|Clipboard Spec]] today.\nAlso linked [[Specs/Clipboard Engine]] on line 6.",
+        )
+        .unwrap();
+
+        let conn = Connection::open_in_memory().unwrap();
+        rebuild_index_from_vault(&conn, root).unwrap();
+
+        let backlinks = query_backlinks_for_note(&conn, "Specs/Clipboard Engine.md").unwrap();
+        assert_eq!(backlinks.len(), 2);
+        assert_eq!(backlinks[0].source_path, "Daily.md");
+        assert_eq!(backlinks[0].source_title, "Daily");
+        assert_eq!(backlinks[0].heading, Some("Overview".to_string()));
+        assert_eq!(backlinks[0].alias, Some("Clipboard Spec".to_string()));
+        assert_eq!(backlinks[0].line_number, 5);
+        assert_eq!(
+            backlinks[0].line_context,
+            "Reviewed [[Clipboard Engine#Overview|Clipboard Spec]] today."
+        );
+        assert_eq!(backlinks[1].line_number, 6);
+
+        // Verify tags aggregation across frontmatter and inline #tags
+        let tags = query_all_tags(&conn).unwrap();
+        assert_eq!(
+            tags,
+            vec![
+                TagSummary {
+                    tag: "windows11".to_string(),
+                    count: 2
+                },
+                TagSummary {
+                    tag: "clipboard".to_string(),
+                    count: 1
+                },
+                TagSummary {
+                    tag: "daily".to_string(),
+                    count: 1
+                },
+            ]
+        );
+
+        let win11_notes = query_notes_by_tag(&conn, "windows11").unwrap();
+        assert_eq!(win11_notes.len(), 2);
+
+        // Incrementally delete Daily.md and verify backlinks and tags update
+        delete_indexed_path(&conn, "Daily.md").unwrap();
+        let backlinks_after = query_backlinks_for_note(&conn, "Specs/Clipboard Engine.md").unwrap();
+        assert!(backlinks_after.is_empty());
     }
 }
