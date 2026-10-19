@@ -10,6 +10,7 @@ import { CalcError, evaluate, evaluateCalcBlock, formatNumber, inlineCalculation
 import { parseFrontmatter, removeProperty, renameProperty, serializeProperty, setProperty } from '../src/lib/frontmatter';
 import { itemAt, itemOnLine, moveItem, shiftItem } from '../src/lib/outliner';
 import { detectSyncProvider, findConflictCopies } from '../src/lib/syncConflicts';
+import { describeDueDate, findDueDate } from '../src/lib/dueDates';
 import { invalidateImagePreviews, cachedImage, rememberImage, imagePreviewEpoch } from '../src/lib/imagePreviewCache';
 
 function dirtyTab() {
@@ -244,4 +245,18 @@ test('conflict copies match each provider and skip ambiguous names elsewhere', (
   assert.ok(findConflictCopies(paths, 'googledrive').some((c) => c.copyPath === 'Plan (1).md'));
   assert.ok(findConflictCopies(paths, 'icloud').some((c) => c.copyPath === 'Plan 2.md'));
   assert.ok(!findConflictCopies(['Chapter 2.md'], 'icloud').length);
+});
+
+test('due dates match the three task syntaxes and describe relative days', () => {
+  assert.equal(findDueDate('- [ ] Pay rent 📅 2026-11-01')?.date, '2026-11-01');
+  assert.equal(findDueDate('* [x] Call due:2026-10-20 09:30')?.time, '09:30');
+  assert.equal(findDueDate('* [x] Call due:2026-10-20 09:30')?.done, true);
+  assert.equal(findDueDate('1. [ ] Review [due:: 2026-10-31] notes')?.date, '2026-10-31');
+  assert.equal(findDueDate('- Plain due:2026-10-20'), null);
+  assert.equal(findDueDate('- [ ] overdue:2026-10-04'), null);
+  assert.equal(findDueDate('- [ ] Bad 📅 2026-02-30'), null);
+  const now = new Date(2026, 9, 19, 12);
+  assert.deepEqual(describeDueDate('2026-10-19', now), {label:'Today', overdue:false});
+  assert.deepEqual(describeDueDate('2026-10-20', now), {label:'Tomorrow', overdue:false});
+  assert.equal(describeDueDate('2026-10-01', now).overdue, true);
 });

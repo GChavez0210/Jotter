@@ -6,9 +6,10 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use crate::clipboard::strip_markdown_to_plain;
 use crate::links::{extract_tags, parse_wiki_links_with_lines, split_yaml_frontmatter};
+use crate::tasks::parse_due_tasks;
 use crate::types::{
     BacklinkEntry, CalendarDateField, CalendarDaySummary, CalendarNoteEntry, IndexedLink,
-    TagSummary,
+    NoteCard, TagSummary, TaskEntry,
 };
 
 fn escape_like(path: &str) -> String {
@@ -121,6 +122,14 @@ pub fn init_index_schema(conn: &Connection) -> Result<(), String> {
             path TEXT NOT NULL,
             tag TEXT NOT NULL,
             PRIMARY KEY (path, tag)
+        );
+        CREATE TABLE IF NOT EXISTS tasks (
+            path TEXT NOT NULL,
+            line_number INTEGER NOT NULL,
+            text TEXT NOT NULL,
+            done INTEGER NOT NULL,
+            due_date TEXT NOT NULL,
+            due_time TEXT
         );",
     )
     .map_err(|e| format!("Failed to initialize SQLite index schema: {e}"))?;
@@ -135,7 +144,9 @@ pub fn init_index_schema(conn: &Connection) -> Result<(), String> {
         CREATE INDEX IF NOT EXISTS idx_links_source_path ON links(source_path);
         CREATE INDEX IF NOT EXISTS idx_links_target_norm ON links(target_norm);
         CREATE INDEX IF NOT EXISTS idx_links_resolved_path ON links(resolved_path);
-        CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag);",
+        CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag);
+        CREATE INDEX IF NOT EXISTS idx_tasks_path ON tasks(path);
+        CREATE INDEX IF NOT EXISTS idx_tasks_due_date ON tasks(due_date);",
     )
     .map_err(|e| format!("Failed to initialize SQLite index indices: {e}"))
 }
@@ -409,6 +420,28 @@ pub fn replace_note_tags(conn: &Connection, path: &str, tags: &[String]) -> Resu
     Ok(())
 }
 
+/// Replaces all `tasks` rows for `path` with the note's due-dated checklist items.
+pub fn replace_note_tasks(conn: &Connection, path: &str, content: &str) -> Result<(), String> {
+    conn.execute("DELETE FROM tasks WHERE path = ?1", params![path])
+        .map_err(|e| format!("Failed to clear tasks for {path}: {e}"))?;
+    for task in parse_due_tasks(content) {
+        conn.execute(
+            "INSERT INTO tasks (path, line_number, text, done, due_date, due_time)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                path,
+                task.line_number as i64,
+                task.text,
+                task.done,
+                task.due_date,
+                task.due_time
+            ],
+        )
+        .map_err(|e| format!("Failed to insert task for {path}: {e}"))?;
+    }
+    Ok(())
+}
+
 /// Scans a single `.md` file from disk without holding the SQLite lock.
 pub fn scan_single_file_from_disk(
     vault_root: &Path,
@@ -541,6 +574,7 @@ fn upsert_scanned_note_no_resolve(
     )?;
     replace_note_links(conn, &scanned.path, &scanned.links)?;
     replace_note_tags(conn, &scanned.path, &scanned.tags)?;
+    replace_note_tasks(conn, &scanned.path, &scanned.content)?;
     Ok(())
 }
 
@@ -591,6 +625,11 @@ fn delete_indexed_path_no_resolve(conn: &Connection, rel_path: &str) -> Result<(
         params![rel_path, prefix],
     )
     .map_err(|e| format!("Failed to delete indexed path {rel_path} from note_tags: {e}"))?;
+    conn.execute(
+        "DELETE FROM tasks WHERE path = ?1 OR path LIKE ?2 ESCAPE '\\'",
+        params![rel_path, prefix],
+    )
+    .map_err(|e| format!("Failed to delete indexed path {rel_path} from tasks: {e}"))?;
     Ok(())
 }
 
@@ -624,7 +663,8 @@ pub fn apply_scanned_vault_index(
     conn.execute_batch(
         "DELETE FROM notes;
          DELETE FROM links;
-         DELETE FROM note_tags;",
+         DELETE FROM note_tags;
+         DELETE FROM tasks;",
     )
     .map_err(|e| format!("Failed to clear derived index tables: {e}"))?;
 
@@ -812,6 +852,96 @@ pub fn query_notes_on_date(
         entries.push(row.map_err(|e| format!("Failed to read day note row: {e}"))?);
     }
     Ok(entries)
+}
+
+/// Lists due-dated tasks sorted by due date and time, then by note and line.
+pub fn query_due_tasks(conn: &Connection) -> Result<Vec<TaskEntry>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT t.path, COALESCE(n.title, t.path), t.line_number, t.text, t.done, t.due_date, t.due_time
+             FROM tasks t
+             LEFT JOIN notes n ON n.path = t.path
+             ORDER BY t.due_date ASC, COALESCE(t.due_time, '') ASC, t.path ASC, t.line_number ASC",
+        )
+        .map_err(|e| format!("Failed to prepare tasks query: {e}"))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok(TaskEntry {
+                path: row.get(0)?,
+                title: row.get(1)?,
+                line_number: row.get::<_, i64>(2)? as usize,
+                text: row.get(3)?,
+                done: row.get(4)?,
+                due_date: row.get(5)?,
+                due_time: row.get(6)?,
+            })
+        })
+        .map_err(|e| format!("Failed to execute tasks query: {e}"))?;
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("Failed to read task row: {e}"))
+}
+
+/// Lists every note with its tags and link counts, for the Home page and tags-and-links view.
+pub fn query_note_cards(conn: &Connection) -> Result<Vec<NoteCard>, String> {
+    use std::collections::HashMap;
+
+    let mut cards: Vec<NoteCard> = {
+        let mut stmt = conn
+            .prepare("SELECT path, title, modified_ms, created_ms, preview FROM notes ORDER BY path")
+            .map_err(|e| format!("Failed to prepare note cards query: {e}"))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(NoteCard {
+                    path: row.get(0)?,
+                    title: row.get(1)?,
+                    modified_ms: row.get(2)?,
+                    created_ms: row.get(3)?,
+                    preview: row.get(4)?,
+                    tags: Vec::new(),
+                    links_to: Vec::new(),
+                    linked_from: 0,
+                })
+            })
+            .map_err(|e| format!("Failed to execute note cards query: {e}"))?;
+        rows.collect::<Result<Vec<_>, _>>()
+            .map_err(|e| format!("Failed to read note card row: {e}"))?
+    };
+    let index: HashMap<String, usize> =
+        cards.iter().enumerate().map(|(i, c)| (c.path.clone(), i)).collect();
+
+    let mut tag_stmt = conn
+        .prepare("SELECT path, tag FROM note_tags ORDER BY tag")
+        .map_err(|e| format!("Failed to prepare note tags query: {e}"))?;
+    let tag_rows = tag_stmt
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|e| format!("Failed to execute note tags query: {e}"))?;
+    for row in tag_rows {
+        let (path, tag) = row.map_err(|e| format!("Failed to read note tag row: {e}"))?;
+        if let Some(&i) = index.get(&path) {
+            cards[i].tags.push(tag);
+        }
+    }
+
+    // Count each linking note once, however many times it links to the target.
+    let mut link_stmt = conn
+        .prepare(
+            "SELECT DISTINCT source_path, resolved_path FROM links
+             WHERE resolved_path IS NOT NULL AND resolved_path != source_path",
+        )
+        .map_err(|e| format!("Failed to prepare links query: {e}"))?;
+    let link_rows = link_stmt
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|e| format!("Failed to execute links query: {e}"))?;
+    for row in link_rows {
+        let (source, target) = row.map_err(|e| format!("Failed to read link row: {e}"))?;
+        if let Some(&i) = index.get(&source) {
+            cards[i].links_to.push(target.clone());
+        }
+        if let Some(&i) = index.get(&target) {
+            cards[i].linked_from += 1;
+        }
+    }
+    Ok(cards)
 }
 
 #[cfg(test)]
@@ -1108,5 +1238,39 @@ mod tests {
         let beta_backlinks_after_rename =
             query_backlinks_for_note(&conn, "Beta/Deep/Plan.md").unwrap();
         assert_eq!(beta_backlinks_after_rename.len(), 3);
+    }
+}
+
+#[cfg(test)]
+mod note_card_tests {
+    use super::*;
+
+    #[test]
+    fn note_cards_count_links_once_and_tasks_follow_rebuilds_and_deletes() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let root = dir.path();
+        fs::write(root.join("A.md"), "#alpha\n[[B]] and [[B]] again\n- [ ] Ship 📅 2026-11-02\n").unwrap();
+        fs::write(root.join("B.md"), "---\ntags: [beta]\n---\n[[A]]\n").unwrap();
+        fs::write(root.join("C.md"), "[[B]]\n- [x] Done due:2026-10-01\n").unwrap();
+
+        let conn = Connection::open_in_memory().unwrap();
+        init_index_schema(&conn).unwrap();
+        rebuild_index_from_vault(&conn, root).unwrap();
+
+        let cards = query_note_cards(&conn).unwrap();
+        let card = |p: &str| cards.iter().find(|c| c.path == p).unwrap().clone();
+        assert_eq!(card("A.md").links_to, vec!["B.md".to_string()]);
+        assert_eq!(card("A.md").tags, vec!["alpha".to_string()]);
+        assert_eq!(card("B.md").linked_from, 2);
+        assert_eq!(card("B.md").tags, vec!["beta".to_string()]);
+        assert_eq!(card("C.md").linked_from, 0);
+
+        let tasks = query_due_tasks(&conn).unwrap();
+        assert_eq!(tasks.len(), 2);
+        assert_eq!((tasks[0].path.as_str(), tasks[0].done), ("C.md", true));
+        assert_eq!((tasks[1].text.as_str(), tasks[1].line_number), ("Ship", 3));
+
+        delete_indexed_path(&conn, "A.md").unwrap();
+        assert_eq!(query_due_tasks(&conn).unwrap().len(), 1);
     }
 }

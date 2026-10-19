@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy, tick } from 'svelte';
+  import { onMount, onDestroy, tick, untrack } from 'svelte';
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import BacklinksPanel from './lib/BacklinksPanel.svelte';
   import ClipboardInspector from './lib/ClipboardInspector.svelte';
@@ -28,6 +28,7 @@
   import { systemStore } from './lib/stores/system.svelte';
   import { tabsStore } from './lib/stores/tabs.svelte';
   import { vaultStore } from './lib/stores/vault.svelte';
+  import { taskCalendarStore } from './lib/stores/taskCalendar.svelte';
 
   let editorRef: Editor | undefined = $state();
   let unlistenFsEvents: UnlistenFn | null = null;
@@ -331,6 +332,12 @@
     void settingsStore.summonEnabled;
     void settingsStore.summonShortcut;
     void systemStore.syncSummon();
+  });
+
+  // Every save, external change, and vault switch bumps the index version.
+  $effect(() => {
+    void vaultStore.indexVersion;
+    untrack(() => taskCalendarStore.scheduleWrite());
   });
 
   onMount(() => {
