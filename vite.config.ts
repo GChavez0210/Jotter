@@ -8,8 +8,8 @@ export default defineConfig({
   clearScreen: false,
   build: {
     target: 'esnext',
-    minify: false,
-    cssMinify: false,
+    minify: 'esbuild',
+    cssMinify: true,
   },
   server: {
     port: 1420,

@@ -183,12 +183,16 @@ export async function configureSummon(enabled: boolean, shortcut: string): Promi
   return invoke<void>('configure_summon', { enabled, shortcut });
 }
 
-export async function quitApp(): Promise<void> {
-  return invoke<void>('quit_app');
+export async function quitApp(quit = true): Promise<void> {
+  return invoke<void>('quit_app', { quit });
 }
 
-export async function listenQuitRequested(handler: () => void): Promise<UnlistenFn> {
-  return listen('quit-requested', () => handler());
+export async function keepAppOpen(): Promise<void> {
+  return invoke<void>('keep_app_open');
+}
+
+export async function listenQuitRequested(handler: (quit: boolean) => void): Promise<UnlistenFn> {
+  return listen<boolean>('quit-requested', (event) => handler(event.payload));
 }
 
 export async function renderNoteHtmlPreview(

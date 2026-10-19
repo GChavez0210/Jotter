@@ -11,8 +11,7 @@ use crate::types::{
 
 const WINDOWS_RESERVED_NAMES: &[&str] = &[
     "CON", "PRN", "AUX", "NUL", "COM0", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
-    "COM8", "COM9", "LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8",
-    "LPT9",
+    "COM8", "COM9", "LPT0", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
 ];
 
 const WINDOWS_INVALID_CHARS: &[char] = &['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
@@ -123,14 +122,64 @@ pub fn resolve_safe_vault_path(
         full_path.push(part);
     }
 
+    ensure_vault_containment(vault_root, &full_path)?;
     Ok((full_path, clean_parts.join("/")))
+}
+
+/// Reject links below the chosen root, including junctions and broken links.
+/// Existing parents are checked before creating a file or directory.
+pub fn ensure_vault_containment(root: &Path, path: &Path) -> Result<(), String> {
+    let relative = path
+        .strip_prefix(root)
+        .map_err(|_| "Path is outside the vault.".to_string())?;
+    let canonical_root =
+        fs::canonicalize(root).map_err(|e| format!("Cannot resolve vault: {e}"))?;
+    let mut current = root.to_path_buf();
+    for part in relative.components() {
+        if !matches!(part, Component::Normal(_)) {
+            return Err("Path is outside the vault.".to_string());
+        }
+        current.push(part);
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) => {
+                if is_link_metadata(&metadata) {
+                    return Err(format!(
+                        "Links and junctions inside the vault are not supported: {}",
+                        current.display()
+                    ));
+                }
+                let resolved =
+                    fs::canonicalize(&current).map_err(|e| format!("Cannot resolve path: {e}"))?;
+                if !resolved.starts_with(&canonical_root) {
+                    return Err("Path resolves outside the vault.".to_string());
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
+            Err(e) => return Err(format!("Cannot inspect vault path: {e}")),
+        }
+    }
+    Ok(())
+}
+
+pub fn is_link_metadata(metadata: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if metadata.file_attributes() & 0x400 != 0 {
+            return true;
+        }
+    }
+    metadata.file_type().is_symlink()
 }
 
 /// Ensures a relative note path ends with `.md` (case-insensitive), validating raw segments first
 /// so trailing dots/spaces before `.md` are caught.
 pub fn ensure_md_extension(rel_path: &str) -> String {
     let norm = normalize_rel_path(rel_path);
-    if norm.len() >= 3 && norm[norm.len() - 3..].eq_ignore_ascii_case(".md") {
+    if norm
+        .get(norm.len().saturating_sub(3)..)
+        .is_some_and(|suffix| suffix.eq_ignore_ascii_case(".md"))
+    {
         norm
     } else {
         format!("{norm}.md")
@@ -168,8 +217,8 @@ fn scan_dir_nodes(
     dir: &Path,
     note_count: &mut usize,
 ) -> Result<Vec<VaultNode>, String> {
-    let entries =
-        fs::read_dir(dir).map_err(|e| format!("Failed to read directory {}: {e}", dir.display()))?;
+    let entries = fs::read_dir(dir)
+        .map_err(|e| format!("Failed to read directory {}: {e}", dir.display()))?;
 
     let mut nodes = Vec::new();
 
@@ -191,11 +240,11 @@ fn scan_dir_nodes(
             Ok(m) => m,
             Err(_) => continue,
         };
+        if is_link_metadata(&metadata) {
+            continue;
+        }
 
-        let modified_ms = metadata
-            .modified()
-            .map(system_time_to_ms)
-            .unwrap_or(0);
+        let modified_ms = metadata.modified().map(system_time_to_ms).unwrap_or(0);
         let created_ms = metadata
             .created()
             .map(system_time_to_ms)
@@ -263,10 +312,7 @@ pub fn read_vault_note(vault_root: &Path, rel_path: &str) -> Result<NoteDocument
     let metadata = fs::metadata(&abs_path)
         .map_err(|e| format!("Failed to read metadata for {clean_rel}: {e}"))?;
 
-    let modified_ms = metadata
-        .modified()
-        .map(system_time_to_ms)
-        .unwrap_or(0);
+    let modified_ms = metadata.modified().map(system_time_to_ms).unwrap_or(0);
     let created_ms = metadata
         .created()
         .map(system_time_to_ms)
@@ -556,7 +602,15 @@ mod tests {
         let root = temp.path();
 
         // Reserved device names (case-insensitive, with or without extension)
-        for reserved in ["CON", "prn", "Aux.md", "NUL", "COM1.md", "lpt9", "Folder/CON.md"] {
+        for reserved in [
+            "CON",
+            "prn",
+            "Aux.md",
+            "NUL",
+            "COM1.md",
+            "lpt9",
+            "Folder/CON.md",
+        ] {
             assert!(
                 resolve_safe_vault_path(root, reserved).is_err(),
                 "Expected reserved name '{reserved}' to be rejected"
@@ -564,7 +618,14 @@ mod tests {
         }
 
         // Invalid characters
-        for invalid in ["Note?.md", "A:B.md", "Star*.md", "Pipe|.md", "Quote\".md", "Angle<>.md"] {
+        for invalid in [
+            "Note?.md",
+            "A:B.md",
+            "Star*.md",
+            "Pipe|.md",
+            "Quote\".md",
+            "Angle<>.md",
+        ] {
             assert!(
                 resolve_safe_vault_path(root, invalid).is_err(),
                 "Expected invalid chars in '{invalid}' to be rejected"
@@ -572,7 +633,13 @@ mod tests {
         }
 
         // Trailing spaces or dots (both on folder/note name and before .md)
-        for trailing in ["TrailingDot.", "TrailingSpace ", "Note..md", "Note .md", "Folder./Note.md"] {
+        for trailing in [
+            "TrailingDot.",
+            "TrailingSpace ",
+            "Note..md",
+            "Note .md",
+            "Folder./Note.md",
+        ] {
             assert!(
                 resolve_safe_vault_path(root, trailing).is_err(),
                 "Expected trailing space/dot in '{trailing}' to be rejected"
@@ -597,7 +664,8 @@ mod tests {
         assert_eq!(snap1.tree.len(), 1);
         assert_eq!(snap1.tree[0].name, "Daily");
 
-        let (snap2, doc) = create_vault_note(root, "Daily/2026-10-18", "# Standup\nAll good").unwrap();
+        let (snap2, doc) =
+            create_vault_note(root, "Daily/2026-10-18", "# Standup\nAll good").unwrap();
         assert_eq!(snap2.note_count, 1);
         assert_eq!(doc.rel_path, "Daily/2026-10-18.md");
         assert_eq!(doc.title, "2026-10-18");

@@ -5,7 +5,6 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
-use std::time::Duration;
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -47,17 +46,11 @@ fn toggle_main_window(app: &AppHandle) {
     }
 }
 
-/// Asks the frontend to save and quit. Exits anyway if the page does not answer in 5 seconds.
-pub fn request_quit(app: &AppHandle) {
-    if app.emit(QUIT_REQUESTED_EVENT, ()).is_err() {
-        app.exit(0);
-        return;
+/// Exiting or hiding requires the frontend's successful save acknowledgement.
+pub fn request_close(app: &AppHandle, quit: bool) {
+    if app.emit(QUIT_REQUESTED_EVENT, quit).is_err() {
+        show_main_window(app);
     }
-    let handle = app.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_secs(5));
-        handle.exit(0);
-    });
 }
 
 /// Builds the tray icon, hidden until the summon hotkey is turned on.
@@ -72,7 +65,7 @@ pub fn create_tray(app: &tauri::App) -> tauri::Result<()> {
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
             "show" => show_main_window(app),
-            "quit" => request_quit(app),
+            "quit" => request_close(app, true),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {

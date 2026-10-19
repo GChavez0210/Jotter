@@ -38,6 +38,7 @@
     VaultNode,
   } from './types';
   import { createWikiLinkAutocompleteExtension } from './wikiLinkAutocomplete';
+  import { captureEditorOperation } from './editorOperations';
 
   interface Props {
     docId: string;
@@ -124,6 +125,10 @@
   }
   let view: EditorView | undefined;
   let currentLoadedDocId = '';
+  let editorGeneration = 0;
+  let statsDoc: EditorState['doc'] | undefined;
+  let totalStats = { lines: 0, words: 0, chars: 0 };
+  let statsTimer: ReturnType<typeof setTimeout> | undefined;
   const spellcheckCompartment = new Compartment();
 
   // WebView2 and WebKitGTK check spelling against the languages installed in the OS.
@@ -476,11 +481,11 @@
 
   function emitStats(state: EditorState) {
     if (!onStatsChange) return;
-    const docText = state.doc.toString();
-    const lines = state.doc.lines;
-    const chars = docText.length;
-    const trimmed = docText.trim();
-    const words = trimmed ? trimmed.split(/\s+/).length : 0;
+    if (statsDoc !== state.doc) {
+      statsDoc = state.doc;
+      const trimmed = state.doc.toString().trim();
+      totalStats = { lines: state.doc.lines, chars: state.doc.length, words: trimmed ? trimmed.split(/\s+/).length : 0 };
+    }
 
     const mainSel = state.selection.main;
     const selectedText = mainSel.empty ? '' : state.sliceDoc(mainSel.from, mainSel.to);
@@ -488,9 +493,7 @@
     const selectedLines = selectedText ? selectedText.split('\n').length : 0;
 
     onStatsChange({
-      lines,
-      words,
-      chars,
+      ...totalStats,
       selectedChars,
       selectedLines,
     });
@@ -533,6 +536,7 @@
     fallbackToWholeDoc = false
   ): Promise<boolean> {
     const target = getSelectedOrCurrentLineText(v, fallbackToWholeDoc);
+    const operation = captureEditorOperation(v, editorGeneration);
     if (!target.text) return false;
 
     try {
@@ -541,6 +545,10 @@
         mode: copyMode,
       });
       if (source === 'cut') {
+        if (!operation.isCurrent(v, editorGeneration)) {
+          onError?.('Cut cancelled because the note changed. The copied text is on the clipboard.');
+          return false;
+        }
         v.dispatch({
           changes: { from: target.from, to: target.to, insert: '' },
         });
@@ -554,11 +562,15 @@
   }
 
   async function performPasteAsPlainText(v: EditorView): Promise<boolean> {
+    const operation = captureEditorOperation(v, editorGeneration);
     try {
       const plainText = await pastePlainFromClipboard();
       if (!plainText) return true;
-
-      const sel = v.state.selection.main;
+      if (!operation.isCurrent(v, editorGeneration)) {
+        onError?.('Paste cancelled because the note changed. Paste again in the intended note.');
+        return false;
+      }
+      const sel = operation;
       v.dispatch({
         changes: { from: sel.from, to: sel.to, insert: plainText },
         selection: { anchor: sel.from + plainText.length },
@@ -575,15 +587,21 @@
 
   async function insertSavedImageAtCursor(
     v: EditorView,
-    pngBytes: number[] | null
+    pngBytes: number[] | null,
+    operation = captureEditorOperation(v, editorGeneration)
   ): Promise<boolean> {
     try {
+      if (!operation.isCurrent(v, editorGeneration)) return false;
       const [fileName, relPath] = await savePastedImage(pngBytes);
+      if (!operation.isCurrent(v, editorGeneration)) {
+        onError?.('Image paste cancelled because the note changed. The image remains in attachments.');
+        return false;
+      }
       const insertSyntax =
         settingsStore.imageLinkFormat === 'markdown'
           ? `![${fileName}](${relPath.replace(/ /g, '%20')})`
           : `![[${fileName}]]`;
-      const sel = v.state.selection.main;
+      const sel = operation;
       v.dispatch({
         changes: { from: sel.from, to: sel.to, insert: insertSyntax },
         selection: { anchor: sel.from + insertSyntax.length },
@@ -601,6 +619,7 @@
     event: ClipboardEvent,
     v: EditorView
   ): boolean {
+    const operation = captureEditorOperation(v, editorGeneration);
     const items = event.clipboardData?.items;
     if (items) {
       for (let i = 0; i < items.length; i++) {
@@ -613,10 +632,10 @@
               .arrayBuffer()
               .then((buf) => {
                 const bytes = Array.from(new Uint8Array(buf));
-                return insertSavedImageAtCursor(v, bytes);
+                return insertSavedImageAtCursor(v, bytes, operation);
               })
               .catch(() => {
-                void insertSavedImageAtCursor(v, null);
+                void insertSavedImageAtCursor(v, null, operation);
               });
             return true;
           }
@@ -627,7 +646,7 @@
     const plainText = event.clipboardData?.getData('text/plain') ?? '';
     if (!plainText) {
       event.preventDefault();
-      void insertSavedImageAtCursor(v, null);
+      void insertSavedImageAtCursor(v, null, operation);
       return true;
     }
 
@@ -716,7 +735,10 @@
           },
         }),
         EditorView.updateListener.of((update) => {
-          if (update.docChanged || update.selectionSet) {
+          if (update.docChanged) {
+            clearTimeout(statsTimer);
+            statsTimer = setTimeout(() => { if (view) emitStats(view.state); }, 120);
+          } else if (update.selectionSet) {
             emitStats(update.state);
           }
           if (update.selectionSet || update.focusChanged || update.docChanged) {
@@ -738,6 +760,7 @@
     currentLoadedDocId = nextDocId;
     const nextDoc = untrack(() => initialDoc);
     suppressChangeEmit = true;
+    editorGeneration++;
     view.setState(createEditorState(nextDoc));
     suppressChangeEmit = false;
     emitStats(view.state);
@@ -862,6 +885,8 @@
   });
 
   onDestroy(() => {
+    editorGeneration++;
+    clearTimeout(statsTimer);
     view?.destroy();
   });
 </script>

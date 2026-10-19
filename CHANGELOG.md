@@ -2,7 +2,27 @@
 
 All notable changes to Jotter are listed here, newest first. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.1.1] - 2026-10-19
+
+### Fixed
+
+- Failed saves keep dirty tabs, the window, and the vault open. Window close requests and tray Quit wait for successful saves, including edits made during an earlier save.
+- Clipboard cuts and pastes cancel if their destination document changes while IPC is pending.
+- Vault operations reject links and Windows junctions below the chosen root. Scans skip reparse points and directory cycles.
+- Unicode note names no longer panic. Folder names containing `_` or `%` no longer affect unrelated index rows or edit history.
+- External edits use a newer filesystem modification date without deleting in-app history.
+- Image previews reset across vaults and attachment changes. The cache has a size limit and rejects stale responses.
+- Rich blocks respect Markdown code and container context. Printing uses light diagram colors and excludes export-document styles from the app.
+
+### Changed
+
+- Batch index updates resolve links once per transaction. Rich-block reparsing and tag/statistics scans defer work while typing; selection-only changes reuse document statistics.
+- Recycle Bin enumeration runs off the UI thread and refreshes independently of autosaves.
+- Production bundles use minification and a Content Security Policy. Tantivy 0.27 removes the affected `lru` dependency version.
+
+### Added
+
+- Frontend regression tests, filesystem/index regressions, and an isolated WebView2 desktop verification script.
 
 Roadmap Phase 1.
 
@@ -17,7 +37,7 @@ Roadmap Phase 1.
 - **Spell check.** The editor checks spelling against the operating system's languages. Toggle it in Settings → Editor.
 - **Summon hotkey and tray icon.** An opt-in global hotkey (default `Ctrl+Alt+J`) shows or hides Jotter from any app. While it is on, Jotter stays in the tray, and closing the window hides it.
 - **CSS snippets.** `.css` files in `%LOCALAPPDATA%\Jotter\snippets` load on top of the theme, each with its own toggle in the new Settings → System page.
-- **License.** Jotter is dual licensed under MIT or Apache-2.0 (`LICENSE-MIT`, `LICENSE-APACHE`).
+- **License.** Jotter is licensed under MIT (`LICENSE-MIT`).
 
 ### Changed
 

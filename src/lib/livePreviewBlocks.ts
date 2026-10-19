@@ -1,5 +1,6 @@
-import { StateField, type EditorState, type Range, type Extension } from '@codemirror/state';
-import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view';
+import { markdownLanguage } from '@codemirror/lang-markdown';
+import { StateEffect, StateField, type EditorState, type Range, type Extension } from '@codemirror/state';
+import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
 import {
   cachedDiagram,
   cachedMath,
@@ -11,8 +12,7 @@ import {
  * Block-level Live Preview: `$$` math blocks and ```` ```mermaid ```` diagrams.
  *
  * CodeMirror only accepts block widgets from a state field, not from a view plugin, so these
- * live here instead of in `livePreview.ts`. The block list is rebuilt from a line scan on
- * document changes only; selection changes reuse it.
+ * live here instead of in `livePreview.ts`. Unchanged blocks map through edits; changed Markdown reparses after typing pauses.
  */
 
 interface RichBlock {
@@ -22,58 +22,51 @@ interface RichBlock {
   source: string;
 }
 
-const FENCE_RE = /^\s{0,3}(`{3,}|~{3,})\s*([^\s`]*)/;
-
-/** Finds `$$` blocks and mermaid fences. Text inside other fenced code is skipped. */
+/** Use Markdown block context so indented code and container markers stay distinct. */
 export function findRichBlocks(state: EditorState): RichBlock[] {
   const doc = state.doc;
   const blocks: RichBlock[] = [];
-  let ln = 1;
-  while (ln <= doc.lines) {
-    const line = doc.line(ln);
-    const fence = FENCE_RE.exec(line.text);
-    if (fence) {
-      const marker = fence[1];
-      const isMermaid = fence[2].toLowerCase() === 'mermaid';
-      let end = ln + 1;
-      while (end <= doc.lines) {
-        const closing = doc.line(end).text.trim();
-        if (closing.startsWith(marker[0].repeat(marker.length)) && /^[`~]+$/.test(closing)) break;
-        end++;
+  const tree = markdownLanguage.parser.parse(doc.toString());
+  tree.iterate({
+    enter(ref) {
+      const node = ref.node;
+      if (node.name === 'CodeBlock') return false;
+      if (node.name === 'FencedCode') {
+        const info = node.getChild('CodeInfo');
+        if (info && doc.sliceString(info.from, info.to).trim().toLowerCase() === 'mermaid' &&
+            node.getChildren('CodeMark').length === 2) {
+          const source = node.getChildren('CodeText').map((n) => doc.sliceString(n.from, n.to)).join('');
+          blocks.push({ kind: 'diagram', from: doc.lineAt(node.from).from, to: doc.lineAt(node.to).to, source });
+        }
+        return false;
       }
-      if (isMermaid && end <= doc.lines) {
-        const body = end > ln + 1 ? doc.sliceString(doc.line(ln + 1).from, doc.line(end - 1).to) : '';
-        blocks.push({ kind: 'diagram', from: line.from, to: doc.line(end).to, source: body });
+      if (node.name !== 'Paragraph') return;
+      if (!doc.sliceString(node.from, node.to).includes('$$')) return false;
+      const lines: { from: number; to: number; text: string }[] = [];
+      for (let n = doc.lineAt(node.from).number; n <= doc.lineAt(node.to).number; n++) {
+        const line = doc.line(n);
+        const text = n === doc.lineAt(node.from).number
+          ? line.text.slice(node.from - line.from)
+          : line.text.replace(/^\s{0,3}(?:>\s?)+/, '');
+        lines.push({ from: line.from, to: line.to, text: text.trim() });
       }
-      ln = end + 1;
-      continue;
-    }
-
-    const trimmed = line.text.trim();
-    if (trimmed.startsWith('$$')) {
-      // One-line block: $$ x^2 $$
-      if (trimmed.length > 4 && trimmed.endsWith('$$')) {
-        blocks.push({ kind: 'math', from: line.from, to: line.to, source: trimmed.slice(2, -2).trim() });
-        ln++;
-        continue;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        if (!line.text.startsWith('$$')) continue;
+        if (line.text.length > 4 && line.text.endsWith('$$')) {
+          blocks.push({kind:'math',from:line.from,to:line.to,source:line.text.slice(2,-2).trim()});
+          continue;
+        }
+        let end = i + 1;
+        while (end < lines.length && !lines[end].text.endsWith('$$')) end++;
+        if (end === lines.length) continue;
+        const source = lines.slice(i, end + 1).map((l) => l.text).join('\n').slice(2,-2).trim();
+        blocks.push({kind:'math',from:line.from,to:lines[end].to,source});
+        i = end;
       }
-      let end = ln + 1;
-      while (end <= doc.lines && !doc.line(end).text.trim().endsWith('$$')) end++;
-      if (end <= doc.lines) {
-        const lastLine = doc.line(end);
-        const tex = doc
-          .sliceString(line.from, lastLine.to)
-          .trim()
-          .replace(/^\$\$/, '')
-          .replace(/\$\$$/, '')
-          .trim();
-        blocks.push({ kind: 'math', from: line.from, to: lastLine.to, source: tex });
-        ln = end + 1;
-        continue;
-      }
-    }
-    ln++;
-  }
+      return false;
+    },
+  });
   return blocks;
 }
 
@@ -171,19 +164,44 @@ interface RichBlockState {
   decorations: DecorationSet;
 }
 
+const updateBlocks = StateEffect.define<RichBlock[]>();
+
 export function createRichBlockExtension(): Extension {
-  return StateField.define<RichBlockState>({
+  const field = StateField.define<RichBlockState>({
     create(state) {
       const blocks = findRichBlocks(state);
       return { blocks, decorations: buildDecorations(state, blocks) };
     },
     update(value, tr) {
-      if (!tr.docChanged && !tr.selection) return value;
-      const blocks = tr.docChanged ? findRichBlocks(tr.state) : value.blocks;
+      let blocks = value.blocks;
+      if (tr.docChanged) {
+        // Keep unaffected widgets in place while the changed Markdown is reparsed after typing.
+        blocks = blocks.filter((block) => {
+          let touched = false;
+          tr.changes.iterChangedRanges((from, to) => {
+            if (from <= block.to && to >= block.from) touched = true;
+          });
+          return !touched;
+        }).map((block) => ({...block, from:tr.changes.mapPos(block.from, 1), to:tr.changes.mapPos(block.to, -1)}));
+      }
+      for (const effect of tr.effects) if (effect.is(updateBlocks)) blocks = effect.value;
+      if (!tr.docChanged && !tr.selection && blocks === value.blocks) return value;
       return { blocks, decorations: buildDecorations(tr.state, blocks) };
     },
     provide: (field) => EditorView.decorations.from(field, (value) => value.decorations),
   });
+  const parser = ViewPlugin.fromClass(class {
+    timer: ReturnType<typeof setTimeout> | undefined;
+    update(update: import('@codemirror/view').ViewUpdate) {
+      if (!update.docChanged) return;
+      clearTimeout(this.timer);
+      this.timer = setTimeout(() => {
+        update.view.dispatch({effects:updateBlocks.of(findRichBlocks(update.view.state))});
+      }, 100);
+    }
+    destroy() { clearTimeout(this.timer); }
+  });
+  return [field, parser];
 }
 
 class InlineMathWidget extends WidgetType {

@@ -110,7 +110,7 @@ Put `.css` files in `%LOCALAPPDATA%\Jotter\snippets`, then turn each one on in *
 
 ## Prerequisites (Windows 10 / 11)
 
-- **Rust** (stable toolchain via `rustup`)
+- **Rust** (stable toolchain, version 1.88 or later, via `rustup`)
 - **Node.js** (v20+ and `npm`)
 - **Microsoft Edge WebView2 Runtime** (pre-installed on Windows 11)
 
@@ -147,16 +147,16 @@ Run frontend Svelte + TypeScript checks (`svelte-check` and `tsc --noEmit`) and 
 
 ```powershell
 npm run check
+npm test
 npm run build
 ```
+
+After building on Windows, run the isolated desktop checks with `node scripts/verify-desktop.mjs`. The script uses the release executable, a disposable vault, separate app data, and a separate WebView2 profile under `src-tauri/target/desktop-verification/`. It exercises real rendering, Recycle Bin restore, save failures, tray residency, and delayed saves. Screenshots and results stay in that directory. It does not install the app.
 
 See [MANUAL_TESTS.md](MANUAL_TESTS.md) for manual paste verification across Google Chat, Slack, Gmail, Word, and Notepad, and [DECISIONS.md](DECISIONS.md) for architectural and accessibility documentation. See [ROADMAP.md](ROADMAP.md) for planned features.
 
 ## License
 
-Jotter is licensed under either of these, at your option:
+Jotter is licensed under the [MIT License](LICENSE-MIT).
 
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-- MIT License ([LICENSE-MIT](LICENSE-MIT))
-
-Unless you explicitly state otherwise, any contribution you intentionally submit for inclusion in Jotter, as defined in the Apache-2.0 license, is dual licensed as above, without any additional terms or conditions.
+Contributions submitted for inclusion in Jotter are licensed under the MIT License.

@@ -5,7 +5,12 @@
 
 #[cfg(any(
     target_os = "windows",
-    all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
+    all(
+        unix,
+        not(target_os = "macos"),
+        not(target_os = "ios"),
+        not(target_os = "android")
+    )
 ))]
 mod imp {
     use std::path::{Path, PathBuf};
@@ -62,8 +67,10 @@ mod imp {
 
     pub fn list_deleted(vault_root: &Path) -> Result<Vec<DeletedEntry>, String> {
         let items = list().map_err(|e| format!("Could not read the Recycle Bin: {e}"))?;
-        let mut entries: Vec<DeletedEntry> =
-            items.iter().filter_map(|item| to_entry(vault_root, item)).collect();
+        let mut entries: Vec<DeletedEntry> = items
+            .iter()
+            .filter_map(|item| to_entry(vault_root, item))
+            .collect();
         entries.sort_by(|a, b| b.deleted_ms.cmp(&a.deleted_ms));
         Ok(entries)
     }
@@ -78,6 +85,10 @@ mod imp {
             .ok_or_else(|| "That item does not belong to this vault.".to_string())?;
 
         let target: PathBuf = item.original_path();
+        crate::vault::ensure_vault_containment(
+            vault_root,
+            &vault_root.join(&entry.original_rel_path),
+        )?;
         if target.exists() {
             return Err(format!(
                 "Cannot restore '{}': a file or folder with that name already exists. Rename it, then try again.",
@@ -99,7 +110,10 @@ mod imp {
                 rel_under_root(root, Path::new("c:/notes/work/Daily/Today.md")).as_deref(),
                 Some("Daily/Today.md")
             );
-            assert_eq!(rel_under_root(root, Path::new("C:/Notes/Workshop/a.md")), None);
+            assert_eq!(
+                rel_under_root(root, Path::new("C:/Notes/Workshop/a.md")),
+                None
+            );
         }
 
         #[test]
@@ -115,13 +129,23 @@ mod imp {
 
 #[cfg(any(
     target_os = "windows",
-    all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
+    all(
+        unix,
+        not(target_os = "macos"),
+        not(target_os = "ios"),
+        not(target_os = "android")
+    )
 ))]
 pub use imp::{list_deleted, restore};
 
 #[cfg(not(any(
     target_os = "windows",
-    all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
+    all(
+        unix,
+        not(target_os = "macos"),
+        not(target_os = "ios"),
+        not(target_os = "android")
+    )
 )))]
 pub fn list_deleted(
     _vault_root: &std::path::Path,
@@ -131,7 +155,12 @@ pub fn list_deleted(
 
 #[cfg(not(any(
     target_os = "windows",
-    all(unix, not(target_os = "macos"), not(target_os = "ios"), not(target_os = "android"))
+    all(
+        unix,
+        not(target_os = "macos"),
+        not(target_os = "ios"),
+        not(target_os = "android")
+    )
 )))]
 pub fn restore(_vault_root: &std::path::Path, _id: &str) -> Result<String, String> {
     Err("Restoring from the trash is not supported on this platform.".to_string())
