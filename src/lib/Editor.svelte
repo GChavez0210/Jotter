@@ -40,6 +40,8 @@
   import { createWikiLinkAutocompleteExtension } from './wikiLinkAutocomplete';
   import { captureEditorOperation } from './editorOperations';
   import { acceptInlineCalculation, createCalcExtension } from './calcPreview';
+  import { positionAfterFrontmatter } from './frontmatterPreview';
+  import type { TextChange } from './frontmatter';
 
   interface Props {
     docId: string;
@@ -685,6 +687,8 @@
   function createEditorState(content: string): EditorState {
     return EditorState.create({
       doc: content,
+      // Live mode hides frontmatter, so start below it.
+      selection: { anchor: editingMode === 'live' ? positionAfterFrontmatter(content) : 0 },
       extensions: [
         history(),
         drawSelection(),
@@ -847,6 +851,12 @@
     });
     suppressChangeEmit = false;
     emitStats(view.state);
+  }
+
+  /** Applies an edit made outside the editor, such as from the properties form, as one undo step. */
+  export function applyChange(change: TextChange) {
+    if (!view) return;
+    view.dispatch({ changes: change, userEvent: 'input.properties' });
   }
 
   export function executeMarkdownCommand(cmd: MarkdownFormatCommandId) {

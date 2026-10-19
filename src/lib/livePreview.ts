@@ -1,4 +1,5 @@
 import { syntaxTree } from '@codemirror/language';
+import { createFrontmatterHideExtension } from './frontmatterPreview';
 import {
   Compartment,
   StateEffect,
@@ -1134,7 +1135,7 @@ export function createLivePreviewExtension(
   }
 
   if (config.editingMode === 'live') {
-    extensions.push(createRichBlockExtension());
+    extensions.push(createRichBlockExtension(), createFrontmatterHideExtension());
   }
 
   if (config.typewriterScrolling) {

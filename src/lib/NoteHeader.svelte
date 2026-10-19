@@ -4,6 +4,16 @@
   import { vaultStore } from './stores/vault.svelte';
   import Icon from './ui/Icon.svelte';
   import { tagColor } from './tagColor';
+  import PropertiesPanel from './PropertiesPanel.svelte';
+  import type { TextChange } from './frontmatter';
+
+  interface Props {
+    /** Applies a frontmatter edit through the editor, so it joins the undo history. */
+    onEdit?: (change: TextChange) => void;
+  }
+
+  let { onEdit }: Props = $props();
+  let addingProperty = $state(false);
 
   // Same rule as the indexer (links.rs): '#' at line start or after whitespace,
   // then letters, digits, '_', '-' or '/', with at least one non-digit.
@@ -34,6 +44,9 @@
     if (date.toDateString() === yesterday.toDateString()) return 'Edited yesterday';
     return `Edited ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
   });
+
+  let content = $derived(tab?.content ?? tabsStore.scratchpadContent);
+  let hasFrontmatter = $derived(/^---[ \t]*\r?\n/.test(content));
 
   let tagText = $state('');
   $effect(() => {
@@ -80,7 +93,15 @@
       <span class="dot" style:background={tagColor(tag)}></span>{tag}
     </button>
   {/each}
+  {#if onEdit && !hasFrontmatter && !addingProperty}
+    <button type="button" class="meta-action" onclick={() => (addingProperty = true)}>
+      <Icon name="plus" size={12} />Add property
+    </button>
+  {/if}
 </div>
+{#if onEdit}
+  <PropertiesPanel {content} {onEdit} bind:adding={addingProperty} />
+{/if}
 
 <style>
   .title {
@@ -122,6 +143,32 @@
 
   .chip:hover {
     border-color: var(--line-control);
+    color: var(--text-primary);
+  }
+
+  .meta-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    height: 22px;
+    padding: 0 6px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-muted);
+    font: inherit;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 120ms;
+  }
+
+  .meta:hover .meta-action,
+  .meta-action:focus-visible {
+    opacity: 1;
+  }
+
+  .meta-action:hover {
+    background: var(--surface-app);
     color: var(--text-primary);
   }
 
