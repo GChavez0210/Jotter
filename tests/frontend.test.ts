@@ -7,6 +7,7 @@ import { control } from './ipc.mock';
 import { captureEditorOperation } from '../src/lib/editorOperations';
 import { findRichBlocks } from '../src/lib/livePreviewBlocks';
 import { CalcError, evaluate, evaluateCalcBlock, formatNumber, inlineCalculation } from '../src/lib/calc';
+import { parseFrontmatter, removeProperty, renameProperty, serializeProperty, setProperty } from '../src/lib/frontmatter';
 import { invalidateImagePreviews, cachedImage, rememberImage, imagePreviewEpoch } from '../src/lib/imagePreviewCache';
 
 function dirtyTab() {
@@ -139,4 +140,37 @@ test('calc blocks assign variables and keep running sums', () => {
   ]);
   assert.deepEqual(results.map((r) => r.result ?? 'err'), ['12.5', '4', '50', '7', '1', '2', '3', 'err']);
   assert.equal(results[2].line, 2);
+});
+
+test('frontmatter parses scalars, lists, and read-only values', () => {
+  const doc = '---\ntitle: "Plan: v2"\ncount: 3\ndone: false\ndue: 2026-10-19\ntags: [a, "b c"]\naliases:\n  - One\n  - Two\n# note\nmeta:\n  nested: 1\n---\nBody';
+  const fm = parseFrontmatter(doc)!;
+  const byKey = Object.fromEntries(fm.properties.map((p) => [p.key, p]));
+  assert.equal(byKey.title.value, 'Plan: v2');
+  assert.equal(byKey.count.value, 3);
+  assert.equal(byKey.done.type, 'checkbox');
+  assert.equal(byKey.due.type, 'date');
+  assert.deepEqual(byKey.tags.value, ['a', 'b c']);
+  assert.deepEqual(byKey.aliases.value, ['One', 'Two']);
+  assert.equal(byKey.meta.editable, false);
+  assert.equal(doc.slice(fm.end), 'Body');
+  assert.equal(parseFrontmatter('No frontmatter'), null);
+  assert.equal(parseFrontmatter('---\nunclosed: 1\n'), null);
+});
+
+test('frontmatter edits rewrite only the changed property', () => {
+  const apply = (doc: string, c: {from:number;to:number;insert:string} | null) =>
+    c ? doc.slice(0, c.from) + c.insert + doc.slice(c.to) : doc;
+  const doc = '---\n# keep me\ntitle: Old\nmeta:\n  nested: 1\n---\nBody';
+  assert.equal(apply(doc, setProperty(doc, 'title', 'text', 'New: yes')),
+    '---\n# keep me\ntitle: "New: yes"\nmeta:\n  nested: 1\n---\nBody');
+  assert.equal(apply(doc, setProperty(doc, 'tags', 'list', ['x', 'y'])),
+    '---\n# keep me\ntitle: Old\nmeta:\n  nested: 1\ntags:\n  - x\n  - y\n---\nBody');
+  assert.equal(apply(doc, renameProperty(doc, 'title', 'name')),
+    '---\n# keep me\nname: Old\nmeta:\n  nested: 1\n---\nBody');
+  assert.equal(renameProperty(doc, 'title', 'meta'), null);
+  assert.equal(apply('Body', setProperty('Body', 'done', 'checkbox', true)), '---\ndone: true\n---\nBody');
+  assert.equal(apply('---\ndone: true\n---\nBody', removeProperty('---\ndone: true\n---\nBody', 'done')), 'Body');
+  assert.equal(serializeProperty('n', 'text', '42'), 'n: "42"');
+  assert.equal(serializeProperty('d', 'date', '2026-10-19'), 'd: 2026-10-19');
 });

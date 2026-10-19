@@ -519,7 +519,7 @@
                 onStatsChange={(s) => (tabsStore.docStats = s)}
                 onError={(err) => clipboardStore.setStatus(`Clipboard error: ${err}`)}
               >
-                {#snippet header()}<NoteHeader />{/snippet}
+                {#snippet header()}<NoteHeader onEdit={(change) => editorRef?.applyChange(change)} />{/snippet}
               </Editor>
             {:else if tabsStore.activeTab}
               <Editor
@@ -543,7 +543,7 @@
                 onStatsChange={(s) => (tabsStore.docStats = s)}
                 onError={(err) => clipboardStore.setStatus(`Clipboard error: ${err}`)}
               >
-                {#snippet header()}<NoteHeader />{/snippet}
+                {#snippet header()}<NoteHeader onEdit={(change) => editorRef?.applyChange(change)} />{/snippet}
               </Editor>
             {:else}
               <div class="no-open-note">
