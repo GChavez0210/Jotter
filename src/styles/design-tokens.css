@@ -1,0 +1,196 @@
+/**
+ * Jotter Fluent Design System Tokens (Windows 11)
+ * Single source of truth for colors, spacing, radii, typography, and motion.
+ */
+:root {
+  /* Typography Families */
+  --font-ui: 'Segoe UI Variable Text', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-display: 'Segoe UI Variable Display', 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Cascadia Code', 'Consolas', ui-monospace, monospace;
+
+  /* Type Scale (strictly 12, 14, 16, 20, 28 px) */
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-base: 16px;
+  --text-lg: 20px;
+  --text-xl: 28px;
+
+  /* Line Heights */
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.65;
+
+  /* 4 px Spacing Grid */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* Corner Radii (4 px controls, 8 px cards/panels) */
+  --radius-control: 4px;
+  --radius-card: 8px;
+
+  /* Layout & Hit Targets */
+  --control-min-height: 32px;
+  --editor-max-width: 700px;
+  --sidebar-default-width: 260px;
+  --sidebar-min-width: 180px;
+  --sidebar-max-width: 480px;
+
+  /* Motion (120-200 ms ease-out) */
+  --transition-fast: 140ms ease-out;
+  --transition-panel: 180ms ease-out;
+
+  /* Light Theme Colors (Fluent Windows 11 Default) */
+  --accent-fallback: #0067c0;
+  --accent-color: AccentColor;
+  --accent-text: AccentColorText;
+
+  --bg-mica-tint: rgba(243, 243, 243, 0.62);
+  --bg-solid-fallback: #f3f3f3;
+  --bg-layer-1: rgba(255, 255, 255, 0.56);
+  --bg-card: rgba(255, 255, 255, 0.78);
+  --bg-card-solid: #ffffff;
+  --bg-elevated: #ffffff;
+  --bg-subtle: rgba(0, 0, 0, 0.038);
+  --bg-control: rgba(255, 255, 255, 0.75);
+  --bg-control-hover: rgba(0, 0, 0, 0.055);
+  --bg-control-active: rgba(0, 0, 0, 0.088);
+  --bg-code: rgba(0, 0, 0, 0.048);
+
+  --text-primary: #1b1b1b;
+  --text-secondary: #5c5c5c;
+  --text-muted: #737373;
+  --text-danger: #c42b1c;
+
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --border-control: rgba(0, 0, 0, 0.14);
+  --border-strong: rgba(0, 0, 0, 0.24);
+  --focus-ring: #0067c0;
+
+  --selection-bg: rgba(0, 103, 192, 0.16);
+  --status-ok: #0f7b0f;
+  --status-warn: #9d5d00;
+  --status-danger: #c42b1c;
+
+  /* Syntax Highlighting Tokens */
+  --syn-heading: #005fb8;
+  --syn-emphasis: #1f1f1f;
+  --syn-code: #9a3412;
+  --syn-link: #0067c0;
+  --syn-quote: #525252;
+  --syn-meta: #6e6e6e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --accent-fallback: #4cc2ff;
+    --bg-mica-tint: rgba(32, 32, 32, 0.58);
+    --bg-solid-fallback: #202020;
+    --bg-layer-1: rgba(38, 38, 38, 0.6);
+    --bg-card: rgba(42, 42, 42, 0.76);
+    --bg-card-solid: #282828;
+    --bg-elevated: #2c2c2c;
+    --bg-subtle: rgba(255, 255, 255, 0.048);
+    --bg-control: rgba(255, 255, 255, 0.065);
+    --bg-control-hover: rgba(255, 255, 255, 0.095);
+    --bg-control-active: rgba(255, 255, 255, 0.13);
+    --bg-code: rgba(255, 255, 255, 0.075);
+
+    --text-primary: #f5f5f5;
+    --text-secondary: #c2c2c2;
+    --text-muted: #9a9a9a;
+    --text-danger: #ff99a4;
+
+    --border-subtle: rgba(255, 255, 255, 0.085);
+    --border-control: rgba(255, 255, 255, 0.14);
+    --border-strong: rgba(255, 255, 255, 0.24);
+    --focus-ring: #4cc2ff;
+
+    --selection-bg: rgba(76, 194, 255, 0.22);
+    --status-ok: #6ccb5f;
+    --status-warn: #fce100;
+    --status-danger: #ff99a4;
+
+    --syn-heading: #60cdff;
+    --syn-emphasis: #f5f5f5;
+    --syn-code: #f59e0b;
+    --syn-link: #4cc2ff;
+    --syn-quote: #b8b8b8;
+    --syn-meta: #8f8f8f;
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --accent-fallback: #4cc2ff;
+  --bg-mica-tint: rgba(32, 32, 32, 0.58);
+  --bg-solid-fallback: #202020;
+  --bg-layer-1: rgba(38, 38, 38, 0.6);
+  --bg-card: rgba(42, 42, 42, 0.76);
+  --bg-card-solid: #282828;
+  --bg-elevated: #2c2c2c;
+  --bg-subtle: rgba(255, 255, 255, 0.048);
+  --bg-control: rgba(255, 255, 255, 0.065);
+  --bg-control-hover: rgba(255, 255, 255, 0.095);
+  --bg-control-active: rgba(255, 255, 255, 0.13);
+  --bg-code: rgba(255, 255, 255, 0.075);
+
+  --text-primary: #f5f5f5;
+  --text-secondary: #c2c2c2;
+  --text-muted: #9a9a9a;
+  --text-danger: #ff99a4;
+
+  --border-subtle: rgba(255, 255, 255, 0.085);
+  --border-control: rgba(255, 255, 255, 0.14);
+  --border-strong: rgba(255, 255, 255, 0.24);
+  --focus-ring: #4cc2ff;
+
+  --selection-bg: rgba(76, 194, 255, 0.22);
+  --status-ok: #6ccb5f;
+  --status-warn: #fce100;
+  --status-danger: #ff99a4;
+
+  --syn-heading: #60cdff;
+  --syn-emphasis: #f5f5f5;
+  --syn-code: #f59e0b;
+  --syn-link: #4cc2ff;
+  --syn-quote: #b8b8b8;
+  --syn-meta: #8f8f8f;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --transition-fast: 0ms;
+    --transition-panel: 0ms;
+  }
+}
+
+@media (forced-colors: active) {
+  :root {
+    --bg-mica-tint: Canvas;
+    --bg-solid-fallback: Canvas;
+    --bg-layer-1: Canvas;
+    --bg-card: Canvas;
+    --bg-card-solid: Canvas;
+    --bg-elevated: Canvas;
+    --bg-control: ButtonFace;
+    --bg-control-hover: Highlight;
+    --text-primary: CanvasText;
+    --text-secondary: CanvasText;
+    --text-muted: GrayText;
+    --border-subtle: ButtonBorder;
+    --border-control: ButtonBorder;
+    --border-strong: ButtonBorder;
+    --focus-ring: Highlight;
+  }
+}

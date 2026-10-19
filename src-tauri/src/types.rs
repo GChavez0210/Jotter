@@ -82,3 +82,69 @@ pub struct CalendarNoteEntry {
     pub created_ms: i64,
     pub preview: String,
 }
+
+/// Node type in the vault file tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VaultNodeKind {
+    File,
+    Folder,
+}
+
+/// A folder or `.md` note in the vault file tree.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultNode {
+    pub name: String,
+    pub rel_path: String,
+    pub kind: VaultNodeKind,
+    pub modified_ms: i64,
+    pub created_ms: i64,
+    pub children: Vec<VaultNode>,
+}
+
+/// Snapshot of the currently opened vault directory and its file tree.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultSnapshot {
+    pub root_path: String,
+    pub name: String,
+    pub tree: Vec<VaultNode>,
+    pub note_count: usize,
+}
+
+/// Loaded `.md` note document.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteDocument {
+    pub rel_path: String,
+    pub title: String,
+    pub content: String,
+    pub modified_ms: i64,
+    pub created_ms: i64,
+}
+
+/// Entry in the user's recent vaults list.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecentVault {
+    pub path: String,
+    pub name: String,
+    pub last_opened_ms: i64,
+}
+
+/// Result returned when renaming a file or folder inside the vault.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RenameEntryResult {
+    pub snapshot: VaultSnapshot,
+    pub old_rel_path: String,
+    pub new_rel_path: String,
+}
+
+/// Payload emitted via Tauri event `"vault-fs-event"` when external filesystem changes are detected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultFsEvent {
+    pub changed_paths: Vec<String>,
+}

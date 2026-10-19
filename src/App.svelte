@@ -1,18 +1,47 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
+  import type { UnlistenFn } from '@tauri-apps/api/event';
   import Editor from './lib/Editor.svelte';
+  import FirstRunScreen from './lib/FirstRunScreen.svelte';
+  import Sidebar from './lib/Sidebar.svelte';
+  import { designTokens } from './lib/designTokens';
   import { fluentIcons } from './lib/icons';
   import {
+    closeVault,
+    createFolder,
+    createNewVault,
+    createNote,
+    deleteEntry,
     getBackdropState,
+    getRecentVaults,
+    getVaultSnapshot,
+    listenVaultFsEvents,
+    openVault,
     previewClipboardPayload,
+    readNote,
+    removeRecentVaultEntry,
+    renameEntry,
+    saveNote,
     syncWindowTheme,
   } from './lib/ipc';
   import type {
     BackdropState,
     ClipboardPayload,
     CopyMode,
+    RecentVault,
     ThemePreference,
+    VaultNode,
+    VaultSnapshot,
   } from './lib/types';
+
+  interface OpenTab {
+    relPath: string;
+    title: string;
+    content: string;
+    savedContent: string;
+    dirty: boolean;
+    externalChangePending: boolean;
+  }
 
   const SAMPLE_NOTE = `# Jotter Clipboard Spike — Line Break Verification
 
@@ -63,10 +92,27 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
     darkMode: null,
   });
 
+  // Vault & Workspace state
+  let vaultSnapshot: VaultSnapshot | null = $state(null);
+  let recentVaults: RecentVault[] = $state([]);
+  let scratchpadMode = $state(false);
+  let onboardingError = $state('');
+
+  // Sidebar state
+  let sidebarWidth: number = $state(designTokens.layout.sidebarDefaultWidth);
+  let sidebarCollapsed = $state(false);
+
+  // Tabs & Autosave state
+  let openTabs: OpenTab[] = $state([]);
+  let activeTabPath: string | null = $state(null);
+  let scratchpadContent = $state(SAMPLE_NOTE);
+  let autosaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  // UI popovers & drawers
   let showSettings = $state(false);
-  let showInspector = $state(true);
+  let showInspector = $state(false);
   let lastPayload: ClipboardPayload | null = $state(null);
-  let statusBanner = $state('Ready — Ctrl+C copies with arboard set_html + plain fallback');
+  let statusBanner = $state('Ready');
   let statusTimestamp = $state('');
 
   let docStats = $state({
@@ -78,6 +124,11 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
   });
 
   let editorRef: Editor | undefined = $state();
+  let unlistenFsEvents: UnlistenFn | null = null;
+
+  let activeTab = $derived(
+    openTabs.find((t) => t.relPath === activeTabPath) ?? null
+  );
 
   let effectiveDark = $derived(
     themePref === 'system' ? systemIsDark : themePref === 'dark'
@@ -87,6 +138,15 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
     forceSolidBackdrop || !backdropState.micaApplied
   );
 
+  function setStatus(msg: string) {
+    statusBanner = msg;
+    statusTimestamp = new Date().toLocaleTimeString([], {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+  }
+
   function setCopyMode(next: CopyMode) {
     copyMode = next;
     try {
@@ -94,7 +154,7 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
     } catch {
       // ignore storage errors
     }
-    void refreshInspectorPreview();
+    if (showInspector) void refreshInspectorPreview();
   }
 
   function setThemePreference(next: ThemePreference) {
@@ -120,7 +180,6 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
         backdropState = res;
       })
       .catch(() => {
-        // Fallback when running in pure Vite browser preview outside Tauri
         backdropState = {
           micaApplied: false,
           backdropKind: 'solid_fallback',
@@ -129,17 +188,370 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
       });
   }
 
+  function findFirstFileNode(nodes: VaultNode[]): VaultNode | null {
+    for (const node of nodes) {
+      if (node.kind === 'file') return node;
+      if (node.children.length > 0) {
+        const found = findFirstFileNode(node.children);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  async function refreshRecentVaults() {
+    try {
+      recentVaults = await getRecentVaults();
+    } catch {
+      recentVaults = [];
+    }
+  }
+
+  async function handleOpenVaultPath(path: string) {
+    onboardingError = '';
+    try {
+      await flushAllAutosaves();
+      const snap = await openVault(path);
+      vaultSnapshot = snap;
+      scratchpadMode = false;
+      openTabs = [];
+      activeTabPath = null;
+      try {
+        localStorage.setItem('jotter.lastVaultPath', snap.rootPath);
+      } catch {
+        // ignore
+      }
+      await refreshRecentVaults();
+      const firstFile = findFirstFileNode(snap.tree);
+      if (firstFile) {
+        await openNoteInTab(firstFile.relPath);
+      }
+      setStatus(`Opened vault "${snap.name}" (${snap.noteCount} notes)`);
+    } catch (err) {
+      onboardingError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function handleCreateVault(parentPath: string, vaultName: string) {
+    onboardingError = '';
+    try {
+      await flushAllAutosaves();
+      const snap = await createNewVault(parentPath, vaultName);
+      vaultSnapshot = snap;
+      scratchpadMode = false;
+      openTabs = [];
+      activeTabPath = null;
+      try {
+        localStorage.setItem('jotter.lastVaultPath', snap.rootPath);
+      } catch {
+        // ignore
+      }
+      await refreshRecentVaults();
+      const firstFile = findFirstFileNode(snap.tree);
+      if (firstFile) {
+        await openNoteInTab(firstFile.relPath);
+      }
+      setStatus(`Created vault "${snap.name}"`);
+    } catch (err) {
+      onboardingError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function handleSwitchVault() {
+    await flushAllAutosaves();
+    try {
+      await closeVault();
+    } catch {
+      // ignore
+    }
+    vaultSnapshot = null;
+    scratchpadMode = false;
+    openTabs = [];
+    activeTabPath = null;
+    try {
+      localStorage.removeItem('jotter.lastVaultPath');
+    } catch {
+      // ignore
+    }
+    await refreshRecentVaults();
+  }
+
+  async function handleRemoveRecentVault(path: string) {
+    try {
+      recentVaults = await removeRecentVaultEntry(path);
+    } catch (err) {
+      onboardingError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function openNoteInTab(relPath: string) {
+    const existing = openTabs.find((t) => t.relPath === relPath);
+    if (existing) {
+      activeTabPath = existing.relPath;
+      return;
+    }
+
+    try {
+      const doc = await readNote(relPath);
+      const tab: OpenTab = {
+        relPath: doc.relPath,
+        title: doc.title,
+        content: doc.content,
+        savedContent: doc.content,
+        dirty: false,
+        externalChangePending: false,
+      };
+      openTabs = [...openTabs, tab];
+      activeTabPath = tab.relPath;
+      setStatus(`Opened ${doc.relPath}`);
+    } catch (err) {
+      setStatus(`Error opening note: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  async function closeTab(relPath: string, e?: MouseEvent) {
+    e?.stopPropagation();
+    await flushAutosaveFor(relPath);
+    const idx = openTabs.findIndex((t) => t.relPath === relPath);
+    if (idx < 0) return;
+
+    const nextTabs = openTabs.filter((t) => t.relPath !== relPath);
+    openTabs = nextTabs;
+
+    if (activeTabPath === relPath) {
+      if (nextTabs.length === 0) {
+        activeTabPath = null;
+      } else {
+        const nextIdx = Math.min(idx, nextTabs.length - 1);
+        activeTabPath = nextTabs[nextIdx].relPath;
+      }
+    }
+  }
+
+  function handleEditorDocChange(docId: string, newContent: string) {
+    if (docId === '__scratchpad__') {
+      scratchpadContent = newContent;
+      if (showInspector) void refreshInspectorPreview();
+      return;
+    }
+
+    openTabs = openTabs.map((t) =>
+      t.relPath === docId
+        ? {
+            ...t,
+            content: newContent,
+            dirty: newContent !== t.savedContent,
+          }
+        : t
+    );
+
+    scheduleAutosave(docId);
+  }
+
+  function scheduleAutosave(relPath: string) {
+    const prev = autosaveTimers.get(relPath);
+    if (prev) clearTimeout(prev);
+    const timer = setTimeout(() => {
+      autosaveTimers.delete(relPath);
+      void flushAutosaveFor(relPath);
+    }, 380);
+    autosaveTimers.set(relPath, timer);
+  }
+
+  async function flushAutosaveFor(relPath: string) {
+    const timer = autosaveTimers.get(relPath);
+    if (timer) {
+      clearTimeout(timer);
+      autosaveTimers.delete(relPath);
+    }
+
+    const tab = openTabs.find((t) => t.relPath === relPath);
+    if (!tab || !tab.dirty) return;
+
+    const contentToSave = tab.content;
+    try {
+      const savedDoc = await saveNote(relPath, contentToSave);
+      openTabs = openTabs.map((t) =>
+        t.relPath === relPath
+          ? {
+              ...t,
+              savedContent: contentToSave,
+              dirty: t.content !== contentToSave,
+              title: savedDoc.title,
+            }
+          : t
+      );
+      setStatus(`Saved ${savedDoc.relPath}`);
+    } catch (err) {
+      setStatus(`Autosave failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  async function flushAllAutosaves() {
+    const paths = openTabs.filter((t) => t.dirty).map((t) => t.relPath);
+    for (const p of paths) {
+      await flushAutosaveFor(p);
+    }
+  }
+
+  async function handleCreateNote(parentFolderRel: string, noteName: string) {
+    const targetRel = parentFolderRel ? `${parentFolderRel}/${noteName}` : noteName;
+    try {
+      const titleBase = noteName.replace(/\.md$/i, '');
+      const [snap, doc] = await createNote(targetRel, `# ${titleBase}\n\n`);
+      vaultSnapshot = snap;
+      const newTab: OpenTab = {
+        relPath: doc.relPath,
+        title: doc.title,
+        content: doc.content,
+        savedContent: doc.content,
+        dirty: false,
+        externalChangePending: false,
+      };
+      openTabs = [...openTabs.filter((t) => t.relPath !== doc.relPath), newTab];
+      activeTabPath = doc.relPath;
+      setStatus(`Created ${doc.relPath}`);
+    } catch (err) {
+      setStatus(`Failed to create note: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  async function handleCreateFolder(parentFolderRel: string, folderName: string) {
+    const targetRel = parentFolderRel
+      ? `${parentFolderRel}/${folderName}`
+      : folderName;
+    try {
+      vaultSnapshot = await createFolder(targetRel);
+      setStatus(`Created folder ${targetRel}`);
+    } catch (err) {
+      setStatus(`Failed to create folder: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  async function handleRenameEntry(oldRelPath: string, newRelPath: string) {
+    await flushAllAutosaves();
+    try {
+      const res = await renameEntry(oldRelPath, newRelPath);
+      vaultSnapshot = res.snapshot;
+      const oldPrefix = `${res.oldRelPath}/`;
+
+      openTabs = openTabs.map((t) => {
+        if (t.relPath === res.oldRelPath) {
+          const base = res.newRelPath.split('/').pop() ?? res.newRelPath;
+          const title = base.toLowerCase().endsWith('.md') ? base.slice(0, -3) : base;
+          return { ...t, relPath: res.newRelPath, title };
+        }
+        if (t.relPath.startsWith(oldPrefix)) {
+          const updatedRel = `${res.newRelPath}/${t.relPath.slice(oldPrefix.length)}`;
+          return { ...t, relPath: updatedRel };
+        }
+        return t;
+      });
+
+      if (activeTabPath === res.oldRelPath) {
+        activeTabPath = res.newRelPath;
+      } else if (activeTabPath?.startsWith(oldPrefix)) {
+        activeTabPath = `${res.newRelPath}/${activeTabPath.slice(oldPrefix.length)}`;
+      }
+
+      setStatus(`Renamed ${res.oldRelPath} → ${res.newRelPath}`);
+    } catch (err) {
+      setStatus(`Rename failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  async function handleDeleteEntry(relPath: string) {
+    const prefix = `${relPath}/`;
+    for (const [k, timer] of autosaveTimers.entries()) {
+      if (k === relPath || k.startsWith(prefix)) {
+        clearTimeout(timer);
+        autosaveTimers.delete(k);
+      }
+    }
+
+    try {
+      vaultSnapshot = await deleteEntry(relPath);
+      const remaining = openTabs.filter(
+        (t) => t.relPath !== relPath && !t.relPath.startsWith(prefix)
+      );
+      openTabs = remaining;
+      if (
+        activeTabPath &&
+        (activeTabPath === relPath || activeTabPath.startsWith(prefix))
+      ) {
+        activeTabPath = remaining.length > 0 ? remaining[remaining.length - 1].relPath : null;
+      }
+      setStatus(`Deleted ${relPath}`);
+    } catch (err) {
+      setStatus(`Delete failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  async function handleExternalFsEvent(changedPaths: string[]) {
+    if (!vaultSnapshot) return;
+    try {
+      const snap = await getVaultSnapshot();
+      if (snap) vaultSnapshot = snap;
+    } catch {
+      // ignore
+    }
+
+    for (const rel of changedPaths) {
+      const tab = openTabs.find(
+        (t) => t.relPath.toLowerCase() === rel.toLowerCase()
+      );
+      if (!tab) continue;
+
+      if (!tab.dirty) {
+        await reloadTabFromDisk(tab.relPath);
+      } else {
+        openTabs = openTabs.map((t) =>
+          t.relPath === tab.relPath ? { ...t, externalChangePending: true } : t
+        );
+        setStatus(`External edit detected on ${tab.relPath}`);
+      }
+    }
+  }
+
+  async function reloadTabFromDisk(relPath: string) {
+    try {
+      const doc = await readNote(relPath);
+      openTabs = openTabs.map((t) =>
+        t.relPath === relPath
+          ? {
+              ...t,
+              content: doc.content,
+              savedContent: doc.content,
+              dirty: false,
+              externalChangePending: false,
+            }
+          : t
+      );
+      if (activeTabPath === relPath) {
+        editorRef?.replaceContentFromDisk(doc.content);
+      }
+      setStatus(`Reloaded external changes: ${relPath}`);
+    } catch {
+      // File may have been deleted externally; close tab
+      openTabs = openTabs.filter((t) => t.relPath !== relPath);
+      if (activeTabPath === relPath) {
+        activeTabPath = openTabs.length > 0 ? openTabs[openTabs.length - 1].relPath : null;
+      }
+    }
+  }
+
   async function refreshInspectorPreview() {
     const sample =
       editorRef?.getCurrentCopyTargetText() ??
-      'Line 1 with **bold**\nLine 2 right below\n\nLine 4 after blank line';
+      activeTab?.content ??
+      scratchpadContent;
     try {
       lastPayload = await previewClipboardPayload({
         text: sample,
         mode: copyMode,
       });
     } catch {
-      // Ignore in browser-only preview
+      // ignore in browser-only preview
     }
   }
 
@@ -147,38 +559,53 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
     lastPayload = payload;
     const verb = source === 'cut' ? 'Cut' : 'Copied';
     const modeLabel = COPY_MODE_LABELS[payload.mode].label;
-    statusBanner = `${verb} ${payload.lineCount} ${
-      payload.lineCount === 1 ? 'line' : 'lines'
-    } (${payload.charCount} chars) in ${modeLabel} mode`;
-    statusTimestamp = new Date().toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
+    setStatus(
+      `${verb} ${payload.lineCount} ${
+        payload.lineCount === 1 ? 'line' : 'lines'
+      } (${payload.charCount} chars) in ${modeLabel} mode`
+    );
   }
 
   function handlePastePlainComplete(charCount: number, lineCount: number) {
-    statusBanner = `Pasted ${lineCount} ${
-      lineCount === 1 ? 'line' : 'lines'
-    } (${charCount} chars) as plain text (Ctrl+Shift+V)`;
-    statusTimestamp = new Date().toLocaleTimeString([], {
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
+    setStatus(
+      `Pasted ${lineCount} ${
+        lineCount === 1 ? 'line' : 'lines'
+      } (${charCount} chars) as plain text (Ctrl+Shift+V)`
+    );
   }
 
-  function handleError(err: string) {
-    statusBanner = `Clipboard error: ${err}`;
+  function handleGlobalKeyDown(e: KeyboardEvent) {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      if (activeTabPath) {
+        void flushAutosaveFor(activeTabPath);
+      }
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'w') {
+      if (activeTabPath) {
+        e.preventDefault();
+        void closeTab(activeTabPath);
+      }
+    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'n') {
+      if (vaultSnapshot) {
+        e.preventDefault();
+        const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+        void handleCreateNote('', `Note ${stamp}`);
+      }
+    } else if ((e.ctrlKey || e.metaKey) && e.key === '\\') {
+      if (vaultSnapshot) {
+        e.preventDefault();
+        sidebarCollapsed = !sidebarCollapsed;
+      }
+    }
   }
 
   onMount(() => {
     try {
       const savedMode = localStorage.getItem('jotter.copyMode') as CopyMode | null;
       if (
+        savedMode === 'markdown_source' ||
         savedMode === 'plain' ||
-        savedMode === 'rich' ||
-        savedMode === 'markdown_source'
+        savedMode === 'rich'
       ) {
         copyMode = savedMode;
       }
@@ -191,6 +618,10 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
         savedTheme === 'dark'
       ) {
         themePref = savedTheme;
+      }
+      const savedWidth = Number(localStorage.getItem('jotter.sidebarWidth'));
+      if (savedWidth >= 180 && savedWidth <= 480) {
+        sidebarWidth = savedWidth;
       }
     } catch {
       // ignore
@@ -218,13 +649,41 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
         };
       });
 
-    void refreshInspectorPreview();
+    void refreshRecentVaults().then(() => {
+      try {
+        const lastVault = localStorage.getItem('jotter.lastVaultPath');
+        if (lastVault) {
+          void handleOpenVaultPath(lastVault);
+        }
+      } catch {
+        // ignore
+      }
+    });
+
+    void listenVaultFsEvents((evt) => {
+      void handleExternalFsEvent(evt.changedPaths);
+    })
+      .then((unlisten) => {
+        unlistenFsEvents = unlisten;
+      })
+      .catch(() => {
+        // ignore in browser preview
+      });
 
     return () => {
       mediaQuery.removeEventListener('change', handleMediaChange);
     };
   });
+
+  onDestroy(() => {
+    unlistenFsEvents?.();
+    for (const timer of autosaveTimers.values()) {
+      clearTimeout(timer);
+    }
+  });
 </script>
+
+<svelte:window onkeydown={handleGlobalKeyDown} />
 
 <div
   class="app-shell"
@@ -234,16 +693,42 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
   <!-- Integrated Fluent Header & Toolbar -->
   <header class="command-bar" aria-label="Application toolbar">
     <div class="brand-group">
+      {#if vaultSnapshot}
+        <button
+          type="button"
+          class="fluent-btn icon-only"
+          aria-pressed={!sidebarCollapsed}
+          title="Toggle file tree sidebar (Ctrl+\)"
+          aria-label="Toggle file tree sidebar"
+          onclick={() => (sidebarCollapsed = !sidebarCollapsed)}
+        >
+          {@html fluentIcons.sidebar16}
+        </button>
+      {/if}
       <span class="brand-icon">{@html fluentIcons.note20}</span>
       <span class="brand-title">Jotter</span>
-      <span class="note-pill" title="Active spike note">Clipboard Spike.md</span>
+      {#if vaultSnapshot}
+        <span class="note-pill" title={vaultSnapshot.rootPath}>
+          {vaultSnapshot.name}
+        </span>
+      {:else if scratchpadMode}
+        <span class="note-pill">Scratchpad</span>
+        <button
+          type="button"
+          class="fluent-btn"
+          onclick={() => (scratchpadMode = false)}
+        >
+          {@html fluentIcons.folderOpen20}
+          <span>Open / Create Vault</span>
+        </button>
+      {/if}
     </div>
 
     <div class="toolbar-actions">
-      <!-- Copy Mode Selector (Plain / Rich / Markdown source) -->
+      <!-- Copy Mode Selector (Markdown source default / Plain / Rich) -->
       <div class="segmented-group" role="radiogroup" aria-label="Copy mode">
         <span class="segmented-label">Copy mode:</span>
-        {#each ['plain', 'rich', 'markdown_source'] as const as mode}
+        {#each ['markdown_source', 'plain', 'rich'] as const as mode}
           <button
             type="button"
             role="radio"
@@ -263,7 +748,7 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
       <button
         type="button"
         class="fluent-btn primary-btn"
-        title="Copy selection or entire note using custom dual-format clipboard handler (Ctrl+C)"
+        title="Copy selection or note (Ctrl+C)"
         onclick={() => editorRef?.triggerCopyFromToolbar()}
       >
         {@html fluentIcons.copy16}
@@ -285,7 +770,7 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
         class="fluent-btn"
         class:active-toggle={showInspector}
         aria-pressed={showInspector}
-        title="Toggle live clipboard payload inspector (text/plain and text/html)"
+        title="Toggle live clipboard payload inspector"
         onclick={() => {
           showInspector = !showInspector;
           if (showInspector) void refreshInspectorPreview();
@@ -311,7 +796,7 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
           <div class="settings-popover" role="dialog" aria-label="Settings">
             <div class="popover-section">
               <div class="popover-heading">Copy Format Mode</div>
-              {#each ['plain', 'rich', 'markdown_source'] as const as mode}
+              {#each ['markdown_source', 'plain', 'rich'] as const as mode}
                 <label class="radio-row">
                   <input
                     type="radio"
@@ -350,10 +835,7 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
             <div class="popover-section">
               <div class="popover-heading">Window Backdrop</div>
               <label class="checkbox-row">
-                <input
-                  type="checkbox"
-                  bind:checked={forceSolidBackdrop}
-                />
+                <input type="checkbox" bind:checked={forceSolidBackdrop} />
                 <span>Use solid-color fallback (Win10 / transparency off)</span>
               </label>
             </div>
@@ -364,53 +846,224 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
   </header>
 
   <!-- Main Workspace Area -->
-  <main class="workspace">
-    <section class="editor-card" aria-label="Editor pane">
-      <Editor
-        bind:this={editorRef}
-        initialDoc={SAMPLE_NOTE}
-        {copyMode}
-        onCopyComplete={handleCopyComplete}
-        onPastePlainComplete={handlePastePlainComplete}
-        onStatsChange={(s) => (docStats = s)}
-        onError={handleError}
-      />
-    </section>
+  {#if !vaultSnapshot && !scratchpadMode}
+    <FirstRunScreen
+      {recentVaults}
+      errorMessage={onboardingError}
+      onOpenVaultPath={handleOpenVaultPath}
+      onCreateVault={handleCreateVault}
+      onRemoveRecentVault={handleRemoveRecentVault}
+      onOpenScratchpad={() => (scratchpadMode = true)}
+    />
+  {:else}
+    <main class="workspace">
+      <div class="workspace-split">
+        {#if vaultSnapshot}
+          <Sidebar
+            snapshot={vaultSnapshot}
+            activeRelPath={activeTabPath}
+            width={sidebarWidth}
+            collapsed={sidebarCollapsed}
+            onResize={(w) => {
+              sidebarWidth = w;
+              try {
+                localStorage.setItem('jotter.sidebarWidth', String(w));
+              } catch {
+                // ignore
+              }
+            }}
+            onSelectFile={(relPath) => void openNoteInTab(relPath)}
+            onCreateNote={(parent, name) => void handleCreateNote(parent, name)}
+            onCreateFolder={(parent, name) => void handleCreateFolder(parent, name)}
+            onRenameEntry={(oldRel, newRel) => void handleRenameEntry(oldRel, newRel)}
+            onDeleteEntry={(rel) => void handleDeleteEntry(rel)}
+            onSwitchVault={() => void handleSwitchVault()}
+          />
+        {/if}
 
-    {#if showInspector && lastPayload}
-      <aside class="inspector-card" aria-label="Clipboard format inspector">
-        <div class="inspector-header">
-          <div class="inspector-title">
-            {@html fluentIcons.checkmark16}
-            <span>
-              {lastPayload.mode === 'plain'
-                ? 'arboard::Clipboard::set_text Plain-Only Output (Plain)'
-                : `arboard::Clipboard::set_html Dual-Format Output (${COPY_MODE_LABELS[lastPayload.mode].label})`}
+        <section class="editor-column" aria-label="Editor workspace">
+          {#if vaultSnapshot}
+            <!-- Tab Bar -->
+            <div class="tab-bar" role="tablist" aria-label="Open notes">
+              <div class="tabs-scroll">
+                {#each openTabs as tab (tab.relPath)}
+                  <div
+                    class="tab-item"
+                    class:active={tab.relPath === activeTabPath}
+                    role="tab"
+                    tabindex="0"
+                    aria-selected={tab.relPath === activeTabPath}
+                    title={tab.relPath}
+                    onclick={() => (activeTabPath = tab.relPath)}
+                    onkeydown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        activeTabPath = tab.relPath;
+                      }
+                    }}
+                    onauxclick={(e) => {
+                      if (e.button === 1) void closeTab(tab.relPath, e);
+                    }}
+                  >
+                    <span class="tab-icon">{@html fluentIcons.document16}</span>
+                    <span class="tab-title">{tab.title}</span>
+                    {#if tab.dirty}
+                      <span
+                        class="dirty-dot"
+                        title="Unsaved changes (autosaving…)"
+                        aria-label="Unsaved changes"
+                      ></span>
+                    {/if}
+                    <button
+                      type="button"
+                      class="tab-close-btn"
+                      title="Close tab (Ctrl+W)"
+                      aria-label="Close {tab.title}"
+                      onclick={(e) => void closeTab(tab.relPath, e)}
+                    >
+                      {@html fluentIcons.dismiss16}
+                    </button>
+                  </div>
+                {/each}
+              </div>
+
+              <button
+                type="button"
+                class="new-tab-btn"
+                title="New note (Ctrl+N)"
+                aria-label="New note"
+                onclick={() => {
+                  const stamp = new Date()
+                    .toISOString()
+                    .slice(0, 19)
+                    .replace(/[:T]/g, '-');
+                  void handleCreateNote('', `Note ${stamp}`);
+                }}
+              >
+                {@html fluentIcons.add20}
+              </button>
+            </div>
+          {/if}
+
+          {#if activeTab?.externalChangePending}
+            <div class="external-reload-banner" role="alert">
+              <span>
+                <strong>{activeTab.relPath}</strong> was modified outside Jotter while you have unsaved edits.
+              </span>
+              <div class="external-reload-actions">
+                <button
+                  type="button"
+                  class="fluent-btn primary-btn"
+                  onclick={() => void reloadTabFromDisk(activeTab!.relPath)}
+                >
+                  Reload from disk
+                </button>
+                <button
+                  type="button"
+                  class="fluent-btn"
+                  onclick={() => {
+                    openTabs = openTabs.map((t) =>
+                      t.relPath === activeTab!.relPath
+                        ? { ...t, externalChangePending: false }
+                        : t
+                    );
+                  }}
+                >
+                  Keep my edits
+                </button>
+              </div>
+            </div>
+          {/if}
+
+          <div class="editor-card">
+            {#if scratchpadMode}
+              <Editor
+                bind:this={editorRef}
+                docId="__scratchpad__"
+                initialDoc={scratchpadContent}
+                {copyMode}
+                onDocChange={handleEditorDocChange}
+                onCopyComplete={handleCopyComplete}
+                onPastePlainComplete={handlePastePlainComplete}
+                onStatsChange={(s) => (docStats = s)}
+                onError={(err) => setStatus(`Clipboard error: ${err}`)}
+              />
+            {:else if activeTab}
+              <Editor
+                bind:this={editorRef}
+                docId={activeTab.relPath}
+                initialDoc={activeTab.content}
+                {copyMode}
+                onDocChange={handleEditorDocChange}
+                onCopyComplete={handleCopyComplete}
+                onPastePlainComplete={handlePastePlainComplete}
+                onStatsChange={(s) => (docStats = s)}
+                onError={(err) => setStatus(`Clipboard error: ${err}`)}
+              />
+            {:else}
+              <div class="no-open-note">
+                <div class="no-note-icon">{@html fluentIcons.note20}</div>
+                <div class="no-note-title">No note selected</div>
+                <div class="no-note-desc">
+                  Select a note from the file tree on the left or create a new one.
+                </div>
+                <button
+                  type="button"
+                  class="fluent-btn primary-btn"
+                  onclick={() => {
+                    const stamp = new Date()
+                      .toISOString()
+                      .slice(0, 19)
+                      .replace(/[:T]/g, '-');
+                    void handleCreateNote('', `Note ${stamp}`);
+                  }}
+                >
+                  {@html fluentIcons.documentAdd16}
+                  <span>New Note (Ctrl+N)</span>
+                </button>
+              </div>
+            {/if}
+          </div>
+        </section>
+      </div>
+
+      {#if showInspector && lastPayload}
+        <aside class="inspector-card" aria-label="Clipboard format inspector">
+          <div class="inspector-header">
+            <div class="inspector-title">
+              {@html fluentIcons.checkmark16}
+              <span>
+                {lastPayload.mode === 'plain'
+                  ? 'arboard::Clipboard::set_text Plain-Only Output (Plain)'
+                  : `arboard::Clipboard::set_html Dual-Format Output (${COPY_MODE_LABELS[lastPayload.mode].label})`}
+              </span>
+            </div>
+            <span class="inspector-meta">
+              {lastPayload.lineCount} lines · {lastPayload.charCount} chars
             </span>
           </div>
-          <span class="inspector-meta">
-            {lastPayload.lineCount} lines · {lastPayload.charCount} chars
-          </span>
-        </div>
 
-        <div class="inspector-grid">
-          <div class="format-box">
-            <div class="format-label">
-              <span>text/plain (real <code>\n</code> line breaks)</span>
+          <div class="inspector-grid">
+            <div class="format-box">
+              <div class="format-label">
+                <span>text/plain (real <code>\n</code> line breaks)</span>
+              </div>
+              <pre class="format-code">{lastPayload.plain}</pre>
             </div>
-            <pre class="format-code">{lastPayload.plain}</pre>
-          </div>
 
-          <div class="format-box">
-            <div class="format-label">
-              <span>text/html (every newline becomes <code>&lt;br&gt;</code>)</span>
+            <div class="format-box">
+              <div class="format-label">
+                <span>text/html (every newline becomes <code>&lt;br&gt;</code>)</span>
+              </div>
+              <pre class="format-code">{lastPayload.mode === 'plain'
+                  ? '(none — Plain mode writes text/plain only via set_text)'
+                  : lastPayload.html}</pre>
             </div>
-            <pre class="format-code">{lastPayload.mode === 'plain' ? '(none — Plain mode writes text/plain only via set_text)' : lastPayload.html}</pre>
           </div>
-        </div>
-      </aside>
-    {/if}
-  </main>
+        </aside>
+      {/if}
+    </main>
+  {/if}
 
   <!-- Fluent Status Bar -->
   <footer class="status-bar" aria-label="Status bar">
@@ -428,12 +1081,14 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
       <span class="status-item" title="Active color theme">
         Theme: {effectiveDark ? 'Dark' : 'Light'} ({themePref})
       </span>
-      <span class="status-item">
-        {#if docStats.selectedChars > 0}
-          Selected: {docStats.selectedLines} ln, {docStats.selectedChars} ch ·
-        {/if}
-        {docStats.lines} ln · {docStats.words} words
-      </span>
+      {#if activeTab || scratchpadMode}
+        <span class="status-item">
+          {#if docStats.selectedChars > 0}
+            Selected: {docStats.selectedLines} ln, {docStats.selectedChars} ch ·
+          {/if}
+          {docStats.lines} ln · {docStats.words} words
+        </span>
+      {/if}
     </div>
   </footer>
 </div>
@@ -491,6 +1146,9 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
     padding: var(--space-1) var(--space-2);
     border-radius: var(--radius-control);
     white-space: nowrap;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .toolbar-actions {
@@ -688,6 +1346,147 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
     overflow: hidden;
   }
 
+  .workspace-split {
+    flex: 1;
+    display: flex;
+    gap: var(--space-3);
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .editor-column {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .tab-bar {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-height: 36px;
+    flex-shrink: 0;
+  }
+
+  .tabs-scroll {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+
+  .tab-item {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--control-min-height);
+    max-width: 220px;
+    padding: 0 var(--space-2) 0 var(--space-3);
+    border-radius: var(--radius-control);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
+    font-size: var(--text-xs);
+    cursor: pointer;
+    user-select: none;
+    transition:
+      background-color var(--transition-fast),
+      color var(--transition-fast),
+      border-color var(--transition-fast);
+  }
+
+  .tab-item:hover {
+    background: var(--bg-control-hover);
+    color: var(--text-primary);
+  }
+
+  .tab-item.active {
+    background: var(--bg-card-solid);
+    color: var(--text-primary);
+    border-color: var(--border-control);
+    font-weight: 600;
+  }
+
+  .tab-icon {
+    display: inline-flex;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+  }
+
+  .tab-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .dirty-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-color, var(--accent-fallback));
+    flex-shrink: 0;
+  }
+
+  .tab-close-btn {
+    width: 22px;
+    height: 22px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .tab-close-btn:hover {
+    background: var(--bg-control-hover);
+    color: var(--text-primary);
+  }
+
+  .new-tab-btn {
+    min-width: var(--control-min-height);
+    min-height: var(--control-min-height);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-control);
+    border: 1px solid var(--border-subtle);
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: background-color var(--transition-fast);
+  }
+
+  .new-tab-btn:hover {
+    background: var(--bg-control-hover);
+    color: var(--text-primary);
+  }
+
+  .external-reload-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    background: var(--bg-card-solid);
+    border: 1px solid var(--border-control);
+    border-radius: var(--radius-card);
+    font-size: var(--text-xs);
+  }
+
+  .external-reload-actions {
+    display: flex;
+    gap: var(--space-2);
+  }
+
   .editor-card {
     flex: 1;
     min-height: 0;
@@ -695,6 +1494,8 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-card);
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
     transition: background-color var(--transition-fast);
   }
 
@@ -702,8 +1503,35 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
     background: var(--bg-card-solid);
   }
 
+  .no-open-note {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-3);
+    padding: var(--space-6);
+    text-align: center;
+    color: var(--text-secondary);
+  }
+
+  .no-note-icon {
+    color: var(--accent-color, var(--accent-fallback));
+  }
+
+  .no-note-title {
+    font-size: var(--text-lg);
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  .no-note-desc {
+    font-size: var(--text-xs);
+    max-width: 320px;
+  }
+
   .inspector-card {
-    height: 188px;
+    height: 184px;
     flex-shrink: 0;
     background: var(--bg-card);
     border: 1px solid var(--border-subtle);

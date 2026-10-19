@@ -15,6 +15,15 @@
 - **Rationale**: Keeping native window decorations guarantees 100% compatibility with Windows 11 Snap Layouts (hovering over the maximize button), native caption buttons, window edge resize handles, and system window animations while allowing the Mica backdrop to show through the transparent WebView2 surface.
 - **Fallback**: When `apply_mica` returns an error (such as on Windows 10 or when OS transparency effects are off), or when the user enables the solid-color fallback in Settings, the UI switches to opaque Fluent surface colors (`#f3f3f3` in light mode, `#202020` in dark mode).
 
-## 3. SQLite Index & File Modification Times Under Sync Tools
+## 3. Vault Storage, `.obsidian` Isolation, and SQLite Cache Location
+- **Zero-Modification Guarantee**: Opening a vault, scanning its file tree, or reading a note never writes to the vault directory. `save_vault_note` compares the new content against the existing file bytes on disk and skips writing if they are identical.
+- **`.obsidian` & Dot-Folder Exclusion**: Both `vault::scan_vault_snapshot` and `index::rebuild_index_from_vault` skip `.obsidian`, `.git`, and any dot-prefixed file or folder (including atomic write temporary files `.note.md.<pid>.<nanos>.tmp`).
+- **Derived Cache Storage**: The rebuildable SQLite metadata index (`vault_index_cache.sqlite`) and `recent_vaults.json` are stored under `%LOCALAPPDATA%\Jotter` so Jotter never creates hidden database files inside the user's Obsidian vault.
+
+## 4. SQLite Index & File Modification Times Under Sync Tools
 - **Note on Sync Tools**: File synchronization tools (OneDrive, Dropbox, Syncthing, Git, Obsidian Sync) can alter filesystem `mtime` (`modified` timestamps) when syncing files across machines, which can skew a calendar view that relies solely on filesystem `mtime`.
-- **Decision**: The SQLite index is strictly a rebuildable cache derived from `.md` files in the vault. In addition to indexing filesystem `modified` and `created` timestamps (refreshed by `notify`), in-app save events are logged in SQLite so Jotter can prioritize known in-app edit timestamps while falling back to filesystem `mtime` on cache rebuild.
+- **Decision**: The SQLite index is strictly a rebuildable cache derived from `.md` files in the vault. In addition to indexing filesystem `modified` and `created` timestamps (refreshed by `notify`), in-app save events pass an explicit save timestamp (`override_modified_ms`) into `index_single_file` while falling back to filesystem `mtime` on cache rebuild.
+
+## 5. File Watching & Safe External Reloads
+- **Self-Write Suppression**: In-app atomic writes record their relative path and `Instant` in `recent_self_writes` (900 ms window) so the `notify` watcher ignores Jotter's own autosaves.
+- **Conflict-Safe Reloading**: When an external edit occurs on an open tab's `.md` file, clean tabs reload automatically from disk. If a tab has unsaved in-flight keystrokes, Jotter displays a non-destructive reload banner ("Reload from disk" / "Keep my edits") so user typing is never silently overwritten.
