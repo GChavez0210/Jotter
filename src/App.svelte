@@ -39,21 +39,21 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
 > Tip: Press Ctrl+Shift+V anywhere in the editor to paste clipboard contents strictly as plain text.`;
 
   const COPY_MODE_LABELS: Record<CopyMode, { label: string; desc: string }> = {
+    markdown_source: {
+      label: 'Markdown source',
+      desc: 'Default: raw Markdown with <br> & &nbsp; HTML plus plain text',
+    },
     plain: {
       label: 'Plain',
-      desc: 'Plain text only (Markdown stripped), exact line breaks preserved',
+      desc: 'Opt-in clean text: text/plain only (arboard set_text, Markdown stripped)',
     },
     rich: {
       label: 'Rich',
-      desc: 'HTML (<br> newlines + formatting) plus plain-text alternative',
-    },
-    markdown_source: {
-      label: 'Markdown source',
-      desc: 'Raw Markdown syntax with exact line breaks preserved',
+      desc: 'HTML (<br> newlines, &nbsp; indent, formatting) plus plain text',
     },
   };
 
-  let copyMode: CopyMode = $state('plain');
+  let copyMode: CopyMode = $state('markdown_source');
   let themePref: ThemePreference = $state('system');
   let systemIsDark = $state(false);
   let forceSolidBackdrop = $state(false);
@@ -383,9 +383,9 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
           <div class="inspector-title">
             {@html fluentIcons.checkmark16}
             <span>
-              arboard::Clipboard::set_html Dual-Format Output ({COPY_MODE_LABELS[
-                lastPayload.mode
-              ].label})
+              {lastPayload.mode === 'plain'
+                ? 'arboard::Clipboard::set_text Plain-Only Output (Plain)'
+                : `arboard::Clipboard::set_html Dual-Format Output (${COPY_MODE_LABELS[lastPayload.mode].label})`}
             </span>
           </div>
           <span class="inspector-meta">
@@ -405,7 +405,7 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
             <div class="format-label">
               <span>text/html (every newline becomes <code>&lt;br&gt;</code>)</span>
             </div>
-            <pre class="format-code">{lastPayload.html}</pre>
+            <pre class="format-code">{lastPayload.mode === 'plain' ? '(none — Plain mode writes text/plain only via set_text)' : lastPayload.html}</pre>
           </div>
         </div>
       </aside>
