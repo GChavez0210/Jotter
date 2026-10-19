@@ -29,8 +29,7 @@
   }
 
   async function windowAction(action: 'minimize' | 'toggleMaximize' | 'close') {
-    // Save pending edits first: closing may quit the app.
-    if (action === 'close') await tabsStore.flushAllAutosaves();
+    // Native close requests all pass through the backend's save handshake.
     void getCurrentWindow()[action]().catch(() => {
       // Not running inside Tauri (browser preview).
     });

@@ -35,8 +35,14 @@
     return `Edited ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
   });
 
-  let tags = $derived.by(() => {
+  let tagText = $state('');
+  $effect(() => {
     const text = tab?.content ?? tabsStore.scratchpadContent;
+    const timer = setTimeout(() => { tagText = text; }, 150);
+    return () => clearTimeout(timer);
+  });
+  let tags = $derived.by(() => {
+    const text = tagText;
     const found = new Set<string>();
     let inFence = false;
     for (const line of text.split('\n')) {

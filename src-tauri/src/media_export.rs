@@ -133,6 +133,7 @@ pub fn save_png_to_vault_attachments(
     timestamp_ms: Option<i64>,
 ) -> Result<(String, String), String> {
     let attachments_dir = vault_root.join("attachments");
+    crate::vault::ensure_vault_containment(vault_root, &attachments_dir)?;
     fs::create_dir_all(&attachments_dir)
         .map_err(|e| format!("Failed to create attachments folder: {e}"))?;
 
@@ -222,8 +223,7 @@ fn percent_decode_path(raw: &str) -> String {
 
 fn is_safe_relative_subpath(rel: &str) -> bool {
     let path = Path::new(rel);
-    path.components()
-        .all(|c| matches!(c, Component::Normal(_)))
+    path.components().all(|c| matches!(c, Component::Normal(_)))
 }
 
 fn resolve_vault_image_path(vault_root: &Path, target: &str) -> Option<PathBuf> {
@@ -238,13 +238,15 @@ fn resolve_vault_image_path(vault_root: &Path, target: &str) -> Option<PathBuf> 
 
     // 1. Direct relative path inside vault_root
     let direct = vault_root.join(&decoded);
-    if direct.is_file() {
+    if crate::vault::ensure_vault_containment(vault_root, &direct).is_ok() && direct.is_file() {
         return Some(direct);
     }
 
     // 2. Inside `<vault_root>/attachments/<target>`
     let in_attachments = vault_root.join("attachments").join(&decoded);
-    if in_attachments.is_file() {
+    if crate::vault::ensure_vault_containment(vault_root, &in_attachments).is_ok()
+        && in_attachments.is_file()
+    {
         return Some(in_attachments);
     }
 
@@ -274,8 +276,8 @@ pub fn read_vault_image_as_data_url(vault_root: &Path, raw_target: &str) -> Resu
     let pipe_trimmed = raw_target.split('|').next().unwrap_or(raw_target).trim();
     let path = resolve_vault_image_path(vault_root, pipe_trimmed)
         .ok_or_else(|| format!("Attachment not found in vault: {pipe_trimmed}"))?;
-    let bytes =
-        fs::read(&path).map_err(|e| format!("Failed to read attachment {}: {e}", path.display()))?;
+    let bytes = fs::read(&path)
+        .map_err(|e| format!("Failed to read attachment {}: {e}", path.display()))?;
     let mime = image_mime_for_path(&path);
     let encoded = base64_encode(&bytes);
     Ok(format!("data:{mime};base64,{encoded}"))
@@ -719,8 +721,14 @@ flowchart LR
 ```
 ";
         let html = build_self_contained_html("Math", md, None, false);
-        assert!(html.contains(r#"<span data-math-style="inline">\pi r^2</span>"#), "{html}");
-        assert!(html.contains("<span data-math-style=\"display\">"), "{html}");
+        assert!(
+            html.contains(r#"<span data-math-style="inline">\pi r^2</span>"#),
+            "{html}"
+        );
+        assert!(
+            html.contains("<span data-math-style=\"display\">"),
+            "{html}"
+        );
         assert!(html.contains("costs $5 and $10"), "{html}");
         assert!(html.contains("<code class=\"language-mermaid\">"), "{html}");
     }

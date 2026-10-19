@@ -71,12 +71,15 @@ class TabsStore {
   onNoteSaved: (() => void) | null = null;
   private scrollSeq = 0;
   private autosaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private saves = new Map<string, Promise<boolean>>();
+  private generation = 0;
 
   activeTab = $derived(
     this.openTabs.find((t) => t.relPath === this.activeTabPath) ?? null
   );
 
   resetTabs() {
+    this.generation++;
     this.clearAllTimers();
     this.openTabs = [];
     this.activeTabPath = null;
@@ -115,7 +118,9 @@ class TabsStore {
     }
 
     try {
+      const generation = this.generation;
       const doc = await readNote(relPath);
+      if (generation !== this.generation) return;
       const tab: OpenTab = {
         relPath: doc.relPath,
         title: doc.title,
@@ -160,7 +165,7 @@ class TabsStore {
 
   async closeTab(relPath: string, e?: MouseEvent) {
     e?.stopPropagation();
-    await this.flushAutosaveFor(relPath);
+    if (!(await this.flushAutosaveFor(relPath))) return;
     const idx = this.openTabs.findIndex((t) => t.relPath === relPath);
     if (idx < 0) return;
 
@@ -211,43 +216,60 @@ class TabsStore {
     this.autosaveTimers.set(relPath, timer);
   }
 
-  async flushAutosaveFor(relPath: string) {
+  async flushAutosaveFor(relPath: string): Promise<boolean> {
     const timer = this.autosaveTimers.get(relPath);
     if (timer) {
       clearTimeout(timer);
       this.autosaveTimers.delete(relPath);
     }
 
-    const tab = this.openTabs.find((t) => t.relPath === relPath);
-    if (!tab || !tab.dirty) return;
-
-    const contentToSave = tab.content;
+    const pending = this.saves.get(relPath);
+    if (pending) return pending;
+    const save = this.saveUntilClean(relPath);
+    this.saves.set(relPath, save);
     try {
-      const savedDoc = await saveNote(relPath, contentToSave);
-      this.openTabs = this.openTabs.map((t) =>
-        t.relPath === relPath
-          ? {
-              ...t,
-              savedContent: contentToSave,
-              dirty: t.content !== contentToSave,
-              title: savedDoc.title,
-            }
-          : t
-      );
-      this.onNoteSaved?.();
-      clipboardStore.setStatus(`Saved ${savedDoc.relPath}`);
-    } catch (err) {
-      clipboardStore.setStatus(
-        `Autosave failed: ${err instanceof Error ? err.message : String(err)}`
-      );
+      return await save;
+    } finally {
+      this.saves.delete(relPath);
+    }
+  }
+
+  private async saveUntilClean(relPath: string): Promise<boolean> {
+    // Include edits made while an earlier save is waiting for disk.
+    while (true) {
+      const tab = this.openTabs.find((t) => t.relPath === relPath);
+      if (!tab || !tab.dirty) return true;
+
+      const contentToSave = tab.content;
+      try {
+        const savedDoc = await saveNote(relPath, contentToSave);
+        this.openTabs = this.openTabs.map((t) =>
+          t.relPath === relPath
+            ? {
+                ...t,
+                savedContent: contentToSave,
+                dirty: t.content !== contentToSave,
+                title: savedDoc.title,
+              }
+            : t
+        );
+        this.onNoteSaved?.();
+        clipboardStore.setStatus(`Saved ${savedDoc.relPath}`);
+      } catch (err) {
+        clipboardStore.setStatus(
+          `Autosave failed: ${err instanceof Error ? err.message : String(err)}`
+        );
+        return false;
+      }
     }
   }
 
   async flushAllAutosaves() {
     const paths = this.openTabs.filter((t) => t.dirty).map((t) => t.relPath);
     for (const p of paths) {
-      await this.flushAutosaveFor(p);
+      if (!(await this.flushAutosaveFor(p))) return false;
     }
+    return !this.openTabs.some((t) => t.dirty);
   }
 
   updatePathsAfterRename(oldRelPath: string, newRelPath: string) {

@@ -18,6 +18,7 @@
     listenQuitRequested,
     listenVaultFsEvents,
     quitApp,
+    keepAppOpen,
     renderNoteHtmlPreview,
   } from './lib/ipc';
   import { enhanceRenderedHtml } from './lib/richBlocks';
@@ -36,6 +37,7 @@
     heading?: string;
   } | null>(null);
   let printArticleHtml = $state('');
+  let closing = $state(false);
 
   let sidebarVisible = $derived(
     Boolean(vaultStore.vaultSnapshot) &&
@@ -105,9 +107,11 @@
         'print',
         settingsStore.effectiveDark
       );
-      const match = fullHtml.match(/<article[^>]*>([\s\S]*?)<\/article>/i);
-      printArticleHtml = match ? match[0] : fullHtml;
+      const printDoc = new DOMParser().parseFromString(fullHtml, 'text/html');
+      // Keep export document styles out of the live app's document.
+      printArticleHtml = printDoc.querySelector('main, article')?.innerHTML ?? printDoc.body.innerHTML;
       await tick();
+      await document.fonts.ready;
       clipboardStore.setStatus('Opening print / Save as PDF dialog...');
       window.print();
     } catch (e) {
@@ -182,6 +186,7 @@
   }
 
   function handleGlobalKeyDown(e: KeyboardEvent) {
+    if (closing) { e.preventDefault(); return; }
     const isMod = e.ctrlKey || e.metaKey;
     const keyLower = e.key.toLowerCase();
 
@@ -333,11 +338,18 @@
     void systemStore.reloadSnippets();
 
     // Tray "Quit" asks the page first so pending edits reach disk.
-    void listenQuitRequested(async () => {
+    void listenQuitRequested(async (quit) => {
+      if (closing) return;
+      closing = true;
       try {
-        await tabsStore.flushAllAutosaves();
+        await tick();
+        if (await tabsStore.flushAllAutosaves()) await quitApp(quit);
+        else await keepAppOpen();
+      } catch (err) {
+        clipboardStore.setStatus(`Could not save before closing: ${String(err)}`);
+        await keepAppOpen();
       } finally {
-        await quitApp();
+        closing = false;
       }
     })
       .then((unlisten) => {
@@ -388,6 +400,7 @@
 />
 
 <div
+  inert={closing}
   class="app-shell"
   class:solid-backdrop={settingsStore.effectiveSolidBackdrop}
   class:focus-minimal={settingsStore.focusMode === 'minimal'}

@@ -11,6 +11,12 @@ use crate::types::{
     TagSummary,
 };
 
+fn escape_like(path: &str) -> String {
+    path.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
 /// Filesystem metadata and parsed links/tags scanned from a `.md` note without holding the SQLite mutex.
 #[derive(Debug, Clone)]
 pub struct ScannedNoteFile {
@@ -193,7 +199,8 @@ impl WikiLinkResolver {
         let source_norm = source_path.trim().replace('\\', "/");
         if let Some((source_dir, _)) = source_norm.rsplit_once('/') {
             if !source_dir.is_empty() {
-                let same_folder_norm = normalize_link_target(&format!("{source_dir}/{target_norm}"));
+                let same_folder_norm =
+                    normalize_link_target(&format!("{source_dir}/{target_norm}"));
                 if let Some(same_folder_match) = self.exact_map.get(&same_folder_norm) {
                     return Some(same_folder_match.clone());
                 }
@@ -294,10 +301,10 @@ pub fn rename_edit_log_paths(
     )
     .map_err(|e| format!("Failed to rename edit_log path {old_rel_path}: {e}"))?;
 
-    let old_prefix = format!("{old_rel_path}/%");
+    let old_prefix = format!("{}/%", escape_like(old_rel_path));
     let old_prefix_len = old_rel_path.len() + 1;
     let mut stmt = conn
-        .prepare("SELECT DISTINCT path FROM edit_log WHERE path LIKE ?1")
+        .prepare("SELECT DISTINCT path FROM edit_log WHERE path LIKE ?1 ESCAPE '\\'")
         .map_err(|e| format!("Failed to prepare edit_log prefix query: {e}"))?;
     let sub_paths: Vec<String> = stmt
         .query_map(params![old_prefix], |r| r.get(0))
@@ -387,11 +394,7 @@ pub fn replace_note_links(
 }
 
 /// Replaces all `note_tags` rows for `path`.
-pub fn replace_note_tags(
-    conn: &Connection,
-    path: &str,
-    tags: &[String],
-) -> Result<(), String> {
+pub fn replace_note_tags(conn: &Connection, path: &str, tags: &[String]) -> Result<(), String> {
     conn.execute("DELETE FROM note_tags WHERE path = ?1", params![path])
         .map_err(|e| format!("Failed to clear tags for {path}: {e}"))?;
 
@@ -411,6 +414,7 @@ pub fn scan_single_file_from_disk(
     vault_root: &Path,
     abs_path: &Path,
 ) -> Result<ScannedNoteFile, String> {
+    crate::vault::ensure_vault_containment(vault_root, abs_path)?;
     let rel = abs_path
         .strip_prefix(vault_root)
         .map_err(|e| format!("Path is outside vault root: {e}"))?;
@@ -422,10 +426,7 @@ pub fn scan_single_file_from_disk(
 
     let metadata = fs::metadata(abs_path)
         .map_err(|e| format!("Failed to read metadata for {}: {e}", abs_path.display()))?;
-    let fs_modified_ms = metadata
-        .modified()
-        .map(system_time_to_ms)
-        .unwrap_or(0);
+    let fs_modified_ms = metadata.modified().map(system_time_to_ms).unwrap_or(0);
     let created_ms = metadata
         .created()
         .map(system_time_to_ms)
@@ -459,6 +460,7 @@ pub fn scan_dir_files_from_disk(
     vault_root: &Path,
     dir: &Path,
 ) -> Result<Vec<ScannedNoteFile>, String> {
+    crate::vault::ensure_vault_containment(vault_root, dir)?;
     let mut out = Vec::new();
     walk_and_scan_dir(vault_root, dir, &mut out)?;
     Ok(out)
@@ -484,6 +486,12 @@ fn walk_and_scan_dir(
             continue;
         }
         let path = entry.path();
+        if fs::symlink_metadata(&path)
+            .map(|m| crate::vault::is_link_metadata(&m))
+            .unwrap_or(true)
+        {
+            continue;
+        }
         if path.is_dir() {
             walk_and_scan_dir(vault_root, &path, out)?;
         } else if path
@@ -509,9 +517,13 @@ fn upsert_scanned_note_no_resolve(
         record_edit_log(conn, &scanned.path, save_ms)?;
     }
 
-    let effective_mod_ms = in_app_save_ms
-        .or_else(|| latest_edit_log_ms(conn, &scanned.path).ok().flatten())
-        .unwrap_or(scanned.fs_modified_ms);
+    let effective_mod_ms = in_app_save_ms.unwrap_or_else(|| {
+        latest_edit_log_ms(conn, &scanned.path)
+            .ok()
+            .flatten()
+            .unwrap_or(0)
+            .max(scanned.fs_modified_ms)
+    });
 
     let entry = CalendarNoteEntry {
         path: scanned.path.clone(),
@@ -540,8 +552,7 @@ pub fn upsert_scanned_note(
     scanned: &ScannedNoteFile,
     in_app_save_ms: Option<i64>,
 ) -> Result<(), String> {
-    upsert_scanned_note_no_resolve(conn, scanned, in_app_save_ms)?;
-    re_resolve_all_links(conn)
+    apply_incremental_index(conn, &[], std::slice::from_ref(scanned), in_app_save_ms)
 }
 
 /// Indexes a single `.md` file from disk into the SQLite cache.
@@ -560,23 +571,48 @@ pub fn index_single_file(
 /// Removes a note or all notes inside a folder (`rel_path` or `rel_path/%`) from `notes`, `links`, and `note_tags`,
 /// and re-resolves affected links across the vault.
 pub fn delete_indexed_path(conn: &Connection, rel_path: &str) -> Result<(), String> {
-    let prefix = format!("{rel_path}/%");
+    apply_incremental_index(conn, &[rel_path.to_string()], &[], None)
+}
+
+fn delete_indexed_path_no_resolve(conn: &Connection, rel_path: &str) -> Result<(), String> {
+    let prefix = format!("{}/%", escape_like(rel_path));
     conn.execute(
-        "DELETE FROM notes WHERE path = ?1 OR path LIKE ?2",
+        "DELETE FROM notes WHERE path = ?1 OR path LIKE ?2 ESCAPE '\\'",
         params![rel_path, prefix],
     )
     .map_err(|e| format!("Failed to delete indexed path {rel_path} from notes: {e}"))?;
     conn.execute(
-        "DELETE FROM links WHERE source_path = ?1 OR source_path LIKE ?2",
+        "DELETE FROM links WHERE source_path = ?1 OR source_path LIKE ?2 ESCAPE '\\'",
         params![rel_path, prefix],
     )
     .map_err(|e| format!("Failed to delete indexed path {rel_path} from links: {e}"))?;
     conn.execute(
-        "DELETE FROM note_tags WHERE path = ?1 OR path LIKE ?2",
+        "DELETE FROM note_tags WHERE path = ?1 OR path LIKE ?2 ESCAPE '\\'",
         params![rel_path, prefix],
     )
     .map_err(|e| format!("Failed to delete indexed path {rel_path} from note_tags: {e}"))?;
-    re_resolve_all_links(conn)
+    Ok(())
+}
+
+/// Commit a filesystem batch atomically and resolve links once for the final note set.
+pub fn apply_incremental_index(
+    conn: &Connection,
+    deletions: &[String],
+    files: &[ScannedNoteFile],
+    in_app_save_ms: Option<i64>,
+) -> Result<(), String> {
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("Cannot start index transaction: {e}"))?;
+    for path in deletions {
+        delete_indexed_path_no_resolve(&tx, path)?;
+    }
+    for file in files {
+        upsert_scanned_note_no_resolve(&tx, file, in_app_save_ms)?;
+    }
+    re_resolve_all_links(&tx)?;
+    tx.commit()
+        .map_err(|e| format!("Cannot commit index transaction: {e}"))
 }
 
 /// Applies a pre-scanned list of vault files to rebuild `notes`, `links`, and `note_tags` while preserving `edit_log`.
@@ -674,10 +710,7 @@ pub fn query_all_tags(conn: &Connection) -> Result<Vec<TagSummary>, String> {
 }
 
 /// Queries all notes containing a given `tag`, sorted by `modified_ms` descending.
-pub fn query_notes_by_tag(
-    conn: &Connection,
-    tag: &str,
-) -> Result<Vec<CalendarNoteEntry>, String> {
+pub fn query_notes_by_tag(conn: &Connection, tag: &str) -> Result<Vec<CalendarNoteEntry>, String> {
     let clean_tag = tag.trim().trim_start_matches('#');
     let mut stmt = conn
         .prepare(
@@ -808,8 +841,7 @@ mod tests {
         upsert_note_entry(&conn, &note1, "2026-10-18", "2026-10-17").unwrap();
         upsert_note_entry(&conn, &note2, "2026-10-18", "2026-10-18").unwrap();
 
-        let mod_days =
-            query_calendar_month(&conn, "2026-10", CalendarDateField::Modified).unwrap();
+        let mod_days = query_calendar_month(&conn, "2026-10", CalendarDateField::Modified).unwrap();
         assert_eq!(
             mod_days,
             vec![CalendarDaySummary {
@@ -890,6 +922,9 @@ mod tests {
         let may_12_ms = 1_778_572_800_000_i64; // 2026-05-12T08:00:00Z
         record_edit_log(&conn, "SyncedNote.md", may_10_ms).unwrap();
         record_edit_log(&conn, "SyncedNote.md", may_12_ms).unwrap();
+        fs::OpenOptions::new().write(true).open(root.join("SyncedNote.md")).unwrap().set_modified(
+            UNIX_EPOCH + std::time::Duration::from_millis((may_10_ms - 86_400_000) as u64)
+        ).unwrap();
 
         // Run a full rebuild_index_from_vault
         let count = rebuild_index_from_vault(&conn, root).unwrap();
@@ -902,8 +937,7 @@ mod tests {
         );
 
         // Verify Calendar Modified query uses the latest edit_log date (2026-05-12) for SyncedNote.md
-        let may_days =
-            query_calendar_month(&conn, "2026-05", CalendarDateField::Modified).unwrap();
+        let may_days = query_calendar_month(&conn, "2026-05", CalendarDateField::Modified).unwrap();
         assert_eq!(
             may_days,
             vec![CalendarDaySummary {
@@ -919,8 +953,7 @@ mod tests {
 
         // Verify ExternalNote.md (no edit_log entry) falls back to its filesystem mtime (today)
         let today = ms_to_ymd_date(system_time_to_ms(SystemTime::now()));
-        let today_notes =
-            query_notes_on_date(&conn, &today, CalendarDateField::Modified).unwrap();
+        let today_notes = query_notes_on_date(&conn, &today, CalendarDateField::Modified).unwrap();
         assert_eq!(today_notes.len(), 1);
         assert_eq!(today_notes[0].path, "ExternalNote.md");
     }
