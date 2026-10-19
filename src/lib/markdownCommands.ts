@@ -1,5 +1,7 @@
 import { EditorSelection, type TransactionSpec } from '@codemirror/state';
 import type { EditorView, KeyBinding } from '@codemirror/view';
+import { foldAll, unfoldAll } from '@codemirror/language';
+import { toggleZoom } from './outliner';
 
 export type MarkdownFormatCommandId =
   | 'bold'
@@ -21,7 +23,10 @@ export type MarkdownFormatCommandId =
   | 'table'
   | 'link'
   | 'wikilink'
-  | 'hr';
+  | 'hr'
+  | 'zoom_toggle'
+  | 'fold_all'
+  | 'unfold_all';
 
 /**
  * Wraps or unwraps the current selection (or word at cursor) with a symmetric marker
@@ -384,6 +389,12 @@ export function runMarkdownCommand(
       return insertMarkdownLink(view, true);
     case 'hr':
       return insertHorizontalRule(view);
+    case 'zoom_toggle':
+      return toggleZoom(view);
+    case 'fold_all':
+      return foldAll(view);
+    case 'unfold_all':
+      return unfoldAll(view);
   }
 }
 

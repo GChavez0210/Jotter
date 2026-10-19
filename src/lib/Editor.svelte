@@ -41,6 +41,7 @@
   import { captureEditorOperation } from './editorOperations';
   import { acceptInlineCalculation, createCalcExtension } from './calcPreview';
   import { positionAfterFrontmatter } from './frontmatterPreview';
+  import { createOutlinerExtension, outlinerKeymap } from './outliner';
   import type { TextChange } from './frontmatter';
 
   interface Props {
@@ -709,9 +710,11 @@
         ),
         spellcheckCompartment.of(spellcheckExtension(settingsStore.spellCheck)),
         createCalcExtension(),
+        createOutlinerExtension(),
         editorTheme,
         keymap.of([
           { key: 'Tab', run: acceptInlineCalculation },
+          ...outlinerKeymap,
           {
             key: 'Mod-Shift-v',
             run: (v) => {
