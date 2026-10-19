@@ -38,6 +38,20 @@ interface VisibleLineWindow {
   to: number;
 }
 
+const INLINE_TAG_RE = /(?<=^|\s)#([\p{L}\p{N}_/-]+)/gu;
+
+function lineIsInsideFence(state: EditorState, pos: number): boolean {
+  let inside = false;
+  syntaxTree(state).iterate({
+    from: pos,
+    to: pos,
+    enter: (node) => {
+      if (node.name === 'FencedCode') inside = true;
+    },
+  });
+  return inside;
+}
+
 class BulletPointWidget extends WidgetType {
   toDOM(): HTMLElement {
     const span = document.createElement('span');
@@ -1017,6 +1031,30 @@ function buildLivePreviewDecorations(
     }
   }
 
+  // 4. Inline #tags, matching the indexer rule in links.rs: '#' at line start or after
+  // whitespace, then letters, digits, '_', '-' or '/', with at least one non-digit.
+  if (config.editingMode === 'live') {
+    for (const win of windows) {
+      for (let ln = win.startLine; ln <= win.endLine; ln++) {
+        const line = state.doc.line(ln);
+        if (!line.text.includes('#')) continue;
+        const inlineSpans = findInlineCodeSpansInLine(line.text);
+        for (const match of line.text.matchAll(INLINE_TAG_RE)) {
+          const offset = match.index ?? 0;
+          if (/^\d+$/.test(match[1])) continue;
+          if (inlineSpans.some((sp) => offset >= sp.from && offset < sp.to)) continue;
+          if (lineIsInsideFence(state, line.from)) continue;
+          decorations.push(
+            Decoration.mark({ class: 'cm-live-tag' }).range(
+              line.from + offset,
+              line.from + offset + match[0].length
+            )
+          );
+        }
+      }
+    }
+  }
+
   // Push accumulated line decorations
   for (const [lineFrom, classes] of lineClasses.entries()) {
     decorations.push(
@@ -1077,7 +1115,10 @@ export function createLivePreviewExtension(
             if (!update.view.dom.isConnected) return;
             const coords = update.view.coordsAtPos(head);
             if (!coords) return;
-            const scroller = update.view.scrollDOM;
+            // The editor grows with its content; the scrolling element is an ancestor.
+            const scroller =
+              update.view.dom.closest<HTMLElement>('[data-editor-scroll]') ??
+              update.view.scrollDOM;
             const scrollerRect = scroller.getBoundingClientRect();
             const targetTop =
               scrollerRect.top + scrollerRect.height / 2 - 14;
