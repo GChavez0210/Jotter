@@ -191,7 +191,7 @@
 
   .tag-filter-bar {
     padding: var(--space-2);
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--line-subtle);
   }
 
   .filter-input-wrap {
@@ -201,12 +201,12 @@
     min-height: var(--control-min-height);
     padding: 0 var(--space-2);
     border-radius: var(--radius-control);
-    border: 1px solid var(--border-control);
-    background: var(--bg-card-solid);
+    border: 1px solid var(--line-control);
+    background: var(--surface-raised);
   }
 
   .filter-input-wrap:focus-within {
-    border-color: var(--accent-color, var(--accent-fallback));
+    border-color: var(--accent);
   }
 
   .filter-icon {
@@ -221,7 +221,7 @@
     background: transparent;
     color: var(--text-primary);
     font-family: var(--font-ui);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     outline: none;
   }
 
@@ -229,7 +229,7 @@
     padding: var(--space-2);
     overflow-y: auto;
     max-height: 52%;
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--line-subtle);
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
@@ -239,7 +239,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    font-size: 11px;
+    font-size: var(--fs-11);
     font-weight: 600;
     color: var(--text-secondary);
     text-transform: uppercase;
@@ -249,8 +249,8 @@
   .clear-tag-btn {
     border: none;
     background: transparent;
-    color: var(--accent-color, var(--accent-fallback));
-    font-size: 11px;
+    color: var(--accent);
+    font-size: var(--fs-11);
     font-weight: 500;
     cursor: pointer;
     text-transform: none;
@@ -270,10 +270,10 @@
     min-height: 28px;
     padding: 2px 8px;
     border-radius: var(--radius-control);
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-subtle);
+    border: 1px solid var(--line-subtle);
+    background: var(--surface-subtle);
     color: var(--text-primary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     display: inline-flex;
     align-items: center;
     gap: 4px;
@@ -284,26 +284,26 @@
   }
 
   .tag-pill:hover {
-    background: var(--bg-control-hover);
-    border-color: var(--border-control);
+    background: var(--surface-hover);
+    border-color: var(--line-control);
   }
 
   .tag-pill.active {
-    background: var(--selection-bg);
-    border-color: var(--accent-color, var(--accent-fallback));
+    background: var(--selection);
+    border-color: var(--accent);
     font-weight: 600;
   }
 
   .tag-hash {
-    color: var(--accent-color, var(--accent-fallback));
+    color: var(--accent);
     font-weight: 600;
   }
 
   .tag-count {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--fs-11);
     color: var(--text-muted);
-    background: var(--bg-card-solid);
+    background: var(--surface-raised);
     padding: 0 5px;
     border-radius: 999px;
   }
@@ -337,8 +337,8 @@
     text-align: left;
     padding: var(--space-2);
     border-radius: var(--radius-control);
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-subtle);
+    border: 1px solid var(--line-subtle);
+    background: var(--surface-subtle);
     color: var(--text-primary);
     cursor: pointer;
     display: flex;
@@ -347,13 +347,13 @@
   }
 
   .tag-note-item:hover {
-    background: var(--bg-control-hover);
-    border-color: var(--border-control);
+    background: var(--surface-hover);
+    border-color: var(--line-control);
   }
 
   .tag-note-item.active {
-    background: var(--selection-bg);
-    border-color: var(--accent-color, var(--accent-fallback));
+    background: var(--selection);
+    border-color: var(--accent);
   }
 
   .note-row-top {
@@ -364,12 +364,12 @@
 
   .note-icon {
     display: inline-flex;
-    color: var(--accent-color, var(--accent-fallback));
+    color: var(--accent);
     flex-shrink: 0;
   }
 
   .note-title {
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -377,7 +377,7 @@
   }
 
   .note-path {
-    font-size: 11px;
+    font-size: var(--fs-11);
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -385,7 +385,7 @@
   }
 
   .note-preview {
-    font-size: 11px;
+    font-size: var(--fs-11);
     color: var(--text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -395,7 +395,7 @@
   .empty-msg {
     padding: var(--space-3) var(--space-2);
     text-align: center;
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     color: var(--text-secondary);
   }
 </style>

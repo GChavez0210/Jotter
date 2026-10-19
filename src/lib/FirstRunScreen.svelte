@@ -264,8 +264,8 @@
   .onboarding-card {
     width: 100%;
     max-width: 580px;
-    background: var(--bg-card);
-    border: 1px solid var(--border-subtle);
+    background: var(--surface-editor);
+    border: 1px solid var(--line-subtle);
     border-radius: var(--radius-card);
     padding: var(--space-6);
     display: flex;
@@ -283,8 +283,8 @@
     width: 44px;
     height: 44px;
     border-radius: var(--radius-card);
-    background: var(--selection-bg);
-    color: var(--accent-color, var(--accent-fallback));
+    background: var(--selection);
+    color: var(--accent);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -300,14 +300,14 @@
   .hero-title {
     margin: 0;
     font-family: var(--font-display);
-    font-size: var(--text-xl);
+    font-size: var(--fs-24);
     font-weight: 600;
     line-height: var(--leading-tight);
   }
 
   .hero-subtitle {
     margin: 0;
-    font-size: var(--text-sm);
+    font-size: var(--fs-13);
     color: var(--text-secondary);
   }
 
@@ -316,8 +316,8 @@
     border-radius: var(--radius-control);
     border: 1px solid var(--status-danger);
     color: var(--text-danger);
-    background: var(--bg-subtle);
-    font-size: var(--text-xs);
+    background: var(--surface-subtle);
+    font-size: var(--fs-12);
   }
 
   .primary-actions {
@@ -332,8 +332,8 @@
     justify-content: space-between;
     gap: var(--space-4);
     padding: var(--space-3) var(--space-4);
-    background: var(--bg-subtle);
-    border: 1px solid var(--border-subtle);
+    background: var(--surface-subtle);
+    border: 1px solid var(--line-subtle);
     border-radius: var(--radius-card);
   }
 
@@ -344,18 +344,18 @@
   }
 
   .action-title {
-    font-size: var(--text-base);
+    font-size: var(--fs-15);
     font-weight: 600;
   }
 
   .action-desc {
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     color: var(--text-secondary);
   }
 
   .action-desc code {
     font-family: var(--font-mono);
-    background: var(--bg-code);
+    background: var(--surface-code);
     padding: 1px 4px;
     border-radius: var(--radius-control);
   }
@@ -372,8 +372,8 @@
     flex-direction: column;
     gap: var(--space-3);
     padding: var(--space-4);
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border-control);
+    background: var(--surface-raised);
+    border: 1px solid var(--line-control);
     border-radius: var(--radius-card);
   }
 
@@ -384,7 +384,7 @@
   }
 
   .field-label {
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     font-weight: 600;
     color: var(--text-secondary);
   }
@@ -399,10 +399,10 @@
     min-height: var(--control-min-height);
     padding: 0 var(--space-3);
     border-radius: var(--radius-control);
-    border: 1px solid var(--border-control);
-    background: var(--bg-control);
+    border: 1px solid var(--line-control);
+    background: var(--surface-field);
     color: var(--text-primary);
-    font-size: var(--text-sm);
+    font-size: var(--fs-13);
   }
 
   .form-actions {
@@ -420,10 +420,10 @@
     min-width: var(--control-min-height);
     padding: 0 var(--space-3);
     border-radius: var(--radius-control);
-    border: 1px solid var(--border-control);
-    background: var(--bg-control);
+    border: 1px solid var(--line-control);
+    background: var(--surface-field);
     color: var(--text-primary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     font-weight: 500;
     cursor: pointer;
     transition:
@@ -436,12 +436,12 @@
   }
 
   .fluent-btn:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
   }
 
   .fluent-btn.primary-btn {
-    background: var(--accent-color, var(--accent-fallback));
-    color: var(--accent-text, #ffffff);
+    background: var(--accent);
+    color: var(--on-accent);
     border-color: transparent;
   }
 
@@ -457,7 +457,7 @@
 
   .section-heading {
     margin: 0;
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.04em;
@@ -487,19 +487,19 @@
     min-height: 40px;
     padding: var(--space-2) var(--space-3);
     border-radius: var(--radius-control);
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-subtle);
+    border: 1px solid var(--line-subtle);
+    background: var(--surface-subtle);
     text-align: left;
     cursor: pointer;
     transition: background-color var(--transition-fast);
   }
 
   .recent-open-btn:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
   }
 
   .recent-icon {
-    color: var(--accent-color, var(--accent-fallback));
+    color: var(--accent);
     display: inline-flex;
   }
 
@@ -510,13 +510,13 @@
   }
 
   .recent-name {
-    font-size: var(--text-sm);
+    font-size: var(--fs-13);
     font-weight: 600;
     color: var(--text-primary);
   }
 
   .recent-path {
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     color: var(--text-secondary);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -524,7 +524,7 @@
   }
 
   .scratchpad-footer {
-    border-top: 1px solid var(--border-subtle);
+    border-top: 1px solid var(--line-subtle);
     padding-top: var(--space-3);
     display: flex;
     justify-content: center;
@@ -536,14 +536,14 @@
     background: transparent;
     border: 1px solid transparent;
     border-radius: var(--radius-control);
-    color: var(--accent-color, var(--accent-fallback));
-    font-size: var(--text-xs);
+    color: var(--accent);
+    font-size: var(--fs-12);
     font-weight: 500;
     cursor: pointer;
   }
 
   .link-btn:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
     text-decoration: underline;
   }
 </style>

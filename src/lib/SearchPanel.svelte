@@ -194,7 +194,7 @@
 
   .search-box-wrap {
     padding: var(--space-2);
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--line-subtle);
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
@@ -207,12 +207,12 @@
     min-height: var(--control-min-height);
     padding: 0 var(--space-2);
     border-radius: var(--radius-control);
-    border: 1px solid var(--border-control);
-    background: var(--bg-card-solid);
+    border: 1px solid var(--line-control);
+    background: var(--surface-raised);
   }
 
   .search-input-container:focus-within {
-    border-color: var(--accent-color, var(--accent-fallback));
+    border-color: var(--accent);
   }
 
   .search-icon {
@@ -228,7 +228,7 @@
     background: transparent;
     color: var(--text-primary);
     font-family: var(--font-ui);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     outline: none;
   }
 
@@ -246,12 +246,12 @@
   }
 
   .clear-btn:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
     color: var(--text-primary);
   }
 
   .search-summary {
-    font-size: 11px;
+    font-size: var(--fs-11);
     color: var(--text-secondary);
     padding: 0 2px;
   }
@@ -265,7 +265,7 @@
   .empty-hint {
     padding: var(--space-4) var(--space-2);
     text-align: center;
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     color: var(--text-secondary);
   }
 
@@ -283,8 +283,8 @@
     text-align: left;
     padding: var(--space-2) var(--space-3);
     border-radius: var(--radius-control);
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-subtle);
+    border: 1px solid var(--line-subtle);
+    background: var(--surface-subtle);
     color: var(--text-primary);
     cursor: pointer;
     display: flex;
@@ -296,8 +296,8 @@
   }
 
   .hit-card:hover {
-    background: var(--bg-control-hover);
-    border-color: var(--border-control);
+    background: var(--surface-hover);
+    border-color: var(--line-control);
   }
 
   .hit-header {
@@ -309,12 +309,12 @@
 
   .hit-icon {
     display: inline-flex;
-    color: var(--accent-color, var(--accent-fallback));
+    color: var(--accent);
     flex-shrink: 0;
   }
 
   .hit-title {
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -324,17 +324,17 @@
 
   .hit-meta {
     font-family: var(--font-mono);
-    font-size: 10px;
+    font-size: var(--fs-11);
     color: var(--text-muted);
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border-subtle);
+    background: var(--surface-raised);
+    border: 1px solid var(--line-subtle);
     padding: 1px 5px;
     border-radius: var(--radius-control);
     flex-shrink: 0;
   }
 
   .hit-path {
-    font-size: 11px;
+    font-size: var(--fs-11);
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -342,18 +342,18 @@
   }
 
   .hit-snippet {
-    font-size: 11px;
+    font-size: var(--fs-11);
     line-height: 1.45;
     color: var(--text-secondary);
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border-subtle);
+    background: var(--surface-raised);
+    border: 1px solid var(--line-subtle);
     border-radius: var(--radius-control);
     padding: 4px 6px;
     word-break: break-word;
   }
 
   .snippet-mark {
-    background: var(--selection-bg);
+    background: var(--selection);
     color: var(--text-primary);
     font-weight: 600;
     padding: 0 2px;

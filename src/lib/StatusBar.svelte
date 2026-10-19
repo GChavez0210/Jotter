@@ -44,8 +44,8 @@
     justify-content: space-between;
     padding: 0 var(--space-4);
     height: 28px;
-    border-top: 1px solid var(--border-subtle);
-    font-size: var(--text-xs);
+    border-top: 1px solid var(--line-subtle);
+    font-size: var(--fs-12);
     color: var(--text-secondary);
     user-select: none;
     flex-shrink: 0;

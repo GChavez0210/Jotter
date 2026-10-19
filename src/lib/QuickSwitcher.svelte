@@ -269,8 +269,8 @@
   .switcher-dialog {
     width: min(540px, 92vw);
     max-height: 68vh;
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border-control);
+    background: var(--surface-raised);
+    border: 1px solid var(--line-control);
     border-radius: var(--radius-card);
     display: flex;
     flex-direction: column;
@@ -282,7 +282,7 @@
     align-items: center;
     gap: var(--space-2);
     padding: var(--space-3);
-    border-bottom: 1px solid var(--border-subtle);
+    border-bottom: 1px solid var(--line-subtle);
   }
 
   .search-icon {
@@ -296,18 +296,18 @@
     background: transparent;
     color: var(--text-primary);
     font-family: var(--font-ui);
-    font-size: var(--text-sm);
+    font-size: var(--fs-13);
     outline: none;
   }
 
   .esc-hint,
   .enter-hint {
     font-family: var(--font-mono);
-    font-size: 11px;
+    font-size: var(--fs-11);
     padding: 2px 6px;
     border-radius: var(--radius-control);
-    border: 1px solid var(--border-subtle);
-    background: var(--bg-subtle);
+    border: 1px solid var(--line-subtle);
+    background: var(--surface-subtle);
     color: var(--text-secondary);
     flex-shrink: 0;
   }
@@ -323,7 +323,7 @@
   .empty-results {
     padding: var(--space-4);
     text-align: center;
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     color: var(--text-secondary);
   }
 
@@ -346,8 +346,8 @@
 
   .note-row:hover,
   .note-row.selected {
-    background: var(--selection-bg);
-    border-color: var(--accent-color, var(--accent-fallback));
+    background: var(--selection);
+    border-color: var(--accent);
   }
 
   .note-left {
@@ -359,12 +359,12 @@
 
   .note-icon {
     display: inline-flex;
-    color: var(--accent-color, var(--accent-fallback));
+    color: var(--accent);
     flex-shrink: 0;
   }
 
   .note-title {
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     font-weight: 600;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -372,7 +372,7 @@
   }
 
   .note-path {
-    font-size: 11px;
+    font-size: var(--fs-11);
     color: var(--text-muted);
     overflow: hidden;
     text-overflow: ellipsis;
@@ -381,6 +381,6 @@
 
   .create-row {
     margin-top: 2px;
-    border-top: 1px dashed var(--border-subtle);
+    border-top: 1px dashed var(--line-subtle);
   }
 </style>

@@ -579,12 +579,12 @@
     flex-direction: column;
     width: 100vw;
     height: 100vh;
-    background-color: var(--bg-mica-tint);
+    background-color: var(--surface-mica);
     transition: background-color var(--transition-fast);
   }
 
   .app-shell.solid-backdrop {
-    background-color: var(--bg-solid-fallback);
+    background-color: var(--surface-app);
   }
 
   .workspace {
@@ -626,10 +626,10 @@
     justify-content: space-between;
     gap: var(--space-3);
     padding: var(--space-2) var(--space-3);
-    background: var(--bg-card-solid);
-    border: 1px solid var(--border-control);
+    background: var(--surface-raised);
+    border: 1px solid var(--line-control);
     border-radius: var(--radius-card);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
   }
 
   .external-reload-actions {
@@ -640,8 +640,8 @@
   .editor-card {
     flex: 1;
     min-height: 0;
-    background: var(--bg-card);
-    border: 1px solid var(--border-subtle);
+    background: var(--surface-editor);
+    border: 1px solid var(--line-subtle);
     border-radius: var(--radius-card);
     overflow: hidden;
     display: flex;
@@ -656,7 +656,7 @@
   }
 
   .solid-backdrop .editor-card {
-    background: var(--bg-card-solid);
+    background: var(--surface-editor);
   }
 
   .no-open-note {
@@ -672,17 +672,17 @@
   }
 
   .no-note-icon {
-    color: var(--accent-color, var(--accent-fallback));
+    color: var(--accent);
   }
 
   .no-note-title {
-    font-size: var(--text-lg);
+    font-size: var(--fs-17);
     font-weight: 600;
     color: var(--text-primary);
   }
 
   .no-note-desc {
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     max-width: 320px;
   }
 
@@ -695,10 +695,10 @@
     min-width: var(--control-min-height);
     padding: 0 var(--space-3);
     border-radius: var(--radius-control);
-    border: 1px solid var(--border-control);
-    background: var(--bg-control);
+    border: 1px solid var(--line-control);
+    background: var(--surface-field);
     color: var(--text-primary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     font-weight: 500;
     cursor: pointer;
     transition:
@@ -707,12 +707,12 @@
   }
 
   .fluent-btn:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
   }
 
   .fluent-btn.primary-btn {
-    background: var(--accent-color, var(--accent-fallback));
-    color: var(--accent-text, #ffffff);
+    background: var(--accent);
+    color: var(--on-accent);
     border-color: transparent;
   }
 

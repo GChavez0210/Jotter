@@ -198,18 +198,18 @@
     border-radius: var(--radius-control);
     background: transparent;
     color: var(--text-primary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     text-align: left;
     cursor: pointer;
     transition: background-color var(--transition-fast);
   }
 
   .tree-row:hover {
-    background: var(--bg-control-hover);
+    background: var(--surface-hover);
   }
 
   .tree-row.active {
-    background: var(--selection-bg);
+    background: var(--selection);
     font-weight: 600;
   }
 
@@ -240,7 +240,7 @@
   }
 
   .row-icon.folder-color {
-    color: var(--accent-color, var(--accent-fallback));
+    color: var(--accent);
   }
 
   .row-label {
@@ -268,10 +268,10 @@
     height: 26px;
     padding: 0 var(--space-2);
     border-radius: var(--radius-control);
-    border: 1px solid var(--accent-color, var(--focus-ring));
-    background: var(--bg-card-solid);
+    border: 1px solid var(--accent);
+    background: var(--surface-raised);
     color: var(--text-primary);
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
   }
 
   .rename-input.invalid {
@@ -279,7 +279,7 @@
   }
 
   .inline-error {
-    font-size: var(--text-xs);
+    font-size: var(--fs-12);
     color: var(--text-danger);
     padding: 2px var(--space-1);
     line-height: 1.3;
