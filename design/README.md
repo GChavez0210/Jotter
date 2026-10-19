@@ -28,6 +28,19 @@ Themes switch with `data-theme` on the root element (`light`, `dark`, or none fo
 
 Fonts ship with the app through `@fontsource-variable` packages imported in [`src/main.ts`](../src/main.ts). All three use the SIL Open Font License.
 
+## Components
+
+Shared controls live in [`src/lib/ui/`](../src/lib/ui/). Use them instead of styling raw buttons.
+
+| Component | Use |
+| --- | --- |
+| `Icon` | Phosphor icon, Regular weight, from [`ui/icons.ts`](../src/lib/ui/icons.ts). 16 px by default. |
+| `Button` | Text button with an optional icon. Variants: `default`, `primary`, `subtle`, `danger`; `pressed` for toggles. |
+| `IconButton` | Icon-only button. `label` is required and becomes the accessible name. |
+| `Segmented` | Radio group for 2–4 exclusive options, with arrow-key navigation. |
+
+To add an icon, copy its Regular SVG from `@phosphor-icons/core` into `ui/icons.ts`.
+
 ## Sample vault
 
 [`sample-vault/`](sample-vault/) holds the notes from the mockup. Open it in Jotter for screenshots, so before-and-after comparisons never show a real vault.

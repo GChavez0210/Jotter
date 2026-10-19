@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { fluentIcons } from './icons';
+  import Icon from './ui/Icon.svelte';
+  import IconButton from './ui/IconButton.svelte';
   import { getBacklinks } from './ipc';
   import { settingsStore } from './stores/settings.svelte';
   import { tabsStore } from './stores/tabs.svelte';
@@ -50,19 +51,15 @@
   <aside class="right-panel" aria-label="Backlinks panel">
     <div class="panel-header">
       <div class="panel-title-wrap">
-        <span class="panel-icon">{@html fluentIcons.backlink16}</span>
+        <span class="panel-icon"><Icon name="arrow-bend-up-left" /></span>
         <span class="panel-title">Backlinks</span>
         <span class="count-badge">{backlinks.length}</span>
       </div>
-      <button
-        type="button"
-        class="fluent-icon-btn"
-        title="Close Backlinks panel"
-        aria-label="Close Backlinks panel"
+      <IconButton
+        icon="x"
+        label="Close Backlinks panel"
         onclick={() => settingsStore.toggleRightPanel()}
-      >
-        {@html fluentIcons.dismiss16}
-      </button>
+      />
     </div>
 
     <div class="panel-body">
@@ -90,7 +87,7 @@
                 onclick={() => handleOpenBacklink(item)}
               >
                 <div class="backlink-top">
-                  <span class="source-icon">{@html fluentIcons.document16}</span>
+                  <span class="source-icon"><Icon name="file-text" /></span>
                   <span class="source-title">{item.sourceTitle}</span>
                   <span class="line-pill">L{item.lineNumber}</span>
                 </div>
@@ -157,27 +154,6 @@
     background: var(--surface-subtle);
     border: 1px solid var(--line-subtle);
     color: var(--text-secondary);
-  }
-
-  .fluent-icon-btn {
-    min-width: var(--control-min-height);
-    min-height: var(--control-min-height);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: var(--radius-control);
-    border: 1px solid transparent;
-    background: transparent;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition:
-      background-color var(--transition-fast),
-      color var(--transition-fast);
-  }
-
-  .fluent-icon-btn:hover {
-    background: var(--surface-hover);
-    color: var(--text-primary);
   }
 
   .panel-body {

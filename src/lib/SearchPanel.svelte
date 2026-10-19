@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fluentIcons } from './icons';
+  import Icon from './ui/Icon.svelte';
   import { searchVault } from './ipc';
   import { tabsStore } from './stores/tabs.svelte';
   import { vaultStore } from './stores/vault.svelte';
@@ -103,7 +103,7 @@
 <div class="search-panel" aria-label="Full-text vault search">
   <div class="search-box-wrap">
     <div class="search-input-container">
-      <span class="search-icon">{@html fluentIcons.search16}</span>
+      <span class="search-icon"><Icon name="magnifying-glass" /></span>
       <input
         bind:this={searchInputEl}
         type="search"
@@ -122,7 +122,7 @@
             searchInputEl?.focus();
           }}
         >
-          {@html fluentIcons.dismiss16}
+          <Icon name="x" />
         </button>
       {/if}
     </div>
@@ -156,7 +156,7 @@
               onclick={() => handleSelectHit(hit)}
             >
               <div class="hit-header">
-                <span class="hit-icon">{@html fluentIcons.document16}</span>
+                <span class="hit-icon"><Icon name="file-text" /></span>
                 <span class="hit-title">{hit.title}</span>
                 <span class="hit-meta">
                   L{hit.lineNumber} · {hit.matchCount}

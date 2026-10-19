@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { fluentIcons } from './icons';
+  import Icon from './ui/Icon.svelte';
   import { tabsStore } from './stores/tabs.svelte';
   import { stripMdExt, vaultStore } from './stores/vault.svelte';
   import type { VaultNode } from './types';
@@ -194,7 +194,7 @@
     aria-label="Quick switcher"
   >
     <div class="search-row">
-      <span class="search-icon">{@html fluentIcons.search16}</span>
+      <span class="search-icon"><Icon name="magnifying-glass" /></span>
       <input
         bind:this={inputEl}
         type="text"
@@ -221,7 +221,7 @@
             onclick={() => openMatch(item)}
           >
             <div class="note-left">
-              <span class="note-icon">{@html fluentIcons.document16}</span>
+              <span class="note-icon"><Icon name="file-text" /></span>
               <span class="note-title">{item.title}</span>
               {#if item.relPathNoExt !== item.title}
                 <span class="note-path">{item.relPathNoExt}</span>
@@ -239,7 +239,7 @@
             onclick={() => void createFromQuery()}
           >
             <div class="note-left">
-              <span class="note-icon">{@html fluentIcons.documentAdd16}</span>
+              <span class="note-icon"><Icon name="file-plus" /></span>
               <span class="note-title">
                 Create new note <strong>"{query.trim()}"</strong>
               </span>

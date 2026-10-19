@@ -13,7 +13,8 @@
   import Sidebar from './lib/Sidebar.svelte';
   import StatusBar from './lib/StatusBar.svelte';
   import TabBar from './lib/TabBar.svelte';
-  import { fluentIcons } from './lib/icons';
+  import Icon from './lib/ui/Icon.svelte';
+  import Button from './lib/ui/Button.svelte';
   import {
     exportActiveNoteHtml,
     listenVaultFsEvents,
@@ -395,20 +396,17 @@
                 Note <strong>[[{missingWikiLinkPrompt.noteTarget}]]</strong> does not exist in this vault yet. Would you like to create it?
               </span>
               <div class="external-reload-actions">
-                <button
-                  type="button"
-                  class="fluent-btn primary-btn"
+                <Button
+                  variant="primary"
                   onclick={() => void confirmCreateMissingWikiNote()}
                 >
                   Create & Open
-                </button>
-                <button
-                  type="button"
-                  class="fluent-btn"
+                </Button>
+                <Button
                   onclick={() => (missingWikiLinkPrompt = null)}
                 >
                   Cancel
-                </button>
+                </Button>
               </div>
             </div>
           {/if}
@@ -419,9 +417,8 @@
                 <strong>{tabsStore.activeTab.relPath}</strong> was modified outside Jotter while you have unsaved edits.
               </span>
               <div class="external-reload-actions">
-                <button
-                  type="button"
-                  class="fluent-btn primary-btn"
+                <Button
+                  variant="primary"
                   onclick={() =>
                     void tabsStore.reloadTabFromDisk(
                       tabsStore.activeTab!.relPath,
@@ -429,17 +426,15 @@
                     )}
                 >
                   Reload from disk
-                </button>
-                <button
-                  type="button"
-                  class="fluent-btn"
+                </Button>
+                <Button
                   onclick={() =>
                     tabsStore.dismissExternalChangeBanner(
                       tabsStore.activeTab!.relPath
                     )}
                 >
                   Keep my edits
-                </button>
+                </Button>
               </div>
             </div>
           {/if}
@@ -497,14 +492,14 @@
               />
             {:else}
               <div class="no-open-note">
-                <div class="no-note-icon">{@html fluentIcons.note20}</div>
+                <div class="no-note-icon"><Icon name="notebook" size={20} /></div>
                 <div class="no-note-title">No note selected</div>
                 <div class="no-note-desc">
                   Select a note from the file tree on the left or create a new one.
                 </div>
-                <button
-                  type="button"
-                  class="fluent-btn primary-btn"
+                <Button
+                  variant="primary"
+                  icon="file-plus"
                   onclick={() => {
                     const stamp = new Date()
                       .toISOString()
@@ -513,9 +508,8 @@
                     void vaultStore.createNoteInVault('', `Note ${stamp}`);
                   }}
                 >
-                  {@html fluentIcons.documentAdd16}
-                  <span>New Note (Ctrl+N)</span>
-                </button>
+                  New note (Ctrl+N)
+                </Button>
               </div>
             {/if}
           </div>
@@ -686,37 +680,4 @@
     max-width: 320px;
   }
 
-  .fluent-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-2);
-    min-height: var(--control-min-height);
-    min-width: var(--control-min-height);
-    padding: 0 var(--space-3);
-    border-radius: var(--radius-control);
-    border: 1px solid var(--line-control);
-    background: var(--surface-field);
-    color: var(--text-primary);
-    font-size: var(--fs-12);
-    font-weight: 500;
-    cursor: pointer;
-    transition:
-      background-color var(--transition-fast),
-      border-color var(--transition-fast);
-  }
-
-  .fluent-btn:hover {
-    background: var(--surface-hover);
-  }
-
-  .fluent-btn.primary-btn {
-    background: var(--accent);
-    color: var(--on-accent);
-    border-color: transparent;
-  }
-
-  .fluent-btn.primary-btn:hover {
-    filter: brightness(1.06);
-  }
 </style>

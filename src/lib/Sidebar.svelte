@@ -3,7 +3,8 @@
   import FileTreeItem from './FileTreeItem.svelte';
   import SearchPanel from './SearchPanel.svelte';
   import TagBrowserPanel from './TagBrowserPanel.svelte';
-  import { fluentIcons } from './icons';
+  import Icon from './ui/Icon.svelte';
+  import IconButton from './ui/IconButton.svelte';
   import { settingsStore } from './stores/settings.svelte';
   import type { RecentVault, VaultNode, VaultSnapshot } from './types';
   import { validateWindowsEntryName } from './validation';
@@ -187,30 +188,23 @@
           vaultMenuOpen = !vaultMenuOpen;
         }}
       >
-        <span class="vault-folder-icon">{@html fluentIcons.folder16}</span>
+        <span class="vault-folder-icon"><Icon name="folder-simple" /></span>
         <span class="vault-name">{snapshot.name}</span>
-        <span class="vault-chevron">{@html fluentIcons.chevronDown16}</span>
+        <span class="vault-chevron"><Icon name="caret-down" /></span>
       </button>
 
       <div class="sidebar-actions">
-        <button
-          type="button"
-          class="fluent-icon-btn"
-          title="New note (Ctrl+N)"
-          aria-label="New note"
+        <IconButton
+          icon="file-plus"
+          label="New note"
+          tooltip="New note (Ctrl+N)"
           onclick={() => startNewEntry('note', '')}
-        >
-          {@html fluentIcons.documentAdd16}
-        </button>
-        <button
-          type="button"
-          class="fluent-icon-btn"
-          title="New folder"
-          aria-label="New folder"
+        />
+        <IconButton
+          icon="folder-simple-plus"
+          label="New folder"
           onclick={() => startNewEntry('folder', '')}
-        >
-          {@html fluentIcons.folderAdd16}
-        </button>
+        />
       </div>
     </div>
 
@@ -266,7 +260,7 @@
         title="Files"
         onclick={() => settingsStore.setLeftSidebarView('files')}
       >
-        {@html fluentIcons.folder16}
+        <Icon name="folder-simple" />
         <span>Files</span>
       </button>
       <button
@@ -278,7 +272,7 @@
         title="Full-text search (Ctrl+Shift+F)"
         onclick={() => settingsStore.setLeftSidebarView('search')}
       >
-        {@html fluentIcons.search16}
+        <Icon name="magnifying-glass" />
         <span>Search</span>
       </button>
       <button
@@ -290,7 +284,7 @@
         title="Tag browser"
         onclick={() => settingsStore.setLeftSidebarView('tags')}
       >
-        {@html fluentIcons.tag16}
+        <Icon name="tag" />
         <span>Tags</span>
       </button>
       <button
@@ -302,7 +296,7 @@
         title="Calendar view"
         onclick={() => settingsStore.setLeftSidebarView('calendar')}
       >
-        {@html fluentIcons.calendar16}
+        <Icon name="calendar-blank" />
         <span>Calendar</span>
       </button>
     </div>
@@ -385,7 +379,7 @@
               class="new-first-note-btn"
               onclick={() => startNewEntry('note', '')}
             >
-              {@html fluentIcons.documentAdd16}
+              <Icon name="file-plus" />
               <span>Create first note</span>
             </button>
           </div>
@@ -453,7 +447,7 @@
       role="menuitem"
       onclick={() => startNewEntry('note', folderTarget)}
     >
-      {@html fluentIcons.documentAdd16}
+      <Icon name="file-plus" />
       <span>New note{folderTarget ? ` in ${folderTarget}` : ''}</span>
     </button>
     <button
@@ -462,7 +456,7 @@
       role="menuitem"
       onclick={() => startNewEntry('folder', folderTarget)}
     >
-      {@html fluentIcons.folderAdd16}
+      <Icon name="folder-simple-plus" />
       <span>New folder{folderTarget ? ` in ${folderTarget}` : ''}</span>
     </button>
     {#if targetNode}
@@ -473,7 +467,7 @@
         role="menuitem"
         onclick={() => handleStartRename(targetNode)}
       >
-        {@html fluentIcons.rename16}
+        <Icon name="pencil-simple-line" />
         <span>Rename (F2)</span>
       </button>
       <button
@@ -485,7 +479,7 @@
           pendingDeleteNode = targetNode;
         }}
       >
-        {@html fluentIcons.delete16}
+        <Icon name="trash" />
         <span>Move to Recycle Bin (Del)</span>
       </button>
     {/if}
@@ -671,28 +665,6 @@
     gap: 2px;
   }
 
-  .fluent-icon-btn {
-    min-width: var(--control-min-height);
-    min-height: var(--control-min-height);
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: var(--radius-control);
-    border: 1px solid transparent;
-    background: transparent;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition:
-      background-color var(--transition-fast),
-      color var(--transition-fast);
-  }
-
-  .fluent-icon-btn:hover {
-    background: var(--surface-hover);
-    color: var(--text-primary);
-  }
-
-  .create-entry-bar,
   .delete-confirm-bar {
     padding: var(--space-2);
     background: var(--surface-subtle);

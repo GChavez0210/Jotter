@@ -1,5 +1,7 @@
 <script lang="ts">
-  import { fluentIcons } from './icons';
+  import Icon from './ui/Icon.svelte';
+  import IconButton from './ui/IconButton.svelte';
+  import Button from './ui/Button.svelte';
   import { pickVaultFolder } from './ipc';
   import type { RecentVault } from './types';
   import { validateWindowsEntryName } from './validation';
@@ -70,7 +72,7 @@
 <div class="onboarding-container">
   <div class="onboarding-card" role="region" aria-label="Welcome to Jotter">
     <div class="hero-header">
-      <div class="hero-logo">{@html fluentIcons.note20}</div>
+      <div class="hero-logo"><Icon name="notebook" size={20} /></div>
       <div class="hero-titles">
         <h1 class="hero-title">Jotter</h1>
         <p class="hero-subtitle">
@@ -92,23 +94,20 @@
           </div>
         </div>
         <div class="action-buttons">
-          <button
-            type="button"
-            class="fluent-btn primary-btn"
+          <Button
+            variant="primary"
+            icon="folder-open"
             onclick={handleOpenVaultClick}
           >
-            {@html fluentIcons.folderOpen20}
-            <span>Open vault</span>
-          </button>
-          <button
-            type="button"
-            class="fluent-btn"
+            Open vault
+          </Button>
+          <Button
             title="Enter folder path manually"
             onclick={() =>
               (mode = mode === 'open_manual' ? 'welcome' : 'open_manual')}
           >
-            <span>Enter path…</span>
-          </button>
+            Enter path…
+          </Button>
         </div>
       </div>
 
@@ -125,16 +124,17 @@
             />
           </label>
           <div class="form-actions">
-            <button
-              type="button"
-              class="fluent-btn"
+            <Button
               onclick={() => (mode = 'welcome')}
             >
               Cancel
-            </button>
-            <button type="submit" class="fluent-btn primary-btn">
+            </Button>
+            <Button
+              variant="primary"
+              type="submit"
+            >
               Open folder
-            </button>
+            </Button>
           </div>
         </form>
       {/if}
@@ -146,14 +146,12 @@
             Create a fresh folder for your plain-text Markdown notes.
           </div>
         </div>
-        <button
-          type="button"
-          class="fluent-btn"
+        <Button
+          icon="plus"
           onclick={() => (mode = mode === 'create' ? 'welcome' : 'create')}
         >
-          {@html fluentIcons.add20}
-          <span>Create vault</span>
-        </button>
+          Create vault
+        </Button>
       </div>
 
       {#if mode === 'create'}
@@ -182,30 +180,26 @@
                 bind:value={createParentPath}
                 required
               />
-              <button
-                type="button"
-                class="fluent-btn"
+              <Button
                 onclick={handleBrowseParentClick}
               >
                 Browse…
-              </button>
+              </Button>
             </div>
           </div>
           <div class="form-actions">
-            <button
-              type="button"
-              class="fluent-btn"
+            <Button
               onclick={() => (mode = 'welcome')}
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               type="submit"
-              class="fluent-btn primary-btn"
               disabled={Boolean(vaultNameError)}
             >
               Create &amp; Open
-            </button>
+            </Button>
           </div>
         </form>
       {/if}
@@ -222,21 +216,18 @@
                 class="recent-open-btn"
                 onclick={() => onOpenVaultPath(vault.path)}
               >
-                <span class="recent-icon">{@html fluentIcons.folder16}</span>
+                <span class="recent-icon"><Icon name="folder-simple" /></span>
                 <span class="recent-text">
                   <span class="recent-name">{vault.name}</span>
                   <span class="recent-path">{vault.path}</span>
                 </span>
               </button>
-              <button
-                type="button"
-                class="fluent-btn icon-only remove-recent-btn"
-                title="Remove from recent vaults"
-                aria-label="Remove {vault.name} from recent vaults"
+              <IconButton
+                icon="x"
+                label="Remove {vault.name} from recent vaults"
+                tooltip="Remove from recent vaults"
                 onclick={() => onRemoveRecentVault(vault.path)}
-              >
-                {@html fluentIcons.dismiss16}
-              </button>
+              />
             </li>
           {/each}
         </ul>
@@ -409,44 +400,6 @@
     display: flex;
     justify-content: flex-end;
     gap: var(--space-2);
-  }
-
-  .fluent-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-2);
-    min-height: var(--control-min-height);
-    min-width: var(--control-min-height);
-    padding: 0 var(--space-3);
-    border-radius: var(--radius-control);
-    border: 1px solid var(--line-control);
-    background: var(--surface-field);
-    color: var(--text-primary);
-    font-size: var(--fs-12);
-    font-weight: 500;
-    cursor: pointer;
-    transition:
-      background-color var(--transition-fast),
-      border-color var(--transition-fast);
-  }
-
-  .fluent-btn.icon-only {
-    padding: 0 var(--space-2);
-  }
-
-  .fluent-btn:hover {
-    background: var(--surface-hover);
-  }
-
-  .fluent-btn.primary-btn {
-    background: var(--accent);
-    color: var(--on-accent);
-    border-color: transparent;
-  }
-
-  .fluent-btn.primary-btn:hover {
-    filter: brightness(1.06);
   }
 
   .recent-section {

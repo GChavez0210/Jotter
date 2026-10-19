@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { fluentIcons } from './icons';
+  import Icon from './ui/Icon.svelte';
+  import Button from './ui/Button.svelte';
+  import IconButton from './ui/IconButton.svelte';
+  import Segmented from './ui/Segmented.svelte';
   import { COPY_MODE_LABELS, settingsStore } from './stores/settings.svelte';
   import { ACCENT_PRESETS } from './designTokens';
   import { vaultStore } from './stores/vault.svelte';
@@ -83,20 +86,17 @@
   >
     <header class="settings-header">
       <div class="header-title-group">
-        <span class="header-icon">{@html fluentIcons.settings16}</span>
+        <span class="header-icon"><Icon name="gear-six" /></span>
         <h2 id="settings-dialog-title" class="header-title">Settings</h2>
         <span class="shortcut-pill">Ctrl+,</span>
       </div>
-      <button
-        bind:this={closeBtnRef}
-        type="button"
-        class="fluent-btn icon-only"
-        aria-label="Close settings (Escape)"
-        title="Close settings (Escape)"
+      <IconButton
+        bind:ref={closeBtnRef}
+        icon="x"
+        label="Close settings"
+        tooltip="Close settings (Esc)"
         onclick={onClose}
-      >
-        {@html fluentIcons.dismiss16}
-      </button>
+      />
     </header>
 
     <div class="settings-body">
@@ -108,7 +108,7 @@
           aria-current={activeSection === 'editor' ? 'page' : undefined}
           onclick={() => (activeSection = 'editor')}
         >
-          {@html fluentIcons.edit16}
+          <Icon name="pencil-simple" />
           <span>Editor</span>
         </button>
         <button
@@ -118,7 +118,7 @@
           aria-current={activeSection === 'copy' ? 'page' : undefined}
           onclick={() => (activeSection = 'copy')}
         >
-          {@html fluentIcons.copy16}
+          <Icon name="copy" />
           <span>Copy</span>
         </button>
         <button
@@ -128,7 +128,7 @@
           aria-current={activeSection === 'appearance' ? 'page' : undefined}
           onclick={() => (activeSection = 'appearance')}
         >
-          {@html fluentIcons.eye16}
+          <Icon name="eye" />
           <span>Appearance</span>
         </button>
         <button
@@ -138,7 +138,7 @@
           aria-current={activeSection === 'vault' ? 'page' : undefined}
           onclick={() => (activeSection = 'vault')}
         >
-          {@html fluentIcons.folder16}
+          <Icon name="folder-simple" />
           <span>Vault</span>
         </button>
       </nav>
@@ -158,28 +158,15 @@
                   Live mode renders headings, emphasis, links, task checkboxes, and images inline while keeping raw Markdown on the active cursor line (Ctrl+/).
                 </div>
               </div>
-              <div class="segmented-group" role="radiogroup" aria-label="Default editing mode">
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={settingsStore.editingMode === 'live'}
-                  class="seg-btn"
-                  class:active={settingsStore.editingMode === 'live'}
-                  onclick={() => settingsStore.setEditingMode('live')}
-                >
-                  Live Preview
-                </button>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={settingsStore.editingMode === 'source'}
-                  class="seg-btn"
-                  class:active={settingsStore.editingMode === 'source'}
-                  onclick={() => settingsStore.setEditingMode('source')}
-                >
-                  Source
-                </button>
-              </div>
+              <Segmented
+                label="Default editing mode"
+                value={settingsStore.editingMode}
+                options={[
+                  { value: 'live', label: 'Live Preview' },
+                  { value: 'source', label: 'Source' },
+                ]}
+                onchange={(mode) => settingsStore.setEditingMode(mode)}
+              />
             </div>
 
             <div class="setting-card">
@@ -228,23 +215,15 @@
               <div class="setting-info">
                 <div class="setting-label">Editor font size</div>
                 <div class="setting-desc">
-                  Select a step on the Fluent typography scale (12, 14, 16, or 20 px).
+                  Size of note text: 12, 14, 16 or 20 px.
                 </div>
               </div>
-              <div class="segmented-group" role="radiogroup" aria-label="Editor font size">
-                {#each [12, 14, 16, 20] as sizePx}
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={settingsStore.editorFontSize === sizePx}
-                    class="seg-btn"
-                    class:active={settingsStore.editorFontSize === sizePx}
-                    onclick={() => settingsStore.setEditorFontSize(sizePx)}
-                  >
-                    {sizePx} px
-                  </button>
-                {/each}
-              </div>
+              <Segmented
+                label="Editor font size"
+                value={settingsStore.editorFontSize}
+                options={[12, 14, 16, 20].map((px) => ({ value: px, label: `${px} px` }))}
+                onchange={(px) => settingsStore.setEditorFontSize(px)}
+              />
             </div>
 
             <div class="setting-card">
@@ -254,28 +233,15 @@
                   Choose how images pasted from the clipboard into the <code>attachments/</code> folder are inserted into the note.
                 </div>
               </div>
-              <div class="segmented-group" role="radiogroup" aria-label="Pasted image link format">
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={settingsStore.imageLinkFormat === 'wikilink'}
-                  class="seg-btn"
-                  class:active={settingsStore.imageLinkFormat === 'wikilink'}
-                  onclick={() => settingsStore.setImageLinkFormat('wikilink')}
-                >
-                  ![[name]]
-                </button>
-                <button
-                  type="button"
-                  role="radio"
-                  aria-checked={settingsStore.imageLinkFormat === 'markdown'}
-                  class="seg-btn"
-                  class:active={settingsStore.imageLinkFormat === 'markdown'}
-                  onclick={() => settingsStore.setImageLinkFormat('markdown')}
-                >
-                  ![](path)
-                </button>
-              </div>
+              <Segmented
+                label="Pasted image link format"
+                value={settingsStore.imageLinkFormat}
+                options={[
+                  { value: 'wikilink', label: '![[name]]' },
+                  { value: 'markdown', label: '![](path)' },
+                ]}
+                onchange={(format) => settingsStore.setImageLinkFormat(format)}
+              />
             </div>
           </section>
         {:else if activeSection === 'copy'}
@@ -331,24 +297,16 @@
                   Follow your system setting, or always use Light or Dark.
                 </div>
               </div>
-              <div class="segmented-group" role="radiogroup" aria-label="Theme mode">
-                {#each ['system', 'light', 'dark'] as const as pref}
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={settingsStore.themePref === pref}
-                    class="seg-btn"
-                    class:active={settingsStore.themePref === pref}
-                    onclick={() => settingsStore.setThemePreference(pref)}
-                  >
-                    {pref === 'system'
-                      ? 'Follow System'
-                      : pref === 'light'
-                        ? 'Light'
-                        : 'Dark'}
-                  </button>
-                {/each}
-              </div>
+              <Segmented
+                label="Theme mode"
+                value={settingsStore.themePref}
+                options={[
+                  { value: 'system', label: 'System' },
+                  { value: 'light', label: 'Light' },
+                  { value: 'dark', label: 'Dark' },
+                ]}
+                onchange={(pref) => settingsStore.setThemePreference(pref)}
+              />
             </div>
 
             <div class="setting-card">
@@ -380,38 +338,16 @@
                     Used for links, the active note, selection and primary buttons.
                   </div>
                 </div>
-                <div class="segmented-group" role="radiogroup" aria-label="Accent color source">
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={settingsStore.accentColorMode === 'preset'}
-                    class="seg-btn"
-                    class:active={settingsStore.accentColorMode === 'preset'}
-                    onclick={() => settingsStore.setAccentColor('preset')}
-                  >
-                    Jotter
-                  </button>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={settingsStore.accentColorMode === 'system'}
-                    class="seg-btn"
-                    class:active={settingsStore.accentColorMode === 'system'}
-                    onclick={() => settingsStore.setAccentColor('system')}
-                  >
-                    System
-                  </button>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={settingsStore.accentColorMode === 'custom'}
-                    class="seg-btn"
-                    class:active={settingsStore.accentColorMode === 'custom'}
-                    onclick={() => settingsStore.setAccentColor('custom')}
-                  >
-                    Custom
-                  </button>
-                </div>
+                <Segmented
+                  label="Accent color source"
+                  value={settingsStore.accentColorMode}
+                  options={[
+                    { value: 'preset', label: 'Jotter' },
+                    { value: 'system', label: 'System' },
+                    { value: 'custom', label: 'Custom' },
+                  ]}
+                  onchange={(mode) => settingsStore.setAccentColor(mode)}
+                />
               </div>
 
               {#if settingsStore.accentColorMode === 'preset'}
@@ -469,15 +405,14 @@
                   <div class="rebuild-status" role="status">{rebuildStatus}</div>
                 {/if}
               </div>
-              <button
-                type="button"
-                class="fluent-btn primary-btn"
+              <Button
+                variant="primary"
+                icon="arrow-clockwise"
                 disabled={!vaultStore.vaultSnapshot || isRebuilding}
                 onclick={() => void handleRebuildIndex()}
               >
-                {@html fluentIcons.arrowClockwise16}
-                <span>{isRebuilding ? 'Rebuilding...' : 'Rebuild Index'}</span>
-              </button>
+                {isRebuilding ? 'Rebuilding…' : 'Rebuild index'}
+              </Button>
             </div>
 
             <div class="setting-card">
@@ -692,44 +627,6 @@
     font-weight: 500;
   }
 
-  .segmented-group {
-    display: inline-flex;
-    align-items: center;
-    background: var(--surface-raised);
-    border: 1px solid var(--line-control);
-    border-radius: var(--radius-control);
-    padding: 2px;
-    gap: 2px;
-    flex-shrink: 0;
-  }
-
-  .seg-btn {
-    min-height: 28px;
-    padding: 0 var(--space-3);
-    border: 1px solid transparent;
-    border-radius: var(--radius-control);
-    background: transparent;
-    color: var(--text-secondary);
-    font-size: var(--fs-12);
-    font-weight: 500;
-    cursor: pointer;
-    transition:
-      background-color var(--transition-fast),
-      color var(--transition-fast);
-  }
-
-  .seg-btn:hover {
-    background: var(--surface-hover);
-    color: var(--text-primary);
-  }
-
-  .seg-btn.active {
-    background: var(--selection);
-    color: var(--text-primary);
-    border-color: var(--accent);
-    font-weight: 600;
-  }
-
   .fluent-toggle {
     width: 18px;
     height: 18px;
@@ -842,40 +739,4 @@
     margin-left: auto;
   }
 
-  .fluent-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-2);
-    min-height: var(--control-min-height);
-    min-width: var(--control-min-height);
-    padding: 0 var(--space-3);
-    border-radius: var(--radius-control);
-    border: 1px solid var(--line-control);
-    background: var(--surface-field);
-    color: var(--text-primary);
-    font-size: var(--fs-12);
-    font-weight: 500;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-
-  .fluent-btn.icon-only {
-    padding: 0 var(--space-2);
-  }
-
-  .fluent-btn:hover:not(:disabled) {
-    background: var(--surface-hover);
-  }
-
-  .fluent-btn:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-
-  .fluent-btn.primary-btn {
-    background: var(--accent);
-    color: var(--on-accent);
-    border-color: transparent;
-  }
 </style>
