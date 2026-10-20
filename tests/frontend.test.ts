@@ -424,14 +424,14 @@ test('note cards load a new vault at once and coalesce reloads while editing', a
 
 // Regression tests for the low-severity Phase 2 review findings.
 
-test('inline calculation skips dates and phone numbers but still subtracts', () => {
-  assert.equal(inlineCalculation('Meeting 2026-10-19 ='), null);
-  assert.equal(inlineCalculation('call 555-1234 ='), null);
-  assert.equal(inlineCalculation('call 1-800-555-0100 ='), null);
-  assert.equal(inlineCalculation('see 10-5 ='), null);
-  assert.equal(inlineCalculation('100-25 ='), null);
+test('inline calculation subtracts whenever the line ends with =', () => {
+  assert.equal(inlineCalculation('4-7=')?.result, '-3');
+  assert.equal(inlineCalculation('100-25 =')?.result, '75');
+  assert.equal(inlineCalculation('see 10-5 =')?.result, '5');
   assert.equal(inlineCalculation('2*3 - 1 =')?.result, '5');
   assert.equal(inlineCalculation('555 - 1234 =')?.result, '-679');
+  assert.equal(inlineCalculation('call 555-1234'), null);
+  assert.equal(inlineCalculation('Meeting 2026-10-19'), null);
 });
 
 test('frontmatter reads comment-only values, comments after quotes, and leading zeros', () => {
@@ -551,18 +551,13 @@ test('due dates inside code spans are ignored, as the Rust indexer ignores them'
   assert.equal(line.slice(found.from, found.to), '📅 2026-11-03');
 });
 
-test('inline integer subtraction requires spaces on both sides of the minus', () => {
-  assert.equal(inlineCalculation('100-250 ='), null);
-  assert.equal(inlineCalculation('100 -250 ='), null);
-  assert.equal(inlineCalculation('100- 250 ='), null);
+test('inline integer subtraction works with or without spaces', () => {
+  assert.equal(inlineCalculation('100-250 =')?.result, '-150');
+  assert.equal(inlineCalculation('100 -250 =')?.result, '-150');
+  assert.equal(inlineCalculation('100- 250 =')?.result, '-150');
   assert.equal(inlineCalculation('100 - 250 =')?.result, '-150');
   assert.equal(evaluate('100-250'), -150);
   assert.equal(evaluateCalcBlock(['100-250'])[0].result, '-150');
-  assert.equal(inlineCalculation('call 555-1234 ='), null);
-  assert.equal(inlineCalculation('call 1-800-555-0100 ='), null);
-  assert.equal(inlineCalculation('Meeting 2026-10-19 ='), null);
-  assert.equal(inlineCalculation('see 10-5 ='), null);
-  assert.equal(inlineCalculation('see 10 - 5 =')?.result, '5');
 });
 
 test('ordered list edits preserve the original first number even when later numbers are lower', () => {

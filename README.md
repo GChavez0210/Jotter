@@ -47,7 +47,7 @@ Math and diagrams also appear in HTML export and in Print to PDF. Exported HTML 
 ### Calculations
 End a line with an arithmetic expression and `=`, such as `Rent split: 1850 / 3 =`, and Jotter shows the result after the `=`. Press `Tab` or click the result to insert it. Expressions support `+ - * / ^`, parentheses, percentages (`200 - 25%`, `15% of 80`), `pi`, `e`, and the functions `sqrt`, `abs`, `round`, `floor`, `ceil`, `min`, `max`, `sin`, `cos`, `tan`, `log`, `ln`, and `exp`. A line needs an operator or function, so `x = 5` stays text.
 
-For inline subtraction between integers, put spaces on both sides of the minus: `100 - 250 =`. Unspaced forms such as `100-250 =` stay text to avoid treating dates and phone numbers as calculations. Inside `calc` blocks, `100-250` still works.
+Jotter calculates only when the line ends with `=`, so dates and phone numbers elsewhere in your text stay as typed. Spaces around operators are optional: `4-7=` and `4 - 7 =` both give -3.
 
 A fenced code block tagged `calc` shows a result after each line:
 
