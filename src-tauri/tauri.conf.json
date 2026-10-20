@@ -31,18 +31,39 @@
   },
   "bundle": {
     "active": true,
-    "targets": [
-      "nsis",
-      "msi"
-    ],
+    "targets": "all",
+    "resources": {
+      "../node_modules/dictionary-en/index.aff": "dictionaries/en-US/index.aff",
+      "../node_modules/dictionary-en/index.dic": "dictionaries/en-US/index.dic",
+      "../node_modules/dictionary-en/license": "dictionaries/en-US/LICENSE",
+      "../node_modules/dictionary-en-gb/index.aff": "dictionaries/en-GB/index.aff",
+      "../node_modules/dictionary-en-gb/index.dic": "dictionaries/en-GB/index.dic",
+      "../node_modules/dictionary-en-gb/license": "dictionaries/en-GB/LICENSE",
+      "../node_modules/dictionary-es/index.aff": "dictionaries/es/index.aff",
+      "../node_modules/dictionary-es/index.dic": "dictionaries/es/index.dic",
+      "../node_modules/dictionary-es/license": "dictionaries/es/LICENSE",
+      "../node_modules/dictionary-fr/index.aff": "dictionaries/fr/index.aff",
+      "../node_modules/dictionary-fr/index.dic": "dictionaries/fr/index.dic",
+      "../node_modules/dictionary-fr/license": "dictionaries/fr/LICENSE",
+      "../node_modules/dictionary-de/index.aff": "dictionaries/de/index.aff",
+      "../node_modules/dictionary-de/index.dic": "dictionaries/de/index.dic",
+      "../node_modules/dictionary-de/license": "dictionaries/de/LICENSE",
+      "../node_modules/dictionary-pt/index.aff": "dictionaries/pt-BR/index.aff",
+      "../node_modules/dictionary-pt/index.dic": "dictionaries/pt-BR/index.dic",
+      "../node_modules/dictionary-pt/license": "dictionaries/pt-BR/LICENSE",
+      "../node_modules/dictionary-it/index.aff": "dictionaries/it/index.aff",
+      "../node_modules/dictionary-it/index.dic": "dictionaries/it/index.dic",
+      "../node_modules/dictionary-it/license": "dictionaries/it/LICENSE"
+    },
     "publisher": "Jotter",
-    "shortDescription": "Windows-native Markdown note-taking app compatible with Obsidian vaults",
+    "shortDescription": "Desktop Markdown notes compatible with Obsidian vaults",
     "category": "Productivity",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.ico"
+      "icons/icon.ico",
+      "icons/icon.icns"
     ],
     "windows": {
       "webviewInstallMode": {

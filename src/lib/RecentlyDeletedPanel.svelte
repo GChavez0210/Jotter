@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isMac } from './platform';
   import Icon from './ui/Icon.svelte';
   import IconButton from './ui/IconButton.svelte';
   import { listDeletedEntries } from './ipc';
@@ -51,7 +52,7 @@
   $effect(() => {
     void vaultStore.vaultSnapshot?.rootPath;
     void vaultStore.deletedVersion;
-    void refresh();
+    if (!isMac) void refresh();
   });
 </script>
 
@@ -62,13 +63,15 @@
   </div>
 
   <div class="list-scroll">
-    {#if loading && entries.length === 0}
-      <div class="empty-msg">Reading the Recycle Bin…</div>
+    {#if isMac}
+      <div class="empty-msg">Deleted notes go to the system Trash. Open Trash in Finder to restore them to this vault.</div>
+    {:else if loading && entries.length === 0}
+      <div class="empty-msg">Reading the system trash…</div>
     {:else if errorMessage}
       <div class="empty-msg" role="alert">{errorMessage}</div>
     {:else if entries.length === 0}
       <div class="empty-msg">
-        No deleted notes from this vault are in the Recycle Bin.
+        No deleted notes from this vault are in the system trash.
       </div>
     {:else}
       <ul class="deleted-list">

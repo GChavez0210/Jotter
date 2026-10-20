@@ -2,7 +2,7 @@
 
 Phases run from least to most effort. Each phase ships on its own, and items within a phase are independent unless noted.
 
-Platform work (Linux, Android, Apple) sits in the last phase. Until then, build every feature without new Windows-only code, so the ports stay cheap.
+Desktop portability foundations are in place. Release validation for additional platforms stays in the last phase. Keep platform-specific code behind adapters.
 
 ## Already shipped
 
@@ -31,8 +31,8 @@ Platform work (Linux, Android, Apple) sits in the last phase. Until then, build 
 - [x] **Math calculation.** Evaluate inline expressions (`12*4 =` → `48`) and calc blocks with variables.
 - [x] **Note properties editor.** Edit YAML frontmatter through a form in the note header.
 - [x] **Outliner basics.** Fold lists, move items with `Alt+↑/↓`, indent and outdent, and zoom into a bullet.
-- [ ] **Multi-dictionary spell check.** Bundle Hunspell dictionaries and choose languages per vault or per note.
-- [ ] **Bring-your-own AI model.** Off by default. Supports OpenAI-compatible endpoints, Anthropic, and local Ollama, with keys in the OS keychain. Starts with three commands on the selection or the whole note: summarize, rewrite, and translate. Translate takes a target language, keeps Markdown formatting, links, and code blocks intact, and either replaces the text or inserts the translation below it.
+- [x] **Multi-dictionary spell check.** Bundle Hunspell dictionaries and choose languages per vault or per note.
+- [ ] **Bring-your-own AI model.** Free, with no Jotter account or subscription required. Off by default. Supports OpenAI-compatible endpoints, Anthropic, and local Ollama, with keys in the OS keychain. Cloud BYOK calls go directly to the chosen provider; the user pays that provider. Local models run on the user's hardware. Starts with three commands on the selection or the whole note: summarize, rewrite, and translate. Translate takes a target language, keeps Markdown formatting, links, and code blocks intact, and either replaces the text or inserts the translation below it.
 - [ ] **Multi-language UI.** Extract UI strings into an i18n library and ship the most common languages.
 - [ ] **Dictation.** Record in the app and insert the text at the cursor. Transcription uses local Whisper, which works offline, or the configured provider's transcription endpoint. With an AI model configured, an optional cleanup pass removes filler words, adds punctuation, and formats lists and headings as Markdown. A setting keeps the recording in `attachments/` and embeds it in the note.
 - [x] **Home page.** A start page of note cards in place of the empty "Nothing open" screen. Sections show recently opened, created, and modified notes, notes by tag, most and least linked notes, and a daily "Rediscover" pick of notes untouched for months. Each section has its own card count, sort order, and folder and tag filters, and a note appears only in the first section that matches it. Sections that filter by property depend on the properties editor. Data comes from the existing SQLite index.
@@ -48,11 +48,13 @@ Platform work (Linux, Android, Apple) sits in the last phase. Until then, build 
 
 ## Phase 4: Major projects and platforms
 
+- [ ] **Optional hosted AI subscriptions.** Basic at USD $5/month and Pro at USD $10/month, with the same summarize, rewrite, translate, and dictation features and different monthly allowances. BYOK stays free, and notes remain usable without an account. Polar handles checkout, subscription billing, and customer billing management. A separate private backend authenticates users, enforces allowances and spending limits, and calls providers with server-held commercial keys. Start by evaluating prepaid DeepSeek for text and a separately budgeted transcription provider. Confirm provider-side cutoff and possible overspend before launch; prepaid credit and concurrency limits alone do not guarantee a financial ceiling. Depends on Phase 2 AI and dictation. See the [AI implementation plan](docs/AI_IMPLEMENTATION_PLAN.md) for delivery steps, billing rules, cost controls, and acceptance criteria.
 - [ ] **User plugins.** A stable public API, sandboxing, and a compatibility commitment.
 - [ ] **Handwriting.** Pen input stored as SVG and embedded in notes.
 - [ ] **Handwriting OCR.** Make handwriting searchable. Depends on handwriting.
-- [ ] **Linux desktop.** Gate the Windows-only code (Mica, Win32 save dialog, Windows filename rules) and ship AppImage and `.deb` builds.
+- [ ] **Linux desktop.** Validate the desktop adapters and ship AppImage and `.deb` builds.
 - [ ] **Android.** Tauri 2 mobile build with a touch-first UI. Depends on a sync story.
 - [ ] **Native cloud sync APIs.** Provider sign-in, change tracking, and conflict handling for mobile, where folder sync is not available.
-- [ ] **macOS and iOS.** Platform builds, iCloud Drive vaults, and iOS sandboxed file access.
+- [ ] **macOS release.** Validate the native dialogs, WKWebView clipboard and printing, global shortcuts, and iCloud Drive vaults. Complete signing, notarization, and Intel/Apple Silicon packaging. CI covers native build and unit-test checks.
+- [ ] **iOS.** Mobile UI and sandboxed file access.
 - [ ] **Apple Notes import.** Read the Apple Notes database on macOS and convert notes to Markdown. Depends on macOS. Two-way sync is out of scope.

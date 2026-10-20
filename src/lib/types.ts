@@ -23,7 +23,7 @@ export interface BackdropState {
   darkMode: boolean | null;
 }
 
-export type ThemePreference = 'system' | 'light' | 'dark';
+export type ThemePreference = 'system' | 'light' | 'dark' | 'high-contrast';
 
 export type EditingMode = 'live' | 'source';
 
@@ -123,6 +123,15 @@ export interface DeletedEntry {
 export interface CssSnippet {
   name: string;
   css: string;
+}
+
+/** A Hunspell dictionary Jotter can check spelling with. */
+export interface SpellDictionary {
+  /** A language tag such as `en-US`, or the file name of a user dictionary. */
+  id: string;
+  name: string;
+  /** Ships with Jotter, as opposed to a file the user added. */
+  bundled: boolean;
 }
 
 

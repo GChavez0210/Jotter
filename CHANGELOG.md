@@ -8,12 +8,15 @@ Roadmap Phase 2.
 
 ### Added
 
+- Prepare desktop portability: native cross-platform dialogs, persistent OS data paths, Mac shortcut hints, opaque native Mac frame, app icon, and macOS CI. Preserve shared-vault filename safety. Fix spelling reload/persistence and case-sensitive rename protection.
+
 - **Calculations.** A line ending in an arithmetic expression and `=` shows the result; `Tab` or a click inserts it. ```` ```calc ```` blocks show a result for each line, with variables, `sum`, `total`, and `prev`. HTML export and Print to PDF write the results after each line.
 - **Properties form.** The note header edits YAML frontmatter as typed fields: text, list, number, checkbox, date, and date and time. Edits rewrite only the changed property and join the undo history. Live mode hides the raw YAML.
 - **Outliner.** `Alt+↑`/`Alt+↓` move list items with their children, `Tab`/`Shift+Tab` nest and un-nest them, margin arrows fold them, and `Ctrl+.` zooms into one item. The command palette has zoom, fold all, and unfold all.
 - **Cloud folder sync.** Jotter detects Dropbox, OneDrive, Google Drive, Box, and iCloud Drive vault folders, lists conflict copies in a Sync conflicts sidebar view and the status bar, and shows the detected client in Settings → Vault. The README describes the setup.
 - **Task due dates and calendar file.** Checklist items with `📅 2026-11-01`, `due:2026-11-01`, or `[due:: 2026-11-01]` go into the index. Live mode shows them as chips that turn red when overdue. Settings → Vault picks an `.ics` file that Jotter keeps current with open tasks.
 - **Tags and links view.** The Notes sidebar can list notes by nested tag, with each note expandable to the notes it links to.
+- **Spelling dictionaries.** Jotter checks spelling with bundled Hunspell dictionaries for English (US and UK), Spanish, French, German, Portuguese (Brazil), and Italian. Each vault picks its languages in Settings → Editor, and a note's `lang` property overrides them. Right-click an underlined word for suggestions or to add it to the personal dictionary. User `.aff`/`.dic` files add more languages. The previous WebView checker remains available as the System option.
 - **Home page.** With no note open, a page of note cards shows recently opened, edited, and created notes, the most linked notes, and a daily Rediscover pick. Sections are customizable per vault.
 
 ## [0.1.1] - 2026-10-19

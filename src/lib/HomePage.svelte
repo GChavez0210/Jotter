@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { shortcutLabel } from './platform';
   import Button from './ui/Button.svelte';
   import Icon from './ui/Icon.svelte';
   import IconButton from './ui/IconButton.svelte';
@@ -132,7 +133,7 @@
     <p class="empty" role="alert">{noteCardsStore.error}</p>
   {:else if visible.length === 0 && !editing}
     <p class="empty">
-      {noteCardsStore.loading ? 'Loading notes…' : 'Notes you open and edit show up here. Press Ctrl O to find a note by name.'}
+      {noteCardsStore.loading ? 'Loading notes…' : shortcutLabel('Notes you open and edit show up here. Press Ctrl O to find a note by name.')}
     </p>
   {/if}
 

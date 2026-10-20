@@ -1,10 +1,11 @@
 <script lang="ts">
+  import appIcon from '../assets/app-icon.png';
   import Icon from './ui/Icon.svelte';
   import IconButton from './ui/IconButton.svelte';
   import Button from './ui/Button.svelte';
   import { pickVaultFolder } from './ipc';
   import type { RecentVault } from './types';
-  import { validateWindowsEntryName } from './validation';
+  import { validateEntryName } from './validation';
 
   interface Props {
     recentVaults: RecentVault[];
@@ -30,7 +31,7 @@
   let manualOpenPath = $state('');
 
   let vaultNameError = $derived(
-    mode === 'create' ? validateWindowsEntryName(createVaultName) : null
+    mode === 'create' ? validateEntryName(createVaultName) : null
   );
 
   async function handleOpenVaultClick() {
@@ -72,7 +73,7 @@
 <div class="onboarding-container">
   <div class="onboarding-card" role="region" aria-label="Welcome to Jotter">
     <div class="hero-header">
-      <div class="hero-logo" aria-hidden="true">J</div>
+      <img class="hero-logo" src={appIcon} alt="" width="48" height="48" />
       <div class="hero-titles">
         <h1 class="hero-title">Jotter</h1>
         <p class="hero-subtitle">
@@ -267,14 +268,11 @@
   }
 
   .hero-logo {
-    display: grid;
-    place-items: center;
-    width: 40px;
-    height: 40px;
-    border-radius: var(--radius-dialog);
-    background: var(--accent);
-    color: var(--on-accent);
-    font: 600 22px / 1 var(--font-display);
+    display: block;
+    width: 48px;
+    height: 48px;
+    flex-shrink: 0;
+    object-fit: contain;
   }
 
   .hero-titles {

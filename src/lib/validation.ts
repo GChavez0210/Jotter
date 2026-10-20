@@ -28,16 +28,16 @@ const WINDOWS_RESERVED_NAMES = new Set([
 const INVALID_CHAR_REGEX = /[<>:"/\\|?*\x00-\x1F]/;
 
 /**
- * Validates a note or folder name against Windows filesystem naming rules.
+ * Validates a note or folder name for vaults shared across desktop operating systems.
  * Returns a clear human-readable error message if invalid, or `null` if valid.
  */
-export function validateWindowsEntryName(rawName: string): string | null {
+export function validateEntryName(rawName: string): string | null {
   if (!rawName || rawName.trim().length === 0) {
     return 'Name cannot be empty.';
   }
 
   if (rawName.endsWith(' ') || rawName.endsWith('.')) {
-    return 'Windows names cannot end with a space or a period.';
+    return 'Names cannot end with a space or a period.';
   }
 
   if (/\.md$/i.test(rawName)) {
@@ -46,7 +46,7 @@ export function validateWindowsEntryName(rawName: string): string | null {
       return 'Note name cannot be empty.';
     }
     if (stem.endsWith(' ') || stem.endsWith('.')) {
-      return 'Windows names cannot end with a space or a period.';
+      return 'Names cannot end with a space or a period.';
     }
   }
 
@@ -57,12 +57,12 @@ export function validateWindowsEntryName(rawName: string): string | null {
 
   const badCharMatch = rawName.match(INVALID_CHAR_REGEX);
   if (badCharMatch) {
-    return `Invalid Windows character "${badCharMatch[0]}". Avoid < > : " / \\ | ? *`;
+    return `Invalid filename character "${badCharMatch[0]}". Avoid < > : " / \\ | ? *`;
   }
 
   const stemBeforeDot = trimmed.split('.')[0]?.trim() ?? '';
   if (WINDOWS_RESERVED_NAMES.has(stemBeforeDot.toUpperCase())) {
-    return `"${stemBeforeDot}" is a reserved Windows device name.`;
+    return `"${stemBeforeDot}" is a reserved filename on a supported platform.`;
   }
 
   return null;

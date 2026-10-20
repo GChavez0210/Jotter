@@ -1,3 +1,8 @@
+import { systemStore } from '../src/lib/stores/system.svelte';
+import { settingsStore } from '../src/lib/stores/settings.svelte';
+import { systemControl } from './ipc.mock';
+import { isMacPlatform, shortcutLabel } from '../src/lib/platform';
+import { validateEntryName } from '../src/lib/validation';
 import { mock, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EditorState } from '@codemirror/state';
@@ -33,6 +38,7 @@ import { detectSyncProvider, findConflictCopies } from '../src/lib/syncConflicts
 import { describeDueDate, findDueDate } from '../src/lib/dueDates';
 import { buildHomeSections, buildTagTree, type HomeSection } from '../src/lib/noteGraph';
 import type { NoteCard } from '../src/lib/types';
+import { collectCheckableWords, findCheckableWords, matchDictionaries, resolveNoteLanguages } from '../src/lib/spellcheck';
 import { invalidateImagePreviews, cachedImage, rememberImage, imagePreviewEpoch } from '../src/lib/imagePreviewCache';
 
 function dirtyTab() {
@@ -483,9 +489,9 @@ test('fold carets stay out of the accessibility tree, and views drop tree roles'
 
 test('the task calendar shows why the file picker did not open', async () => {
   vaultStore.vaultSnapshot = {rootPath:'Cal',name:'Cal',tree:[],noteCount:0};
-  calendarControl.pick = async () => { throw new Error('Choosing a task calendar file works only on Windows.'); };
+  calendarControl.pick = async () => { throw new Error('Cannot open the file picker.'); };
   await taskCalendarStore.choosePath();
-  assert.equal(taskCalendarStore.lastError, 'Choosing a task calendar file works only on Windows.');
+  assert.equal(taskCalendarStore.lastError, 'Cannot open the file picker.');
   assert.equal(taskCalendarStore.path, '');
   assert.deepEqual(calendarControl.writes, []);
 });
@@ -555,4 +561,94 @@ test('the outliner caches the frontmatter end and updates it when the top change
   assert.equal(frontmatterEndLine(open), 0);
   open = open.update({changes:{from:'---\ntitle: x\n'.length, to:'---\ntitle: x\nbody'.length, insert:'---'}}).state;
   assert.equal(frontmatterEndLine(open), 3);
+});
+
+test('spell check finds prose words and skips identifiers', () => {
+  const words = (text: string) => findCheckableWords(text).map((w) => w.word);
+  assert.deepEqual(words('The quick brwn fox'), ['The', 'quick', 'brwn', 'fox']);
+  // Apostrophes stay inside words but not at their edges.
+  assert.deepEqual(words("don't ’quoted’ John’s"), ["don't", 'quoted', 'John’s']);
+  // Hyphenated words are checked part by part.
+  assert.deepEqual(words('well-known'), ['well', 'known']);
+  // Acronyms, camelCase, digits, file names, addresses, LaTeX commands, and entities are skipped.
+  assert.deepEqual(words('NASA camelCase v2 2nd index.ts me@x.org e.g. \\frac &nbsp; a ok'), ['ok']);
+  const [first] = findCheckableWords("  'hello", 10);
+  assert.deepEqual(first, {from:13, to:18, word:'hello'});
+});
+
+test('spell check skips code, links, tags, math, and frontmatter', () => {
+  const doc = [
+    '---',
+    'title: Notte',
+    '---',
+    'Prose wrods with `codde` and [labbel](https://exmple.com/pathh).',
+    '[[Wikki Page]] and #tagg and $x + yy$ cost $5 and $10.',
+    '```',
+    'fencedd text',
+    '```',
+    '<span class="hidn">shown</span> https://barre.example.org done',
+    '<!-- commnt -->',
+  ].join('\n');
+  const state = EditorState.create({doc, extensions:markdown({base:markdownLanguage})});
+  const words = collectCheckableWords(state, [{from:0, to:doc.length}]).map((w) => w.word);
+  assert.deepEqual(words, [
+    'Prose', 'wrods', 'with', 'and', 'labbel',
+    'and', 'and', 'cost', 'and',
+    // Text between inline HTML tags is prose; the tags and their attributes are not.
+    'shown', 'done',
+  ]);
+  // The word under the cursor is left alone while it is being typed.
+  const at = doc.indexOf('wrods') + 5;
+  assert.ok(!collectCheckableWords(state, [{from:0, to:doc.length}], at).some((w) => w.word === 'wrods'));
+});
+
+test('spell check languages come from the note, then the vault', () => {
+  const config = {vaultLanguages:['en-US'], available:['en-US', 'en-GB', 'es', 'pt-BR'], check:async () => []};
+  const langs = (doc: string) => resolveNoteLanguages(EditorState.create({doc}), config);
+  assert.deepEqual(langs('Plain note'), ['en-US']);
+  assert.deepEqual(langs('---\nlang: es-MX\n---\nHola'), ['es']);
+  assert.deepEqual(langs('---\nlang: [en-GB, pt]\n---\n'), ['en-GB', 'pt-BR']);
+  assert.deepEqual(langs('---\nlang: en_gb\n---\n'), ['en-GB']);
+  // A language without a dictionary checks nothing rather than flagging every word.
+  assert.deepEqual(langs('---\nlang: ja\n---\n'), []);
+  assert.deepEqual(langs('---\nspellcheck: false\nlang: es\n---\n'), []);
+  assert.deepEqual(langs('---\ntitle: x\n---\n'), ['en-US']);
+  assert.deepEqual(matchDictionaries(['en', 'EN-us', 'fr'], config.available), ['en-US']);
+});
+
+
+test('shortcut hints follow the desktop platform', () => {
+  assert.equal(isMacPlatform('MacIntel'), true);
+  assert.equal(isMacPlatform('Win32'), false);
+  assert.equal(shortcutLabel('Copy (Ctrl+Shift+C)', true), 'Copy (Cmd+Shift+C)');
+  assert.equal(shortcutLabel('Ctrl+Alt+J', true), 'Cmd+Option+J');
+  assert.equal(shortcutLabel('Ctrl+O', false), 'Ctrl+O');
+});
+
+test('shared vault names reject nonportable entries on every desktop', () => {
+  for (const name of ['CON', 'note.', 'a/b', 'a:b', 'note ', '.hidden']) {
+    assert.notEqual(validateEntryName(name), null, name);
+  }
+  assert.equal(validateEntryName('Reunión.md'), null);
+});
+
+
+test('failed summon changes restore the last working setting and keep the error', async () => {
+  const calls: string[] = [];
+  systemControl.configure = async (enabled, shortcut) => {
+    calls.push(`${enabled}:${shortcut}`);
+    if (shortcut === 'occupied') throw new Error('Shortcut is occupied');
+  };
+  settingsStore.setSummon(true, 'Ctrl+Alt+J');
+  await systemStore.syncSummon();
+  settingsStore.setSummon(true, 'occupied');
+  await systemStore.syncSummon();
+  assert.equal(settingsStore.summonEnabled, true);
+  assert.equal(settingsStore.summonShortcut, 'Ctrl+Alt+J');
+  await systemStore.syncSummon();
+  assert.equal(systemStore.summonError, 'Shortcut is occupied');
+  assert.equal(calls.length, 2);
+  settingsStore.setSummon(false);
+  await systemStore.syncSummon();
+  assert.equal(systemStore.summonError, '');
 });

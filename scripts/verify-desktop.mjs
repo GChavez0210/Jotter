@@ -4,13 +4,15 @@ import { mkdir, writeFile, readFile, chmod } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
 
+if (process.platform !== 'win32') throw new Error('This verification harness requires Windows WebView2. Use MANUAL_TESTS.md on other platforms.');
+
 // Run against the built app with isolated WebView storage, app data, and disposable notes.
 const root = resolve(`src-tauri/target/desktop-verification/${Date.now()}`);
 const vault = join(root, 'vault');
 await mkdir(vault, {recursive:true});
 await mkdir(join(root, 'app-data/Jotter/snippets'), {recursive:true});
 await writeFile(join(root, 'app-data/Jotter/snippets/verify.css'), ':root { --verify-snippet: loaded; }');
-const note = '# Verification\n\nWe receive the budget.\n\nInline $x^2$.\n\n$$ x^2 + y^2 $$\n\n```mermaid\ngraph TD; A-->B\n```\n\n> ```mermaid\n> graph TD; C-->D\n> ```\n\n    $$ indented code $$\n';
+const note = '# Verification\n\nWe receive the budget.\n\nA mispeled word.\n\nInline $x^2$.\n\n$$ x^2 + y^2 $$\n\n```mermaid\ngraph TD; A-->B\n```\n\n> ```mermaid\n> graph TD; C-->D\n> ```\n\n    $$ indented code $$\n';
 await writeFile(join(vault,'Verification.md'),note);
 await mkdir(join(vault,'Templates'),{recursive:true});
 await writeFile(join(vault,'Templates/Daily.md'),'# {{title}}\nDate: {{date}}\n');
@@ -96,13 +98,20 @@ try {
   await expect(page.getByRole('alert')).toHaveCount(0);
   checks.push('CSS snippet toggles apply and native summon shortcut registers');
   await page.keyboard.press('Escape');
-  expect(await page.locator('.cm-content').getAttribute('spellcheck')).toBe('true');
-  checks.push('WebView editor exposes spellcheck=true (dictionary underlines still require visual manual testing)');
+  // Jotter's dictionaries replace the WebView checker, so the native attribute is off.
+  expect(await page.locator('.cm-content').getAttribute('spellcheck')).toBe('false');
+  await expect(page.locator('.cm-misspelled',{hasText:'mispeled'})).toBeVisible();
+  await expect(page.locator('.cm-misspelled',{hasText:'budget'})).toHaveCount(0);
+  await page.locator('.cm-misspelled',{hasText:'mispeled'}).click({button:'right'});
+  await expect(page.getByRole('menuitem',{name:'misspelled',exact:true})).toBeVisible();
+  await page.keyboard.press('Escape');
+  checks.push('Bundled en-US dictionary underlines a misspelling and suggests a correction');
 
   // Dark-mode print uses a light diagram palette, independent of screen colors.
   await page.evaluate(()=>{localStorage.setItem('jotter.themePref','dark');});
   await page.reload();
-  await expect(page.locator('.cm-content')).toBeVisible();
+  // Reload reopens the last vault on Home with no tabs, so the note is reopened below.
+  await expect(page.getByRole('region',{name:'Home'})).toBeVisible();
   await page.keyboard.press('Control+o');
   await page.getByPlaceholder('Find a note by name').fill('Verification');
   await page.keyboard.press('Enter');

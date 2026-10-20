@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { shortcutLabel } from './platform';
   import Icon from './ui/Icon.svelte';
   import Dialog from './ui/Dialog.svelte';
   import type { MarkdownFormatCommandId } from './markdownCommands';
@@ -47,7 +48,7 @@
         settingsStore.focusMode === 'minimal'
           ? 'Exit Minimal Focus Mode'
           : 'Toggle Minimal Focus Mode (hide sidebar, tabs, toolbar, status bar)',
-      shortcut: 'Ctrl+Shift+M',
+      shortcut: shortcutLabel('Ctrl+Shift+M'),
       action: () => settingsStore.toggleMinimalFocus(),
     },
     {
@@ -78,7 +79,7 @@
         settingsStore.editingMode === 'live'
           ? 'Switch to Source Mode (show all raw Markdown syntax)'
           : 'Switch to Live Mode (inline rendered formatting)',
-      shortcut: 'Ctrl+/',
+      shortcut: shortcutLabel('Ctrl+/'),
       action: () => settingsStore.toggleEditingMode(),
     },
     {
@@ -105,7 +106,7 @@
       id: 'toggle-sidebar',
       category: 'Focus & View',
       label: 'Toggle Left Sidebar',
-      shortcut: 'Ctrl+\\',
+      shortcut: shortcutLabel('Ctrl+\\'),
       action: () => settingsStore.toggleSidebar(),
     },
     ...(vaultStore.vaultSnapshot
@@ -114,14 +115,14 @@
             id: 'quick-switcher',
             category: 'Navigation',
             label: 'Quick Switcher: Fuzzy Open Note by Name',
-            shortcut: 'Ctrl+O',
+            shortcut: shortcutLabel('Ctrl+O'),
             action: () => (settingsStore.showQuickSwitcher = true),
           },
           {
             id: 'view-search',
             category: 'Navigation',
             label: 'Open Full-Text Vault Search Panel',
-            shortcut: 'Ctrl+Shift+F',
+            shortcut: shortcutLabel('Ctrl+Shift+F'),
             action: () => settingsStore.setLeftSidebarView('search'),
           },
           {
@@ -140,7 +141,7 @@
             id: 'daily-note',
             category: 'Navigation',
             label: "Open Today's Daily Note",
-            shortcut: 'Ctrl+Shift+D',
+            shortcut: shortcutLabel('Ctrl+Shift+D'),
             action: () => void vaultStore.openDailyNote(),
           },
           {
@@ -170,91 +171,91 @@
       id: 'fmt-bold',
       category: 'Format',
       label: 'Toggle Bold',
-      shortcut: 'Ctrl+B',
+      shortcut: shortcutLabel('Ctrl+B'),
       action: () => onFormat('bold'),
     },
     {
       id: 'fmt-italic',
       category: 'Format',
       label: 'Toggle Italic',
-      shortcut: 'Ctrl+I',
+      shortcut: shortcutLabel('Ctrl+I'),
       action: () => onFormat('italic'),
     },
     {
       id: 'fmt-strike',
       category: 'Format',
       label: 'Toggle Strikethrough',
-      shortcut: 'Ctrl+Shift+S',
+      shortcut: shortcutLabel('Ctrl+Shift+S'),
       action: () => onFormat('strikethrough'),
     },
     {
       id: 'fmt-code',
       category: 'Format',
       label: 'Toggle Inline Code',
-      shortcut: 'Ctrl+E',
+      shortcut: shortcutLabel('Ctrl+E'),
       action: () => onFormat('inline_code'),
     },
     {
       id: 'fmt-h1',
       category: 'Format',
       label: 'Heading 1',
-      shortcut: 'Ctrl+1',
+      shortcut: shortcutLabel('Ctrl+1'),
       action: () => onFormat('h1'),
     },
     {
       id: 'fmt-h2',
       category: 'Format',
       label: 'Heading 2',
-      shortcut: 'Ctrl+2',
+      shortcut: shortcutLabel('Ctrl+2'),
       action: () => onFormat('h2'),
     },
     {
       id: 'fmt-h3',
       category: 'Format',
       label: 'Heading 3',
-      shortcut: 'Ctrl+3',
+      shortcut: shortcutLabel('Ctrl+3'),
       action: () => onFormat('h3'),
     },
     {
       id: 'fmt-h4',
       category: 'Format',
       label: 'Heading 4',
-      shortcut: 'Ctrl+4',
+      shortcut: shortcutLabel('Ctrl+4'),
       action: () => onFormat('h4'),
     },
     {
       id: 'fmt-bullet',
       category: 'Format',
       label: 'Toggle Bullet List',
-      shortcut: 'Ctrl+Shift+8',
+      shortcut: shortcutLabel('Ctrl+Shift+8'),
       action: () => onFormat('bullet_list'),
     },
     {
       id: 'fmt-ordered',
       category: 'Format',
       label: 'Toggle Numbered List',
-      shortcut: 'Ctrl+Shift+7',
+      shortcut: shortcutLabel('Ctrl+Shift+7'),
       action: () => onFormat('ordered_list'),
     },
     {
       id: 'fmt-task',
       category: 'Format',
       label: 'Toggle Task List',
-      shortcut: 'Ctrl+Shift+9',
+      shortcut: shortcutLabel('Ctrl+Shift+9'),
       action: () => onFormat('task_list'),
     },
     {
       id: 'fmt-quote',
       category: 'Format',
       label: 'Toggle Blockquote',
-      shortcut: 'Ctrl+Shift+.',
+      shortcut: shortcutLabel('Ctrl+Shift+.'),
       action: () => onFormat('blockquote'),
     },
     {
       id: 'fmt-codeblock',
       category: 'Format',
       label: 'Insert Fenced Code Block',
-      shortcut: 'Ctrl+Shift+K',
+      shortcut: shortcutLabel('Ctrl+Shift+K'),
       action: () => onFormat('code_block'),
     },
     {
@@ -267,7 +268,7 @@
       id: 'fmt-link',
       category: 'Format',
       label: 'Insert Markdown Link',
-      shortcut: 'Ctrl+K',
+      shortcut: shortcutLabel('Ctrl+K'),
       action: () => onFormat('link'),
     },
     {
@@ -293,7 +294,7 @@
       id: 'outline-zoom',
       category: 'Outline',
       label: 'Zoom Into List Item (or Out of It)',
-      shortcut: 'Ctrl+.',
+      shortcut: shortcutLabel('Ctrl+.'),
       action: () => onFormat('zoom_toggle'),
     },
     {
@@ -313,14 +314,14 @@
       id: 'clip-copy',
       category: 'Clipboard',
       label: 'Copy Selection or Note with Line Breaks Preserved',
-      shortcut: 'Ctrl+C',
+      shortcut: shortcutLabel('Ctrl+C'),
       action: () => onCopyTrigger(),
     },
     {
       id: 'clip-paste-plain',
       category: 'Clipboard',
       label: 'Paste as Plain Text',
-      shortcut: 'Ctrl+Shift+V',
+      shortcut: shortcutLabel('Ctrl+Shift+V'),
       action: () => onPastePlainTrigger(),
     },
     {
@@ -358,7 +359,7 @@
             id: 'note-new',
             category: 'Vault',
             label: 'Create New Note',
-            shortcut: 'Ctrl+N',
+            shortcut: shortcutLabel('Ctrl+N'),
             action: () => {
               const stamp = new Date()
                 .toISOString()
@@ -371,7 +372,7 @@
             id: 'note-save',
             category: 'Vault',
             label: 'Save Active Note Now',
-            shortcut: 'Ctrl+S',
+            shortcut: shortcutLabel('Ctrl+S'),
             action: () => {
               if (tabsStore.activeTabPath) {
                 void tabsStore.flushAutosaveFor(tabsStore.activeTabPath);
@@ -382,7 +383,7 @@
             id: 'note-close',
             category: 'Vault',
             label: 'Close Active Tab',
-            shortcut: 'Ctrl+W',
+            shortcut: shortcutLabel('Ctrl+W'),
             action: () => {
               if (tabsStore.activeTabPath) {
                 void tabsStore.closeTab(tabsStore.activeTabPath);
@@ -414,21 +415,21 @@
       id: 'export-pdf',
       category: 'Export',
       label: 'Export Active Note to PDF (Print to PDF)',
-      shortcut: 'Ctrl+Shift+P',
+      shortcut: shortcutLabel('Ctrl+Shift+P'),
       action: () => onExportPdf(),
     },
     {
       id: 'open-settings',
       category: 'Settings',
       label: 'Open Settings (Editor, Copy, Appearance, Vault)',
-      shortcut: 'Ctrl+,',
+      shortcut: shortcutLabel('Ctrl+,'),
       action: () => (settingsStore.showSettings = true),
     },
     // Theme
     {
       id: 'theme-system',
       category: 'Appearance',
-      label: 'Theme: Follow Windows System Theme',
+      label: 'Theme: Follow System Theme',
       action: () => settingsStore.setThemePreference('system'),
     },
     {
@@ -442,6 +443,12 @@
       category: 'Appearance',
       label: 'Theme: Dark',
       action: () => settingsStore.setThemePreference('dark'),
+    },
+    {
+      id: 'theme-high-contrast',
+      category: 'Appearance',
+      label: 'Theme: High Contrast Dark',
+      action: () => settingsStore.setThemePreference('high-contrast'),
     },
   ]);
 

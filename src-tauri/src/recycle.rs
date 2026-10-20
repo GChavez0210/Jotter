@@ -71,7 +71,7 @@ mod imp {
             .iter()
             .filter_map(|item| to_entry(vault_root, item))
             .collect();
-        entries.sort_by(|a, b| b.deleted_ms.cmp(&a.deleted_ms));
+        entries.sort_by_key(|a| std::cmp::Reverse(a.deleted_ms));
         Ok(entries)
     }
 

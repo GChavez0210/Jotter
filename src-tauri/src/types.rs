@@ -215,6 +215,17 @@ pub struct CssSnippet {
     pub css: String,
 }
 
+/// A Hunspell dictionary Jotter can check spelling with.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpellDictionaryInfo {
+    /// A language tag such as `en-US`, or the file name of a user dictionary.
+    pub id: String,
+    pub name: String,
+    /// Ships with Jotter, as opposed to a file the user added.
+    pub bundled: bool,
+}
+
 /// A checklist item with a due date, for the calendar file and task lists.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

@@ -1,8 +1,8 @@
 # Jotter
 
-A Windows-native Markdown note-taking desktop application compatible with Obsidian vaults, built with **Tauri 2**, **Rust**, **TypeScript**, **Svelte 5 (Vite)**, and **CodeMirror 6**.
+A Markdown note-taking desktop application compatible with Obsidian vaults, built with **Tauri 2**, **Rust**, **TypeScript**, **Svelte 5 (Vite)**, and **CodeMirror 6**.
 
-Jotter's defining feature is **Notepad-faithful clipboard line break preservation**: copying text out of Jotter preserves single and multiple consecutive line breaks and indentation identically to Windows Notepad when pasted into **Google Chat, Slack, Gmail, Microsoft Word, and Windows Notepad**.
+Jotter's defining feature is **clipboard line break preservation**: copying text out of Jotter preserves single and multiple consecutive line breaks and indentation as written in the editor when pasted into **Google Chat, Slack, Gmail, Microsoft Word, and a plain-text editor**.
 
 ---
 
@@ -14,15 +14,15 @@ Jotter solves this by routing every copy (`Ctrl+C`) and cut (`Ctrl+X`) operation
 
 | Copy Mode | Clipboard Formats Written | Best For | How It Works |
 | :--- | :--- | :--- | :--- |
-| **1. Markdown source** *(Default)* | `text/plain` (`CF_UNICODETEXT`) + `text/html` (`CF_HTML`) | Pasting raw Markdown notes, code snippets, or lists into **Google Chat, Slack, Gmail, Word, or Notepad** with exact line breaks and indentation | Writes raw Markdown to `text/plain` with normalized `\n` line breaks, and writes an HTML-escaped `text/html` representation where every `\n` becomes `<br>`, leading and repeated spaces become `&nbsp;`, and every tab (`\t`) becomes four `&nbsp;`. |
-| **2. Plain** *(Opt-in "Clean Text")* | `text/plain` **only** *(no `CF_HTML`)* | Pasting stripped, human-readable prose into plain-text fields, forms, or terminals without `**`, `#`, or `[[wiki]]` syntax | Uses `arboard::Clipboard::set_text` exclusively. Strips Markdown markers (`#`, `**`, `*`, `~~`, `` ` ``, `[label](url)` -> `label`, `[[Note\|Alias]]` -> `Alias` outside inline code spans) and drops code fence lines (` ``` ` / `~~~`) so the line count matches the code block content. |
-| **3. Rich** | `text/html` (`CF_HTML`) + `text/plain` (`CF_UNICODETEXT`) | Pasting formatted text (bold, italic, inline code, links) into **Gmail, Word, Google Docs, or Outlook** without extra paragraph spacing | Renders inline Markdown per line via `comrak`, drops code fence delimiter lines (` ``` ` / `~~~`), converts leading/repeated spaces and tabs to `&nbsp;`, and joins lines strictly with `<br>` instead of `<p>` blocks. Also provides clean plain text as the fallback stream. |
+| **1. Markdown source** *(Default)* | `text/plain` + `text/html` | Pasting raw Markdown notes, code snippets, or lists into **Google Chat, Slack, Gmail, Word, or Notepad** with exact line breaks and indentation | Writes raw Markdown to `text/plain` with normalized `\n` line breaks, and writes an HTML-escaped `text/html` representation where every `\n` becomes `<br>`, leading and repeated spaces become `&nbsp;`, and every tab (`\t`) becomes four `&nbsp;`. |
+| **2. Plain** *(Opt-in "Clean Text")* | `text/plain` **only** *(no HTML)* | Pasting stripped, human-readable prose into plain-text fields, forms, or terminals without `**`, `#`, or `[[wiki]]` syntax | Uses `arboard::Clipboard::set_text` exclusively. Strips Markdown markers (`#`, `**`, `*`, `~~`, `` ` ``, `[label](url)` -> `label`, `[[Note\|Alias]]` -> `Alias` outside inline code spans) and drops code fence lines (` ``` ` / `~~~`) so the line count matches the code block content. |
+| **3. Rich** | `text/html` + `text/plain` | Pasting formatted text (bold, italic, inline code, links) into **Gmail, Word, Google Docs, or Outlook** without extra paragraph spacing | Renders inline Markdown per line via `comrak`, drops code fence delimiter lines (` ``` ` / `~~~`), converts leading/repeated spaces and tabs to `&nbsp;`, and joins lines strictly with `<br>` instead of `<p>` blocks. Also provides clean plain text as the fallback stream. |
 
 ### Paste as Plain Text (`Ctrl+Shift+V`)
-Pressing `Ctrl+Shift+V` (or clicking **Paste Plain** in the toolbar) reads `text/plain` directly from the Windows clipboard via Rust (`arboard::Clipboard::get_text`), normalizes `\r\n` / `\r` to `\n`, and inserts clean unstyled text at the cursor.
+Pressing `Ctrl+Shift+V` (or clicking **Paste Plain** in the toolbar) reads `text/plain` directly from the system clipboard via Rust (`arboard::Clipboard::get_text`), normalizes `\r\n` / `\r` to `\n`, and inserts clean unstyled text at the cursor.
 
 ### Clipboard Image Paste (`Ctrl+V`)
-When a vault is open, pasting an image from the Windows clipboard (such as a `Win+Shift+S` Snipping Tool screenshot) automatically encodes and saves the PNG to `<vault>/attachments/Pasted image YYYYMMDD-HHMMSS.png` and inserts `![[Pasted image YYYYMMDD-HHMMSS.png]]` (or standard Markdown `![](attachments/...)`, configurable in **Settings → Editor**). Pasted images render inline in **Live** mode.
+When a vault is open, pasting an image from the system clipboard (such as a screenshot) automatically encodes and saves the PNG to `<vault>/attachments/Pasted image YYYYMMDD-HHMMSS.png` and inserts `![[Pasted image YYYYMMDD-HHMMSS.png]]` (or standard Markdown `![](attachments/...)`, configurable in **Settings → Editor**). Pasted images render inline in **Live** mode.
 
 ---
 
@@ -77,7 +77,7 @@ Give a checklist item a due date in any of three common formats, each with an op
 
 Live mode shows the date as a chip, such as **Tomorrow** or **Nov 1**, which turns red once the date has passed. Move the cursor onto the line to edit the date. **Add Due Date to Task** in the command palette adds today's date to the task at the cursor.
 
-To see due dates in a calendar app, choose a file in **Settings → Vault → Task calendar**. Jotter writes each open task as an event in that `.ics` file and rewrites it a few seconds after you edit, so a calendar subscribed to the file stays current. Tasks without a time are all-day events. Completed tasks are left out. Pick a file outside the vault, or inside a synced folder if your calendar app needs to reach it from another device. The file picker uses a Windows dialog, so on other systems Settings shows an error instead.
+To see due dates in a calendar app, choose a file in **Settings → Vault → Task calendar**. Jotter writes each open task as an event in that `.ics` file and rewrites it a few seconds after you edit, so a calendar subscribed to the file stays current. Tasks without a time are all-day events. Completed tasks are left out. Pick a file outside the vault, or inside a synced folder if your calendar app needs to reach it from another device. The file picker uses the native desktop dialog.
 
 ### Tags and Links
 The Notes sidebar can list notes by tag instead of by folder. Click **Tags & links** above the list. Nested tags such as `#project/alpha` appear under their parent tag, and notes without tags appear under **No tags**. Expand a note to see the notes it links to. Files stay in their folders; switch back with **Folders**.
@@ -90,7 +90,7 @@ To use a vault on several computers, keep the vault folder inside a folder your 
 
 1. Move or create the vault inside the synced folder, such as `C:\Users\you\Dropbox\Notes`.
 2. Keep the vault available offline. In OneDrive, right-click the vault folder and choose **Always keep on this device**. In Google Drive for desktop, choose **Available offline**. In Dropbox, choose **Make available offline**. Online-only files make search and backlinks wait for downloads.
-3. Open the vault in Jotter on each computer. Indexes and edit history stay in `%LOCALAPPDATA%\Jotter` on each computer, so the sync client never copies them.
+3. Open the vault in Jotter on each computer. Indexes and edit history stay in the local OS application data folder on each computer, so the sync client never copies them.
 4. Let the sync client finish before you edit the same note on another computer.
 
 When two computers change a note before syncing, the sync client keeps both versions and names one as a conflict copy, such as `Plan (Alex's conflicted copy 2026-10-19).md` (Dropbox), `Plan-DESKTOP-4F2K9.md` (OneDrive), `Plan (1).md` (Google Drive and Box), or `Plan.sync-conflict-20261019-101500-ABCDEFG.md` (Syncthing). Jotter lists these copies in the **Sync conflicts** sidebar view and in the status bar. Open the copy and the original, move the changes you want into the original, and move the copy to the Recycle Bin. **Settings → Vault → Cloud sync** shows which client Jotter detected. Jotter guesses the client from the vault path, and it matches the OneDrive, Google Drive, Box, and iCloud names only in vaults inside those folders, so a note named `Plan (1).md` in a local vault is not flagged. Those names are ambiguous even inside a sync folder, since `Lecture 2.md` can be a real note. Select **Mark as not a conflict** (the check mark) to stop listing it.
@@ -105,17 +105,31 @@ Notes and folders you delete go to the Recycle Bin. The **Recently deleted** sid
 Full-text search (`Ctrl+Shift+F`) also finds words one or two letters off, so `recieve` finds `receive`. Exact matches rank first. Words of three letters or fewer, quoted phrases, and queries with operators such as `AND` or `title:` match exactly.
 
 ### Spell Check
-The editor underlines misspelled words using the languages installed in Windows. Right-click a word for suggestions. Turn it off in **Settings → Editor**.
+The editor underlines misspelled words. Right-click a word for suggestions, or add it to your personal dictionary. Turn spell check off in **Settings → Editor**.
+
+Jotter ships Hunspell dictionaries for English (United States and United Kingdom), Spanish, French, German, Portuguese (Brazil), and Italian. **Settings → Editor → Spelling dictionaries** picks the languages for the open vault; a word counts as correct when any of them accepts it. A note can use other languages through its `lang` property:
+
+```yaml
+---
+lang: [en, es]
+---
+```
+
+Tags such as `es-MX` match the closest dictionary, here `es`. A note in a language with no installed dictionary gets no underlines. Set `spellcheck: false` to skip one note.
+
+To add a language, put a Hunspell `.aff` and `.dic` pair with the same name, such as `nl.aff` and `nl.dic`, in the app data dictionaries folder (**Settings → Editor → Open folder**), then select **Reload**. Words you add from the editor go to `personal.txt` in the same folder. Choose **System** instead of **Jotter** to use the WebView's checker and the native checker for every note (language coverage depends on the OS and WebView).
 
 ### Summon Hotkey
 Turn on **Settings → System → Summon hotkey** to show or hide Jotter from any app with `Ctrl+Alt+J`, or a hotkey you choose. While it is on, Jotter keeps an icon in the tray, and closing the window hides it instead of quitting. Quit from the tray icon's menu; Jotter saves open notes before it exits.
 
 ### CSS Snippets
-Put `.css` files in `%LOCALAPPDATA%\Jotter\snippets`, then turn each one on in **Settings → System → CSS snippets**. Snippets load after the theme, so they can override its colors, fonts and spacing. **Open folder** opens the snippets folder, and **Reload** picks up edits.
+Put `.css` files in the app data `snippets` folder, then turn each one on in **Settings → System → CSS snippets**. Snippets load after the theme, so they can override its colors, fonts and spacing. **Open folder** opens the snippets folder, and **Reload** picks up edits.
 
 ---
 
 ## Keyboard Shortcuts
+
+Shortcut labels use Ctrl on Windows/Linux and Cmd on macOS. Folding uses Cmd+Option+[ and Cmd+Option+] on macOS.
 
 ### File, Vault & Navigation
 | Shortcut | Action |
@@ -168,50 +182,53 @@ To fold or unfold everything, use **Fold All** and **Unfold All** in the command
 | :--- | :--- | :--- |
 | `Enter` | File Tree item | Open note or expand/collapse folder |
 | `F2` | File Tree item | Rename selected note or folder inline |
-| `Delete` | File Tree item | Move selected note or folder to the Windows Recycle Bin (with confirmation) |
+| `Delete` | File Tree item | Move selected note or folder to the system trash (with confirmation) |
 | `Arrow Keys` | Calendar Month Grid | Move day selection (`Left`/`Right` ±1 day, `Up`/`Down` ±7 days across month boundaries) |
 | `T` | Calendar Month Grid | Jump to Today and select today's notes |
 
 ---
 
-## Prerequisites (Windows 10 / 11)
+## Desktop prerequisites
 
 - **Rust** (stable toolchain, version 1.88 or later, via `rustup`)
 - **Node.js** (v20+ and `npm`)
-- **Microsoft Edge WebView2 Runtime** (pre-installed on Windows 11)
+- **Windows:** Microsoft C++ build tools and the Edge WebView2 Runtime.
+- **macOS preparation:** Xcode command-line tools and the system WKWebView. A native Mac build and release smoke test are still required.
 
 ## Build & Run Instructions
 
 Install frontend dependencies:
 
-```powershell
+```sh
 npm install
 ```
 
 Run in development mode:
 
-```powershell
+```sh
 npm run tauri dev
 ```
 
-Build a production Windows installer (`NSIS` `.exe` and `MSI` in `src-tauri/target/release/bundle/`):
+Build native desktop bundles under `src-tauri/target/release/bundle/` (Windows installers on Windows; app and DMG on macOS):
 
-```powershell
+```sh
 npm run tauri build
 ```
+
+Application data lives outside vaults: `%LOCALAPPDATA%\Jotter` on Windows and `~/Library/Application Support/Jotter` on macOS. The macOS config keeps native traffic lights and uses an opaque window. Shared-vault filename checks retain conservative rules so files can move between systems. On macOS, restore deleted notes through Finder Trash.
 
 ## Verification & Quality Checks
 
 Run Rust unit tests and Clippy lints:
 
-```powershell
+```sh
 cargo test --manifest-path src-tauri/Cargo.toml
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 ```
 
 Run frontend Svelte + TypeScript checks (`svelte-check` and `tsc --noEmit`) and production bundle build:
 
-```powershell
+```sh
 npm run check
 npm test
 npm run build
@@ -226,3 +243,5 @@ See [MANUAL_TESTS.md](MANUAL_TESTS.md) for manual paste verification across Goog
 Jotter is licensed under the [MIT License](LICENSE-MIT).
 
 Contributions submitted for inclusion in Jotter are licensed under the MIT License.
+
+The bundled spelling dictionaries are separate works under their own licenses, installed with each dictionary as `dictionaries/<language>/LICENSE`. They come from [wooorm/dictionaries](https://github.com/wooorm/dictionaries): English from SCOWL (MIT and BSD), Spanish (GPL-3.0, LGPL-3.0, or MPL-1.1), French (MPL-2.0), German (GPL-2.0 or GPL-3.0), Portuguese (LGPL-3.0 or MPL-2.0), and Italian (GPL-3.0).

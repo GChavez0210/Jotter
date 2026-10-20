@@ -20,15 +20,15 @@ const WINDOWS_INVALID_CHARS: &[char] = &['<', '>', ':', '"', '/', '\\', '|', '?'
 /// - Non-empty
 /// - No leading dot (`.obsidian`, `.git`, `.hidden`)
 /// - No trailing space or trailing period (checked both on the full segment and on the stem before `.md`)
-/// - No invalid Windows characters (`< > : " / \ | ? *` or control characters)
+/// - No invalid filename characters (`< > : " / \ | ? *` or control characters)
 /// - Not a Windows reserved device name (`CON`, `PRN`, `AUX`, `NUL`, `COM0-9`, `LPT0-9`, with or without extension)
-pub fn validate_windows_entry_name(raw_segment: &str) -> Result<(), String> {
+pub fn validate_entry_name(raw_segment: &str) -> Result<(), String> {
     if raw_segment.is_empty() || raw_segment.trim().is_empty() {
         return Err("Name cannot be empty.".to_string());
     }
 
     if raw_segment.ends_with(' ') || raw_segment.ends_with('.') {
-        return Err("Windows names cannot end with a space or a period.".to_string());
+        return Err("Names cannot end with a space or a period.".to_string());
     }
 
     // If the segment has an extension (e.g. `foo .md` or `foo..md`), also check the stem before `.md`
@@ -40,7 +40,7 @@ pub fn validate_windows_entry_name(raw_segment: &str) -> Result<(), String> {
             return Err("Note name cannot be empty.".to_string());
         }
         if stem.ends_with(' ') || stem.ends_with('.') {
-            return Err("Windows names cannot end with a space or a period.".to_string());
+            return Err("Names cannot end with a space or a period.".to_string());
         }
     }
 
@@ -54,7 +54,7 @@ pub fn validate_windows_entry_name(raw_segment: &str) -> Result<(), String> {
     for ch in raw_segment.chars() {
         if WINDOWS_INVALID_CHARS.contains(&ch) || ch.is_control() {
             return Err(format!(
-                "Name contains invalid Windows character '{ch}'. Avoid < > : \" / \\ | ? *"
+                "Name contains invalid filename character '{ch}'. Avoid < > : \" / \\ | ? *"
             ));
         }
     }
@@ -64,7 +64,7 @@ pub fn validate_windows_entry_name(raw_segment: &str) -> Result<(), String> {
     let upper = stem_before_dot.to_ascii_uppercase();
     if WINDOWS_RESERVED_NAMES.contains(&upper.as_str()) {
         return Err(format!(
-            "'{stem_before_dot}' is a reserved Windows device name."
+            "'{stem_before_dot}' is a reserved filename on a supported platform."
         ));
     }
 
@@ -72,7 +72,7 @@ pub fn validate_windows_entry_name(raw_segment: &str) -> Result<(), String> {
 }
 
 /// Normalizes a relative vault path to forward slashes (`/`) without leading or trailing slashes.
-/// Preserves any trailing spaces/dots on individual path segments so `validate_windows_entry_name` can catch them.
+/// Preserves any trailing spaces/dots on individual path segments so `validate_entry_name` can catch them.
 pub fn normalize_rel_path(rel_path: &str) -> String {
     rel_path
         .replace('\\', "/")
@@ -103,7 +103,7 @@ pub fn resolve_safe_vault_path(
                 "Path traversal or non-relative path segment is not allowed: {rel_path}"
             ));
         }
-        validate_windows_entry_name(raw_part)?;
+        validate_entry_name(raw_part)?;
         let trimmed_start = raw_part.trim_start();
         clean_parts.push(trimmed_start.to_string());
     }
@@ -415,7 +415,7 @@ pub fn rename_vault_entry(
     }
 
     // Prevent overwriting a different file (allow case-only renames of the same file on Windows)
-    if new_abs.exists() && clean_old.to_lowercase() != clean_new.to_lowercase() {
+    if new_abs.exists() && fs::canonicalize(&old_abs).ok() != fs::canonicalize(&new_abs).ok() {
         return Err(format!("Target path '{clean_new}' already exists"));
     }
 
@@ -437,7 +437,7 @@ pub fn rename_vault_entry(
     })
 }
 
-/// Sends a note or folder inside `vault_root` to the Windows Recycle Bin via the `trash` crate.
+/// Sends a note or folder inside `vault_root` to the system trash via the `trash` crate.
 pub fn delete_vault_entry(vault_root: &Path, rel_path: &str) -> Result<VaultSnapshot, String> {
     let (abs_path, clean_rel) = resolve_safe_vault_path(vault_root, rel_path)?;
     if !abs_path.exists() {
@@ -503,85 +503,21 @@ pub fn remove_recent_vault(storage_file: &Path, path_to_remove: &str) -> Vec<Rec
     list
 }
 
-/// Opens the native Windows folder picker dialog (`SHBrowseForFolderW`) and returns the chosen path,
-/// or `None` if the user cancelled.
-#[cfg(target_os = "windows")]
-pub fn pick_folder_dialog_win32(title: &str) -> Option<PathBuf> {
-    use std::ffi::{c_void, OsString};
-    use std::os::windows::ffi::OsStringExt;
-    use std::ptr;
-
-    #[repr(C)]
-    struct BrowseInfoW {
-        hwnd_owner: *mut c_void,
-        pidl_root: *const c_void,
-        psz_display_name: *mut u16,
-        lpsz_title: *const u16,
-        ul_flags: u32,
-        lpfn: *const c_void,
-        l_param: isize,
-        i_image: i32,
-    }
-
-    const BIF_RETURNONLYFSDIRS: u32 = 0x0000_0001;
-    const BIF_NEWDIALOGSTYLE: u32 = 0x0000_0040;
-    const BIF_USENEWUI: u32 = BIF_NEWDIALOGSTYLE | 0x0000_0010;
-    const COINIT_APARTMENTTHREADED: u32 = 0x2;
-
-    #[link(name = "shell32")]
-    extern "system" {
-        fn SHBrowseForFolderW(lpbi: *const BrowseInfoW) -> *mut c_void;
-        fn SHGetPathFromIDListW(pidl: *const c_void, psz_path: *mut u16) -> i32;
-    }
-
-    #[link(name = "ole32")]
-    extern "system" {
-        fn CoInitializeEx(pv_reserved: *mut c_void, dw_co_init: u32) -> i32;
-        fn CoTaskMemFree(pv: *mut c_void);
-    }
-
-    let mut display_buf = [0u16; 260];
-    let mut path_buf = [0u16; 260];
-    let title_wide: Vec<u16> = format!("{title}\0").encode_utf16().collect();
-
-    // SAFETY: Standard Win32 shell folder picker invocation with COM apartment init and PIDL cleanup.
-    unsafe {
-        let _ = CoInitializeEx(ptr::null_mut(), COINIT_APARTMENTTHREADED);
-        let bi = BrowseInfoW {
-            hwnd_owner: ptr::null_mut(),
-            pidl_root: ptr::null(),
-            psz_display_name: display_buf.as_mut_ptr(),
-            lpsz_title: title_wide.as_ptr(),
-            ul_flags: BIF_RETURNONLYFSDIRS | BIF_USENEWUI,
-            lpfn: ptr::null(),
-            l_param: 0,
-            i_image: 0,
-        };
-
-        let pidl = SHBrowseForFolderW(&bi);
-        if pidl.is_null() {
-            return None;
-        }
-
-        let ok = SHGetPathFromIDListW(pidl, path_buf.as_mut_ptr());
-        CoTaskMemFree(pidl);
-
-        if ok == 0 {
-            return None;
-        }
-
-        let len = path_buf
-            .iter()
-            .position(|&c| c == 0)
-            .unwrap_or(path_buf.len());
-        let os_str = OsString::from_wide(&path_buf[..len]);
-        Some(PathBuf::from(os_str))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rename_never_overwrites_a_distinct_case_variant() {
+        let temp = tempfile::tempdir().unwrap();
+        fs::write(temp.path().join("note.md"), "lower").unwrap();
+        // Case-insensitive filesystems cannot hold two such notes.
+        if temp.path().join("NOTE.md").exists() { return; }
+        fs::write(temp.path().join("NOTE.md"), "upper").unwrap();
+        assert!(rename_vault_entry(temp.path(), "note.md", "NOTE.md").is_err());
+        assert_eq!(fs::read_to_string(temp.path().join("NOTE.md")).unwrap(), "upper");
+        assert_eq!(fs::read_to_string(temp.path().join("note.md")).unwrap(), "lower");
+    }
 
     #[test]
     fn rejects_path_traversal_and_dot_obsidian_paths() {

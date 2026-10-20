@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { shortcutLabel } from './platform';
   import { onMount, onDestroy, untrack, type Snippet } from 'svelte';
   import { Compartment, EditorState } from '@codemirror/state';
   import {
@@ -16,6 +17,8 @@
     copyToClipboard,
     pastePlainFromClipboard,
     savePastedImage,
+    spellCheckWords,
+    spellSuggest,
   } from './ipc';
   import {
     createLivePreviewExtension,
@@ -29,6 +32,8 @@
     type MarkdownFormatCommandId,
   } from './markdownCommands';
   import { settingsStore } from './stores/settings.svelte';
+  import { spellingStore } from './stores/spelling.svelte';
+  import { createSpellcheckExtension, misspelledWordAt, refreshSpellcheck } from './spellcheck';
   import Icon from './ui/Icon.svelte';
   import type { IconName } from './ui/icons';
   import type {
@@ -94,8 +99,8 @@
   let selectionBar = $state<{ left: number; top: number } | null>(null);
 
   const SELECTION_ACTIONS: { cmd: MarkdownFormatCommandId; icon: IconName; label: string }[] = [
-    { cmd: 'bold', icon: 'text-b', label: 'Bold (Ctrl+B)' },
-    { cmd: 'italic', icon: 'text-italic', label: 'Italic (Ctrl+I)' },
+    { cmd: 'bold', icon: 'text-b', label: shortcutLabel('Bold (Ctrl+B)') },
+    { cmd: 'italic', icon: 'text-italic', label: shortcutLabel('Italic (Ctrl+I)') },
     { cmd: 'strikethrough', icon: 'text-strikethrough', label: 'Strikethrough' },
     { cmd: 'inline_code', icon: 'code', label: 'Inline code' },
     { cmd: 'link', icon: 'link-simple', label: 'Link' },
@@ -135,14 +140,117 @@
   let statsTimer: ReturnType<typeof setTimeout> | undefined;
   const spellcheckCompartment = new Compartment();
 
-  // WebView2 and WebKitGTK check spelling against the languages installed in the OS.
-  function spellcheckExtension(enabled: boolean) {
-    return EditorView.contentAttributes.of({
-      spellcheck: enabled ? 'true' : 'false',
-      autocorrect: 'off',
-      autocapitalize: 'off',
+  // Jotter's dictionaries, or the WebView's checker, which uses the languages installed in the OS.
+  function spellcheckExtension() {
+    void spellingStore.revision;
+    const attributes = EditorView.contentAttributes.of({ autocorrect: 'off', autocapitalize: 'off' });
+    if (!settingsStore.spellCheck) {
+      return [attributes, EditorView.contentAttributes.of({ spellcheck: 'false' })];
+    }
+    if (spellingStore.engine === 'system') {
+      return [attributes, EditorView.contentAttributes.of({ spellcheck: 'true' })];
+    }
+    return [
+      attributes,
+      createSpellcheckExtension({
+        vaultLanguages: spellingStore.vaultLanguages,
+        available: spellingStore.available,
+        check: spellCheckWords,
+      }),
+    ];
+  }
+
+  interface SpellMenu {
+    left: number;
+    top: number;
+    from: number;
+    to: number;
+    word: string;
+    languages: string[];
+    document: EditorState['doc'];
+    suggestions: string[] | null;
+  }
+  let spellMenuRequest = 0;
+  let spellMenu = $state<SpellMenu | null>(null);
+  let spellMenuEl: HTMLDivElement | undefined = $state();
+
+  function openSpellMenu(event: MouseEvent, v: EditorView): boolean {
+    const pos = v.posAtCoords({ x: event.clientX, y: event.clientY });
+    const hit = pos === null ? null : misspelledWordAt(v, pos);
+    if (!hit) return false;
+    event.preventDefault();
+    const menu: SpellMenu = { left: event.clientX, top: event.clientY, ...hit, document: v.state.doc, suggestions: null };
+    spellMenu = menu;
+    const generation = editorGeneration;
+    const request = ++spellMenuRequest;
+    const isCurrent = () => spellMenu !== null && request === spellMenuRequest && editorGeneration === generation && v.state.doc === menu.document;
+    void spellSuggest(hit.languages, hit.word)
+      .then((found) => {
+        if (isCurrent()) spellMenu = { ...menu, suggestions: found };
+      })
+      .catch(() => {
+        if (isCurrent()) spellMenu = { ...menu, suggestions: [] };
+      });
+    return true;
+  }
+
+  function closeSpellMenu(refocus = true) {
+    spellMenu = null;
+    if (refocus) view?.focus();
+  }
+
+  function replaceMisspelling(replacement: string) {
+    const menu = spellMenu;
+    closeSpellMenu();
+    // The note may have changed while the menu was open.
+    if (!view || !menu || view.state.doc !== menu.document || view.state.sliceDoc(menu.from, menu.to) !== menu.word) return;
+    view.dispatch({
+      changes: { from: menu.from, to: menu.to, insert: replacement },
+      selection: { anchor: menu.from + replacement.length },
+      userEvent: 'input.spellcheck',
     });
   }
+
+  async function addMisspellingToDictionary() {
+    const menu = spellMenu;
+    closeSpellMenu();
+    if (!menu) return;
+    try {
+      await spellingStore.addWord(menu.word);
+      if (view) refreshSpellcheck(view);
+    } catch (err) {
+      onError?.(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  function handleSpellMenuKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeSpellMenu();
+      return;
+    }
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    event.preventDefault();
+    const items = [...(spellMenuEl?.querySelectorAll<HTMLButtonElement>('button') ?? [])];
+    const index = items.indexOf(document.activeElement as HTMLButtonElement);
+    const step = event.key === 'ArrowDown' ? 1 : -1;
+    items[(index + step + items.length) % items.length]?.focus();
+  }
+
+  $effect(() => {
+    if (!spellMenu || !spellMenuEl) return;
+    const menuEl = spellMenuEl;
+    // Keep the menu inside the window when opened near the right or bottom edge.
+    const rect = menuEl.getBoundingClientRect();
+    menuEl.style.left = `${Math.max(4, Math.min(spellMenu.left, window.innerWidth - rect.width - 4))}px`;
+    menuEl.style.top = `${Math.max(4, Math.min(spellMenu.top, window.innerHeight - rect.height - 4))}px`;
+    if (!menuEl.contains(document.activeElement)) menuEl.querySelector<HTMLButtonElement>('button')?.focus();
+    const onPointerDown = (e: PointerEvent) => {
+      if (!menuEl.contains(e.target as Node)) closeSpellMenu(false);
+    };
+    window.addEventListener('pointerdown', onPointerDown, true);
+    return () => window.removeEventListener('pointerdown', onPointerDown, true);
+  });
   let suppressChangeEmit = false;
 
   const markdownHighlight = HighlightStyle.define([
@@ -209,6 +317,11 @@
       fontFamily: 'var(--font-body)',
       color: 'var(--text-primary)',
       backgroundColor: 'transparent',
+    },
+    '.cm-misspelled': {
+      textDecoration: 'underline wavy var(--text-danger)',
+      textDecorationSkipInk: 'none',
+      textUnderlineOffset: '3px',
     },
     '.cm-scroller': {
       // The outer .editor-scroll element scrolls so the note header moves with the text.
@@ -708,7 +821,7 @@
               onWikiLinkClick?.(target, heading),
           })
         ),
-        spellcheckCompartment.of(spellcheckExtension(settingsStore.spellCheck)),
+        spellcheckCompartment.of(spellcheckExtension()),
         createCalcExtension(),
         createOutlinerExtension(),
         editorTheme,
@@ -729,6 +842,9 @@
         EditorView.domEventHandlers({
           mousedown: (event, v) => {
             return tryCtrlClickRawWikiLink(event, v);
+          },
+          contextmenu: (event, v) => {
+            return openSpellMenu(event, v);
           },
           paste: (event, v) => {
             return tryPasteImageFromEvent(event, v);
@@ -796,10 +912,8 @@
   });
 
   $effect(() => {
-    const enabled = settingsStore.spellCheck;
-    view?.dispatch({
-      effects: spellcheckCompartment.reconfigure(spellcheckExtension(enabled)),
-    });
+    const extension = spellcheckExtension();
+    untrack(() => view)?.dispatch({ effects: spellcheckCompartment.reconfigure(extension) });
   });
 
   function normalizeHeadingSlug(text: string): string {
@@ -898,6 +1012,7 @@
     });
     emitStats(view.state);
     view.focus();
+    void spellingStore.ensureLoaded();
   });
 
   onDestroy(() => {
@@ -911,7 +1026,10 @@
   class="editor-scroll"
   data-editor-scroll
   bind:this={scrollHost}
-  onscroll={() => (selectionBar = null)}
+  onscroll={() => {
+    selectionBar = null;
+    if (spellMenu) closeSpellMenu(false);
+  }}
 >
   {#if header}
     <div class="note-header">{@render header()}</div>
@@ -941,6 +1059,35 @@
         <Icon name={action.icon} />
       </button>
     {/each}
+  </div>
+{/if}
+
+{#if spellMenu}
+  <div
+    class="spell-menu"
+    role="menu"
+    aria-label="Spelling suggestions for {spellMenu.word}"
+    tabindex="-1"
+    bind:this={spellMenuEl}
+    style:left="{spellMenu.left}px"
+    style:top="{spellMenu.top}px"
+    onkeydown={handleSpellMenuKeydown}
+  >
+    {#if spellMenu.suggestions === null}
+      <div class="spell-note">Looking for suggestions…</div>
+    {:else if spellMenu.suggestions.length === 0}
+      <div class="spell-note">No suggestions</div>
+    {:else}
+      {#each spellMenu.suggestions as suggestion (suggestion)}
+        <button type="button" role="menuitem" class="suggestion" onclick={() => replaceMisspelling(suggestion)}>
+          {suggestion}
+        </button>
+      {/each}
+    {/if}
+    <span class="menu-sep" aria-hidden="true"></span>
+    <button type="button" role="menuitem" onclick={() => void addMisspellingToDictionary()}>
+      Add “{spellMenu.word}” to dictionary
+    </button>
   </div>
 {/if}
 
@@ -990,6 +1137,53 @@
   .selection-bar button:hover {
     background: var(--surface-hover);
     color: var(--text-primary);
+  }
+
+  .spell-menu {
+    position: fixed;
+    z-index: 70;
+    display: flex;
+    flex-direction: column;
+    min-width: 180px;
+    max-width: 320px;
+    padding: 4px;
+    border: 1px solid var(--line-control);
+    border-radius: var(--radius-card);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-popover);
+    font-size: var(--fs-13);
+  }
+
+  .spell-menu button {
+    padding: 6px 10px;
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--text-primary);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .spell-menu button:hover,
+  .spell-menu button:focus-visible {
+    background: var(--surface-hover);
+    outline: none;
+  }
+
+  .spell-menu .suggestion {
+    font-weight: 600;
+  }
+
+  .spell-note {
+    padding: 6px 10px;
+    color: var(--text-muted);
+  }
+
+  .menu-sep {
+    height: 1px;
+    margin: 4px 2px;
+    background: var(--line-subtle);
   }
 
   .sep {

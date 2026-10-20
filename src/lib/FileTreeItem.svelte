@@ -1,7 +1,7 @@
 <script lang="ts">
   import Icon from './ui/Icon.svelte';
   import type { VaultNode } from './types';
-  import { validateWindowsEntryName } from './validation';
+  import { validateEntryName } from './validation';
   import FileTreeItem from './FileTreeItem.svelte';
 
   interface Props {
@@ -41,7 +41,7 @@
   let isActive = $derived(activeRelPath === node.relPath);
   let isRenaming = $derived(renamingRelPath === node.relPath);
   let renameError = $derived(
-    isRenaming ? validateWindowsEntryName(renameDraft) : null
+    isRenaming ? validateEntryName(renameDraft) : null
   );
 
   $effect(() => {
@@ -74,7 +74,7 @@
   }
 
   function tryCommitRename() {
-    const err = validateWindowsEntryName(renameDraft);
+    const err = validateEntryName(renameDraft);
     if (err) return;
     onCommitRename(node, renameDraft);
   }

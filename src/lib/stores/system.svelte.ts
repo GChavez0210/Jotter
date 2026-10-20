@@ -46,19 +46,30 @@ class SystemStore {
     }
   }
 
-  /** Registers or clears the summon hotkey to match settings. Turns the setting off on failure. */
-  async syncSummon() {
+  private summonQueue: Promise<void> = Promise.resolve();
+  private appliedSummon = { enabled: false, shortcut: settingsStore.summonShortcut };
+
+  /** Serialize registrations and restore the last working setting when a change fails. */
+  syncSummon(): Promise<void> {
     const enabled = settingsStore.summonEnabled;
-    try {
-      await configureSummon(enabled, settingsStore.summonShortcut);
-      // Keep a registration error visible after the toggle flips back off.
-      if (enabled) this.summonError = '';
-    } catch (err) {
-      if (!enabled) return;
-      this.summonError = err instanceof Error ? err.message : String(err);
-      settingsStore.setSummon(false);
-    }
+    const shortcut = settingsStore.summonShortcut;
+    this.summonQueue = this.summonQueue.then(async () => {
+      if (enabled === this.appliedSummon.enabled && shortcut === this.appliedSummon.shortcut) return;
+      try {
+        await configureSummon(enabled, shortcut);
+        this.appliedSummon = { enabled, shortcut };
+        this.summonError = '';
+      } catch (err) {
+        this.summonError = err instanceof Error ? err.message : String(err);
+        // A queued older request must not replace a newer user choice.
+        if (settingsStore.summonEnabled === enabled && settingsStore.summonShortcut === shortcut) {
+          settingsStore.setSummon(this.appliedSummon.enabled, this.appliedSummon.shortcut);
+        }
+      }
+    });
+    return this.summonQueue;
   }
+
 }
 
 export const systemStore = new SystemStore();

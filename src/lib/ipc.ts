@@ -15,6 +15,7 @@ import type {
   RecentVault,
   RenameEntryResult,
   SearchHit,
+  SpellDictionary,
   TagSummary,
   TaskEntry,
   VaultFsEvent,
@@ -179,6 +180,26 @@ export async function listCssSnippets(): Promise<CssSnippet[]> {
 
 export async function openSnippetsFolder(): Promise<void> {
   return invoke<void>('open_snippets_folder');
+}
+
+export async function listSpellDictionaries(): Promise<SpellDictionary[]> {
+  return invoke<SpellDictionary[]>('list_spell_dictionaries');
+}
+
+export async function spellCheckWords(languages: string[], words: string[]): Promise<string[]> {
+  return invoke<string[]>('spell_check_words', { languages, words });
+}
+
+export async function spellSuggest(languages: string[], word: string): Promise<string[]> {
+  return invoke<string[]>('spell_suggest', { languages, word });
+}
+
+export async function spellAddWord(word: string): Promise<void> {
+  return invoke<void>('spell_add_word', { word });
+}
+
+export async function openDictionariesFolder(): Promise<void> {
+  return invoke<void>('open_dictionaries_folder');
 }
 
 export async function configureSummon(enabled: boolean, shortcut: string): Promise<void> {

@@ -1,3 +1,4 @@
+import { isMac, shortcutLabel } from './platform';
 import {
   codeFolding,
   foldEffect,
@@ -558,7 +559,7 @@ function isFolded(state: EditorState, from: number, to: number): boolean {
  * indents list items.
  */
 export function foldCaretAttributes(folded: boolean): Record<string, string> {
-  return { 'aria-hidden': 'true', title: folded ? 'Unfold (Ctrl+Shift+])' : 'Fold (Ctrl+Shift+[)' };
+  return { 'aria-hidden': 'true', title: isMac ? (folded ? 'Unfold (Cmd+Option+])' : 'Fold (Cmd+Option+[)') : shortcutLabel(folded ? 'Unfold (Ctrl+Shift+])' : 'Fold (Ctrl+Shift+[)') };
 }
 
 /**

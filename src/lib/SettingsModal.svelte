@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isWindows, defaultSummonShortcut, shortcutLabel } from './platform';
   import { onMount } from 'svelte';
   import { getVersion } from '@tauri-apps/api/app';
   import aboutLogo from '../assets/about-jack.png';
@@ -14,6 +15,8 @@
   import { vaultStore } from './stores/vault.svelte';
   import { PROVIDER_NAMES } from './syncConflicts';
   import { taskCalendarStore } from './stores/taskCalendar.svelte';
+  import { spellingStore } from './stores/spelling.svelte';
+  import { openDictionariesFolder } from './ipc';
   import type { CopyMode } from './types';
 
   interface Props {
@@ -76,6 +79,7 @@
 
   onMount(() => {
     closeBtnRef?.focus();
+    void spellingStore.ensureLoaded();
     getVersion()
       .then((version) => (appVersion = version))
       .catch(() => {
@@ -171,7 +175,7 @@
               <div class="setting-info">
                 <div class="setting-label">Default editing mode</div>
                 <div class="setting-desc">
-                  Live mode renders headings, emphasis, links, task checkboxes, and images inline while keeping raw Markdown on the active cursor line (Ctrl+/).
+                  Live mode renders headings, emphasis, links, task checkboxes, and images inline while keeping raw Markdown on the active cursor line ({shortcutLabel('Ctrl+/')}).
                 </div>
               </div>
               <Segmented
@@ -233,7 +237,7 @@
                   Check spelling
                 </label>
                 <div class="setting-desc">
-                  Underline misspelled words, using the languages installed in your operating system. Right-click a word for suggestions.
+                  Underline misspelled words. Right-click a word for suggestions.
                 </div>
               </div>
               <input
@@ -245,6 +249,77 @@
                   settingsStore.setSpellCheck((e.currentTarget as HTMLInputElement).checked)}
               />
             </div>
+
+            {#if settingsStore.spellCheck}
+              <div class="setting-card column-card">
+                <div class="setting-row-top">
+                  <div class="setting-info">
+                    <div class="setting-label">Spelling dictionaries</div>
+                    <div class="setting-desc">
+                      Jotter's dictionaries let each vault and note pick its languages. System uses the languages installed in your operating system for every note.
+                    </div>
+                  </div>
+                  <Segmented
+                    label="Spelling dictionaries"
+                    value={spellingStore.engine}
+                    options={[
+                      { value: 'jotter', label: 'Jotter' },
+                      { value: 'system', label: 'System' },
+                    ]}
+                    onchange={(engine) => spellingStore.setEngine(engine)}
+                  />
+                </div>
+                {#if spellingStore.engine === 'jotter'}
+                  <div class="setting-row-top">
+                    <div class="setting-info">
+                      <div class="setting-label">Languages for this vault</div>
+                      <div class="setting-desc">
+                        A note can override these with a <code>lang</code> property, such as <code>lang: es</code> or <code>lang: [en, fr]</code>. Set <code>spellcheck: false</code> to skip a note.
+                      </div>
+                    </div>
+                    <div class="button-row">
+                      <Button icon="arrow-clockwise" onclick={() => void spellingStore.reload()}>
+                        Reload
+                      </Button>
+                      <Button icon="folder-open" onclick={() => void openDictionariesFolder()}>
+                        Open folder
+                      </Button>
+                    </div>
+                  </div>
+                  {#if !vaultStore.vaultSnapshot}
+                    <div class="setting-desc">Open a vault to choose its languages.</div>
+                  {:else}
+                    <ul class="snippet-list dictionary-list">
+                      {#each spellingStore.dictionaries as dict (dict.id)}
+                        <li>
+                          <label for="dict-{dict.id}">
+                            {dict.name}
+                            {#if !dict.bundled}<span class="dict-source">added</span>{/if}
+                          </label>
+                          <input
+                            id="dict-{dict.id}"
+                            type="checkbox"
+                            class="fluent-toggle"
+                            checked={spellingStore.vaultLanguages.includes(dict.id)}
+                            onchange={(e) =>
+                              spellingStore.toggleVaultLanguage(
+                                dict.id,
+                                (e.currentTarget as HTMLInputElement).checked
+                              )}
+                          />
+                        </li>
+                      {/each}
+                    </ul>
+                  {/if}
+                  <div class="setting-desc">
+                    To add a language, put a Hunspell <code>.aff</code> and <code>.dic</code> pair with the same name in the folder, then reload. Words you add from the editor go to <code>personal.txt</code> there.
+                  </div>
+                  {#if spellingStore.loadError}
+                    <div class="field-error" role="alert">{spellingStore.loadError}</div>
+                  {/if}
+                {/if}
+              </div>
+            {/if}
 
             <div class="setting-card">
               <div class="setting-info">
@@ -337,6 +412,7 @@
                   { value: 'system', label: 'System' },
                   { value: 'light', label: 'Paper' },
                   { value: 'dark', label: 'Night' },
+                  { value: 'high-contrast', label: 'High Contrast Dark' },
                 ]}
                 onchange={(pref) => settingsStore.setThemePreference(pref)}
               >
@@ -428,10 +504,11 @@
               </ChoiceCards>
             </div>
 
+            {#if isWindows}
             <div class="setting-card">
               <div class="setting-info">
                 <label for="toggle-mica" class="setting-label">
-                  Mica backdrop (Windows 11)
+                  Desktop backdrop
                 </label>
                 <div class="setting-desc">
                   Tint the sidebar with the desktop behind the window. Off by default.
@@ -448,6 +525,7 @@
                   )}
               />
             </div>
+            {/if}
           </section>
         {:else if activeSection === 'vault'}
           <section class="settings-section" aria-labelledby="sec-vault">
@@ -581,7 +659,7 @@
               <div class="setting-info">
                 <div class="setting-label">Daily notes</div>
                 <div class="setting-desc">
-                  <kbd>Ctrl Shift D</kbd> opens today's note, named like <code>2026-10-19.md</code>, and creates it from the template note if it does not exist. In the template, <code>{'{{date}}'}</code> and <code>{'{{time}}'}</code> become the current date and time.
+                  <kbd>{shortcutLabel('Ctrl Shift D')}</kbd> opens today's note, named like <code>2026-10-19.md</code>, and creates it from the template note if it does not exist. In the template, <code>{'{{date}}'}</code> and <code>{'{{time}}'}</code> become the current date and time.
                 </div>
               </div>
               <div class="field-row">
@@ -639,7 +717,7 @@
                 <input
                   type="text"
                   value={settingsStore.summonShortcut}
-                  placeholder="Ctrl+Alt+J"
+                  placeholder={defaultSummonShortcut}
                   onchange={(e) =>
                     settingsStore.setSummon(
                       settingsStore.summonEnabled,
@@ -709,7 +787,6 @@
                 <code>.md</code> files on your own disk, it opens Obsidian vaults as they are,
                 and it copies text that pastes cleanly into chat, email and documents.
               </p>
-              <p class="about-tagline">Developed in Mexico with love</p>
             </div>
           </section>
         {/if}
@@ -830,16 +907,6 @@
     font-size: 0.86em;
   }
 
-  .about-tagline {
-    align-self: stretch;
-    max-width: 52ch;
-    margin: var(--space-6) 0 0;
-    padding-top: var(--space-4);
-    border-top: 1px solid var(--line-subtle);
-    color: var(--text-muted);
-    font: italic var(--fs-15) / 1.4 var(--font-display);
-  }
-
   .section-title {
     margin: 0 0 var(--space-1);
     font: 600 var(--fs-24) / 1.25 var(--font-display);
@@ -957,6 +1024,16 @@
     padding: var(--space-2) 0;
     font-family: var(--font-mono);
     font-size: var(--fs-13);
+  }
+
+  .dictionary-list li {
+    font-family: inherit;
+  }
+
+  .dict-source {
+    margin-left: var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--fs-12);
   }
 
   .rebuild-status {
@@ -1128,7 +1205,7 @@
     font-weight: 500;
   }
 
-  /* Theme previews use fixed paper and night colors so each card shows its own theme. */
+  /* Fixed preview colors let each card show its own theme. */
   .theme-preview {
     display: flex;
     height: 100%;
@@ -1186,6 +1263,23 @@
 
   .theme-preview.system {
     background: linear-gradient(135deg, #fbfaf6 50%, #1c1b18 50%);
+  }
+
+  .theme-preview.high-contrast {
+    color: #ffffff;
+    border-color: #8b8b8b;
+  }
+
+  .theme-preview.high-contrast .tp-side {
+    background: #121212;
+  }
+
+  .theme-preview.high-contrast .tp-page {
+    background: #000000;
+  }
+
+  .theme-preview.high-contrast .tp-page span {
+    opacity: 1;
   }
 
   .theme-preview.system > span {

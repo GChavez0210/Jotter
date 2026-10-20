@@ -14,3 +14,6 @@ Thumbs.db
 .vscode/
 .idea/
 .tmp/
+
+# Local agent configuration and isolated checkouts
+.claude/

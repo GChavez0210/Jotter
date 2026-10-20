@@ -45,7 +45,7 @@ class TaskCalendarStore {
     try {
       picked = await pickTaskCalendarPath(`${snapshot.name} tasks`);
     } catch (err) {
-      // Outside Windows there is no picker; Settings shows this message under the button.
+      // Show picker errors separately from user cancellation.
       this.lastError = err instanceof Error ? err.message : String(err);
       return;
     }

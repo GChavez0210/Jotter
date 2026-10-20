@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { shortcutLabel } from './lib/platform';
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import BacklinksPanel from './lib/BacklinksPanel.svelte';
@@ -574,7 +575,7 @@
               <div class="no-open-note">
                 <div class="no-note-title">Nothing open</div>
                 <div class="no-note-desc">
-                  Pick a note in the sidebar, press <kbd>Ctrl O</kbd> to find one by name, or start a new one.
+                  Pick a note in the sidebar, press <kbd>{shortcutLabel('Ctrl O')}</kbd> to find one by name, or start a new one.
                 </div>
                 <Button variant="primary" icon="file-plus" onclick={createUntitledNote}>
                   New note

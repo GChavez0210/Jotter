@@ -1,3 +1,4 @@
+import { shortcutLabel } from '../platform';
 import { readNote, saveNote } from '../ipc';
 import { clipboardStore } from './clipboard.svelte';
 
@@ -10,9 +11,9 @@ export interface OpenTab {
   externalChangePending: boolean;
 }
 
-export const SAMPLE_NOTE = `# Jotter — Live Preview & Clipboard Verification
+export const SAMPLE_NOTE = shortcutLabel(`# Jotter — Live Preview & Clipboard Verification
 
-Copy any block below with Ctrl+C (or the Copy button) and paste it into Google Chat, Slack, Gmail, Microsoft Word, or Windows Notepad.
+Copy any block below with Ctrl+C (or the Copy button) and paste it into Google Chat, Slack, Gmail, Microsoft Word, or a plain-text editor.
 
 ## 1. Consecutive Single Line Breaks & Inline Formatting
 Line A: First line with **bold text** and *italic text*.
@@ -25,10 +26,10 @@ Paragraph 1: Separated from Paragraph 2 by one blank line.
 Paragraph 2: Separated from Paragraph 3 by two blank lines.
 
 
-Paragraph 3: Exact blank line count stays intact just like Windows Notepad.
+Paragraph 3: Exact blank line count stays intact just like a plain-text editor.
 
 ## 3. Obsidian Vault Syntax, Task Lists & Blockquotes
-See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] for #windows11 details.
+See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] for #notes details.
 - [x] Write text/plain with real \\n line breaks
 - [x] Write text/html where every newline becomes <br>
 - [ ] Click this task checkbox in Live mode to toggle it directly
@@ -45,7 +46,7 @@ See [[Product Spec|Jotter Product Spec]] and [[Architecture#Clipboard Engine]] f
 fn copy_preserves_newlines(input: &str) -> String {
     input.replace("\\r\\n", "\\n")
 }
-\`\`\``;
+\`\`\``);
 
 export interface PendingScrollTarget {
   relPath: string;

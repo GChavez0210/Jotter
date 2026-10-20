@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isWindows, shortcutLabel } from './platform';
   import CalendarView from './CalendarView.svelte';
   import FileTreeItem from './FileTreeItem.svelte';
   import RecentlyDeletedPanel from './RecentlyDeletedPanel.svelte';
@@ -13,7 +14,9 @@
   import { settingsStore } from './stores/settings.svelte';
   import { vaultStore } from './stores/vault.svelte';
   import type { LeftSidebarView, RecentVault, VaultNode, VaultSnapshot } from './types';
-  import { validateWindowsEntryName } from './validation';
+  import { validateEntryName } from './validation';
+
+  const trashName = isWindows ? 'Recycle Bin' : 'Trash';
 
   interface Props {
     snapshot: VaultSnapshot;
@@ -55,7 +58,7 @@
   let creatingDraftName = $state('');
 
   let creatingValidationError = $derived(
-    creatingKind ? validateWindowsEntryName(creatingDraftName) : null
+    creatingKind ? validateEntryName(creatingDraftName) : null
   );
 
   let contextMenu: {
@@ -73,7 +76,7 @@
 
   const BASE_VIEWS: { id: LeftSidebarView; label: string; icon: IconName; hint?: string }[] = [
     { id: 'files', label: 'Notes', icon: 'notebook' },
-    { id: 'search', label: 'Full-text search', icon: 'magnifying-glass', hint: 'Ctrl+Shift+F' },
+    { id: 'search', label: 'Full-text search', icon: 'magnifying-glass', hint: shortcutLabel('Ctrl+Shift+F') },
     { id: 'tags', label: 'Tags', icon: 'tag' },
     { id: 'calendar', label: 'Calendar', icon: 'calendar-blank' },
     { id: 'trash', label: 'Recently deleted', icon: 'trash' },
@@ -118,7 +121,7 @@
   function submitNewEntry(e: SubmitEvent) {
     e.preventDefault();
     if (!creatingKind) return;
-    const err = validateWindowsEntryName(creatingDraftName);
+    const err = validateEntryName(creatingDraftName);
     if (err) return;
 
     const name = creatingDraftName.trimStart();
@@ -138,7 +141,7 @@
   }
 
   function handleCommitRename(node: VaultNode, newName: string) {
-    const err = validateWindowsEntryName(newName);
+    const err = validateEntryName(newName);
     if (err) return;
     renamingRelPath = null;
     const cleanName = newName.trimStart();
@@ -220,7 +223,7 @@
       <IconButton
         icon="sidebar-simple"
         label="Hide sidebar"
-        tooltip="Hide sidebar (Ctrl+\)"
+        tooltip={shortcutLabel('Hide sidebar (Ctrl+\\)')}
         onclick={() => settingsStore.toggleSidebar()}
       />
     </div>
@@ -270,12 +273,12 @@
     <button
       type="button"
       class="search-btn"
-      title="Find a note by name (Ctrl+O)"
+      title={shortcutLabel('Find a note by name (Ctrl+O)')}
       onclick={() => (settingsStore.showQuickSwitcher = true)}
     >
       <Icon name="magnifying-glass" />
       <span>Search notes</span>
-      <kbd>Ctrl O</kbd>
+      <kbd>{shortcutLabel('Ctrl O')}</kbd>
     </button>
 
     <nav class="library" aria-label="Sidebar views">
@@ -370,9 +373,9 @@
       {/if}
 
       {#if pendingDeleteNode}
-        <div class="delete-confirm-bar" role="alertdialog" aria-label="Confirm move to Recycle Bin">
+        <div class="delete-confirm-bar" role="alertdialog" aria-label={`Confirm move to ${trashName}`}>
           <div class="delete-confirm-text">
-            Move <strong>{pendingDeleteNode.name}</strong> to the Recycle Bin?
+            Move <strong>{pendingDeleteNode.name}</strong> to {trashName}?
           </div>
           <div class="delete-confirm-actions">
             <button
@@ -384,7 +387,7 @@
                 onDeleteEntry(target.relPath);
               }}
             >
-              Move to Recycle Bin
+              Move to {trashName}
             </button>
             <button
               type="button"
@@ -443,12 +446,12 @@
 
     <div class="sidebar-footer">
       <Button variant="primary" icon="note-pencil" class="new-note" onclick={() => startNewEntry('note', '')}>
-        New note <kbd>Ctrl N</kbd>
+        New note <kbd>{shortcutLabel('Ctrl N')}</kbd>
       </Button>
       <IconButton
         icon="gear-six"
         label="Settings"
-        tooltip="Settings (Ctrl+,)"
+        tooltip={shortcutLabel('Settings (Ctrl+,)')}
         onclick={() => (settingsStore.showSettings = true)}
       />
     </div>
@@ -519,7 +522,7 @@
         }}
       >
         <Icon name="trash" />
-        <span>Move to Recycle Bin (Del)</span>
+        <span>Move to {trashName} (Del)</span>
       </button>
     {/if}
   </div>

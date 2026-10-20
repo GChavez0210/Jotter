@@ -1,3 +1,4 @@
+import { defaultSummonShortcut } from '../platform';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { designTokens, isAccentPresetId, type AccentPresetId } from '../designTokens';
 import { getBackdropState, syncWindowTheme } from '../ipc';
@@ -75,7 +76,7 @@ class SettingsStore {
   dailyFolder = $state('Daily');
   dailyTemplatePath = $state('Templates/Daily.md');
   summonEnabled = $state(false);
-  summonShortcut = $state('Ctrl+Alt+J');
+  summonShortcut = $state(defaultSummonShortcut);
 
   // Roadmap phase 2
   /** The Notes sidebar view lists folders, or tags with each note's links. */
@@ -91,11 +92,11 @@ class SettingsStore {
   private preFocusLayout: SavedPreFocusLayout | null = null;
 
   effectiveDark = $derived(
-    this.themePref === 'system' ? this.systemIsDark : this.themePref === 'dark'
+    this.themePref === 'system' ? this.systemIsDark : this.themePref !== 'light'
   );
 
   effectiveSolidBackdrop = $derived(
-    this.forceSolidBackdrop || !this.backdropState.micaApplied
+    this.themePref === 'high-contrast' || this.forceSolidBackdrop || !this.backdropState.micaApplied
   );
 
   setCopyMode(next: CopyMode, onAfterChange?: () => void) {
@@ -262,7 +263,7 @@ class SettingsStore {
 
   setSummon(enabled: boolean, shortcut = this.summonShortcut) {
     this.summonEnabled = enabled;
-    this.summonShortcut = shortcut.trim() || 'Ctrl+Alt+J';
+    this.summonShortcut = shortcut.trim() || defaultSummonShortcut;
     this.persist('jotter.summonEnabled', String(enabled));
     this.persist('jotter.summonShortcut', this.summonShortcut);
   }
@@ -415,7 +416,7 @@ class SettingsStore {
     } else {
       root.setAttribute('data-theme', pref);
     }
-    const isDark = pref === 'system' ? sysDark : pref === 'dark';
+    const isDark = pref === 'system' ? sysDark : pref !== 'light';
     void syncWindowTheme(isDark)
       .then((res) => {
         this.backdropState = res;
@@ -445,7 +446,8 @@ class SettingsStore {
       if (
         savedTheme === 'system' ||
         savedTheme === 'light' ||
-        savedTheme === 'dark'
+        savedTheme === 'dark' ||
+        savedTheme === 'high-contrast'
       ) {
         this.themePref = savedTheme;
       }

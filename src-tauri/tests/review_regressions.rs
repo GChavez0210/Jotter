@@ -90,3 +90,31 @@ fn junctions_cannot_escape_vault_or_create_index_cycles() {
     assert_eq!(scan_dir_files_from_disk(&root, &root).unwrap().len(), 1);
     fs::remove_dir(&link).unwrap();
 }
+
+
+#[cfg(unix)]
+#[test]
+fn symlinks_cannot_escape_vault_or_create_index_cycles() {
+    use std::os::unix::fs::symlink;
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("vault");
+    let outside = temp.path().join("outside");
+    fs::create_dir_all(&root).unwrap();
+    fs::create_dir_all(&outside).unwrap();
+    fs::write(root.join("safe.md"), "safe").unwrap();
+    fs::write(outside.join("secret.md"), "secret").unwrap();
+    let link = root.join("attachments");
+    symlink(&outside, &link).unwrap();
+    assert!(vault::read_vault_note(&root, "attachments/secret.md").is_err());
+    assert!(vault::save_vault_note(&root, "attachments/secret.md", "changed").is_err());
+    assert!(vault::create_vault_note(&root, "attachments/new", "new").is_err());
+    assert!(media_export::read_vault_image_as_data_url(&root, "attachments/secret.md").is_err());
+    assert!(media_export::save_png_to_vault_attachments(&root, b"png", None).is_err());
+    assert_eq!(vault::scan_vault_snapshot(&root).unwrap().note_count, 1);
+    assert_eq!(scan_dir_files_from_disk(&root, &root).unwrap().len(), 1);
+    assert_eq!(fs::read_to_string(outside.join("secret.md")).unwrap(), "secret");
+    fs::remove_file(&link).unwrap();
+    symlink(&root, &link).unwrap();
+    assert_eq!(scan_dir_files_from_disk(&root, &root).unwrap().len(), 1);
+    fs::remove_file(&link).unwrap();
+}

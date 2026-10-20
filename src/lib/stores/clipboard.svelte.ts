@@ -1,3 +1,4 @@
+import { shortcutLabel } from '../platform';
 import { previewClipboardPayload } from '../ipc';
 import type { ClipboardPayload, CopyMode } from '../types';
 import { COPY_MODE_LABELS } from './settings.svelte';
@@ -42,7 +43,7 @@ class ClipboardStore {
     this.setStatus(
       `Pasted ${lineCount} ${
         lineCount === 1 ? 'line' : 'lines'
-      } (${charCount} chars) as plain text (Ctrl+Shift+V)`
+      } (${charCount} chars) as plain text (${shortcutLabel('Ctrl+Shift+V')})`
     );
   }
 }

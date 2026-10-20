@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isMac, shortcutLabel } from './platform';
   import { onMount } from 'svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { settingsStore } from './stores/settings.svelte';
@@ -17,7 +18,6 @@
   let { sidebarVisible }: Props = $props();
 
   // macOS keeps its native traffic lights (titleBarStyle Overlay); Windows and Linux get drawn controls.
-  const isMac = navigator.userAgent.includes('Mac');
   let maximized = $state(false);
 
   let hasEditor = $derived(Boolean(tabsStore.activeTab) || tabsStore.scratchpadMode);
@@ -82,7 +82,7 @@
       <IconButton
         icon="sidebar-simple"
         label="Show sidebar"
-        tooltip="Show sidebar (Ctrl+\)"
+        tooltip={shortcutLabel('Show sidebar (Ctrl+\\)')}
         onclick={() => settingsStore.toggleSidebar()}
       />
     {/if}
@@ -128,7 +128,7 @@
           <button
             type="button"
             class="tab-close"
-            title="Close tab (Ctrl+W)"
+            title={shortcutLabel('Close tab (Ctrl+W)')}
             aria-label="Close {tab.title}"
             onclick={(e) => void tabsStore.closeTab(tab.relPath, e)}
           >
@@ -140,7 +140,7 @@
   {/if}
   {#if vaultStore.vaultSnapshot}
     <div class="new-tab">
-      <IconButton icon="plus" size="sm" label="New note" tooltip="New note (Ctrl+N)" onclick={createNote} />
+      <IconButton icon="plus" size="sm" label="New note" tooltip={shortcutLabel('New note (Ctrl+N)')} onclick={createNote} />
     </div>
   {/if}
 
@@ -157,8 +157,8 @@
         label="Editor mode"
         value={settingsStore.editingMode}
         options={[
-          { value: 'live', label: 'Live', icon: 'eye', title: 'Formatted while you type (Ctrl+/)' },
-          { value: 'source', label: 'Source', icon: 'code', title: 'Plain Markdown (Ctrl+/)' },
+          { value: 'live', label: 'Live', icon: 'eye', title: shortcutLabel('Formatted while you type (Ctrl+/)') },
+          { value: 'source', label: 'Source', icon: 'code', title: shortcutLabel('Plain Markdown (Ctrl+/)') },
         ]}
         onchange={(mode) => settingsStore.setEditingMode(mode)}
       />
@@ -174,7 +174,7 @@
     <IconButton
       icon="dots-three"
       label="Commands"
-      tooltip="Commands (Ctrl+P)"
+      tooltip={shortcutLabel('Commands (Ctrl+P)')}
       onclick={() => (settingsStore.showCommandPalette = true)}
     />
   </div>

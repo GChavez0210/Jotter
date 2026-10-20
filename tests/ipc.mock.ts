@@ -22,3 +22,8 @@ export const rebuildVaultIndex = async () => 0;
 export const restoreDeletedEntry = async () => {};
 export const removeRecentVaultEntry = async () => [];
 export const renameEntry = async () => {};
+
+export const systemControl = { configure: async (_enabled: boolean, _shortcut: string): Promise<void> => {} };
+export const configureSummon = (enabled: boolean, shortcut: string) => systemControl.configure(enabled, shortcut);
+export const listCssSnippets = async () => [];
+export const openSnippetsFolder = async () => {};

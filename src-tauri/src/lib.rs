@@ -3,9 +3,11 @@ pub mod fs_atomic;
 pub mod index;
 pub mod links;
 pub mod media_export;
+pub mod platform;
 pub mod recycle;
 pub mod search;
 pub mod snippets;
+pub mod spell;
 pub mod tasks;
 pub mod tray;
 pub mod types;
@@ -21,6 +23,7 @@ use std::time::{Duration, Instant, SystemTime};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use rusqlite::Connection;
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_dialog::DialogExt;
 
 use crate::clipboard::{
     build_clipboard_payload, read_plain_from_system_clipboard, write_to_system_clipboard,
@@ -35,12 +38,12 @@ use crate::search::VaultSearchIndex;
 use crate::types::{
     BackdropState, BacklinkEntry, CalendarDateField, CalendarDaySummary, CalendarNoteEntry,
     ClipboardPayload, CopyRequest, CssSnippet, DeletedEntry, NoteDocument, RecentVault,
-    NoteCard, RenameEntryResult, SearchHit, TagSummary, TaskEntry, VaultFsEvent, VaultSnapshot,
+    NoteCard, RenameEntryResult, SearchHit, SpellDictionaryInfo, TagSummary, TaskEntry, VaultFsEvent, VaultSnapshot,
 };
 use crate::vault::{
     create_vault_folder, create_vault_note, delete_vault_entry, load_recent_vaults,
     read_vault_note, record_recent_vault, remove_recent_vault, rename_vault_entry, save_vault_note,
-    scan_vault_snapshot, validate_windows_entry_name,
+    scan_vault_snapshot, validate_entry_name,
 };
 
 pub struct AppState {
@@ -69,10 +72,9 @@ fn fnv1a_64(input: &str) -> u64 {
 /// Path of the SQLite index cache for `vault_root`: one database per vault, so edit history
 /// and index rows from one vault never leak into another vault with the same relative paths.
 fn vault_index_db_path(app_data_dir: &Path, vault_root: &Path) -> PathBuf {
-    let key = vault_root
-        .to_string_lossy()
-        .to_lowercase()
-        .replace('\\', "/");
+    let key = vault_root.to_string_lossy().into_owned();
+    #[cfg(target_os = "windows")]
+    let key = key.to_lowercase().replace('\\', "/");
     app_data_dir.join("indexes").join(format!(
         "{:016x}.sqlite",
         fnv1a_64(key.trim_end_matches('/'))
@@ -203,13 +205,14 @@ fn process_watcher_batch(
 fn start_vault_watcher(
     app_handle: AppHandle,
     vault_root: PathBuf,
-    sqlite_conn: Arc<Mutex<Connection>>,
-    search_index: Arc<VaultSearchIndex>,
-    recent_self_writes: Arc<Mutex<HashMap<String, Instant>>>,
-    vault_generation: Arc<AtomicU64>,
+    state: &AppState,
     my_generation: u64,
-    vault_operation: Arc<Mutex<()>>,
 ) -> Result<RecommendedWatcher, String> {
+    let sqlite_conn = Arc::clone(&state.sqlite_conn);
+    let search_index = Arc::clone(&state.search_index);
+    let recent_self_writes = Arc::clone(&state.recent_self_writes);
+    let vault_generation = Arc::clone(&state.vault_generation);
+    let vault_operation = Arc::clone(&state.vault_operation);
     let (tx, rx) = mpsc::channel::<Vec<String>>();
     let root_for_cb = vault_root.clone();
 
@@ -364,18 +367,14 @@ fn get_backdrop_state(state: State<'_, AppState>) -> Result<BackdropState, Strin
 }
 
 #[tauri::command]
-fn pick_vault_folder(title: Option<String>) -> Result<Option<String>, String> {
-    let prompt = title.unwrap_or_else(|| "Select an Obsidian / Markdown vault folder".to_string());
-    #[cfg(target_os = "windows")]
-    {
-        Ok(crate::vault::pick_folder_dialog_win32(&prompt)
-            .map(|p| p.to_string_lossy().into_owned()))
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = prompt;
-        Ok(None)
-    }
+async fn pick_vault_folder(app: AppHandle, title: Option<String>) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.dialog().file()
+            .set_title(title.unwrap_or_else(|| "Select a Markdown vault folder".into()))
+            .blocking_pick_folder()
+            .map(|p| p.into_path().map(|p| p.to_string_lossy().into_owned()).map_err(|e| e.to_string()))
+            .transpose()
+    }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -425,16 +424,7 @@ fn open_vault(
     }
     state.search_index.rebuild_from_scanned(&scanned_files)?;
 
-    let watcher = start_vault_watcher(
-        app_handle,
-        vault_root.clone(),
-        Arc::clone(&state.sqlite_conn),
-        Arc::clone(&state.search_index),
-        Arc::clone(&state.recent_self_writes),
-        Arc::clone(&state.vault_generation),
-        generation,
-        Arc::clone(&state.vault_operation),
-    )?;
+    let watcher = start_vault_watcher(app_handle, vault_root.clone(), &state, generation)?;
 
     if let Ok(mut w_guard) = state.watcher.lock() {
         *w_guard = Some(watcher);
@@ -454,7 +444,7 @@ fn create_new_vault(
     parent_path: String,
     vault_name: String,
 ) -> Result<VaultSnapshot, String> {
-    validate_windows_entry_name(&vault_name)?;
+    validate_entry_name(&vault_name)?;
     let clean_name = vault_name.trim_start();
 
     let parent = PathBuf::from(parent_path.trim());
@@ -788,19 +778,15 @@ fn read_vault_image_data_url(state: State<'_, AppState>, target: String) -> Resu
 /// Asks where to save and writes `html`, the export built by `render_note_html_preview` with
 /// math and diagrams rendered by the frontend. Returns `None` when the user cancels.
 #[tauri::command]
-fn export_active_note_html(title: String, html: String) -> Result<Option<String>, String> {
-    #[cfg(target_os = "windows")]
-    {
-        let Some(target_path) = crate::media_export::pick_save_html_dialog_win32(&title) else {
-            return Ok(None);
-        };
-        crate::media_export::export_html_to_path(&target_path, &html).map(Some)
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = (title, html);
-        Ok(None)
-    }
+async fn export_active_note_html(app: AppHandle, title: String, html: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let name = crate::platform::export_file_name(&title, "html");
+        let Some(path) = app.dialog().file().set_title("Export note to HTML")
+            .set_file_name(name).add_filter("HTML document", &["html"])
+            .blocking_save_file() else { return Ok(None); };
+        let path = path.into_path().map_err(|e| e.to_string())?;
+        crate::media_export::export_html_to_path(&path, &html).map(Some)
+    }).await.map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -823,38 +809,14 @@ fn get_note_cards(state: State<'_, AppState>) -> Result<Vec<NoteCard>, String> {
 
 /// Asks where to keep the task calendar file. Returns `None` when the user cancels.
 #[tauri::command]
-fn pick_task_calendar_path(default_name: String) -> Result<Option<String>, String> {
-    #[cfg(target_os = "windows")]
-    {
-        Ok(crate::media_export::pick_save_file_dialog_win32(
-            &default_name,
-            "ics",
-            "iCalendar file",
-            "Save task calendar",
-        )
-        .map(|p| p.to_string_lossy().into_owned()))
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = default_name;
-        Err(TASK_CALENDAR_PICKER_UNAVAILABLE.to_string())
-    }
-}
-
-/// Jotter's save dialog is a Win32 call, and the app has no cross-platform dialog plugin.
-/// Returning an error instead of `None` lets Settings explain why nothing opened, since `None`
-/// means the user cancelled.
-#[cfg(not(target_os = "windows"))]
-const TASK_CALENDAR_PICKER_UNAVAILABLE: &str =
-    "Choosing a task calendar file works only on Windows. This build has no file picker.";
-
-#[cfg(all(test, not(target_os = "windows")))]
-mod task_calendar_picker_tests {
-    #[test]
-    fn picker_reports_that_it_is_windows_only() {
-        let result = super::pick_task_calendar_path("Notes tasks".into());
-        assert_eq!(result, Err(super::TASK_CALENDAR_PICKER_UNAVAILABLE.to_string()));
-    }
+async fn pick_task_calendar_path(app: AppHandle, default_name: String) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.dialog().file().set_title("Save task calendar")
+            .set_file_name(crate::platform::export_file_name(&default_name, "ics"))
+            .add_filter("iCalendar file", &["ics"]).blocking_save_file()
+            .map(|p| p.into_path().map(|p| p.to_string_lossy().into_owned()).map_err(|e| e.to_string()))
+            .transpose()
+    }).await.map_err(|e| e.to_string())?
 }
 
 /// Writes the open vault's due-dated tasks to an `.ics` file. Skips the write when only the
@@ -970,6 +932,75 @@ fn open_snippets_folder(state: State<'_, AppState>) -> Result<(), String> {
     crate::snippets::reveal_folder(&snippets_dir(&state))
 }
 
+fn spell_paths(app_handle: &AppHandle, state: &State<'_, AppState>) -> crate::spell::SpellPaths {
+    crate::spell::SpellPaths {
+        bundled: app_handle.path().resource_dir().ok().map(|d| d.join("dictionaries")),
+        user: state
+            .recent_vaults_file
+            .parent()
+            .map(Path::to_path_buf)
+            .unwrap_or_else(std::env::temp_dir)
+            .join("dictionaries"),
+    }
+}
+
+#[tauri::command]
+fn list_spell_dictionaries(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    spell: State<'_, Arc<crate::spell::SpellState>>,
+) -> Vec<SpellDictionaryInfo> {
+    // Settings lists dictionaries when it opens and on Reload, after the user changed files.
+    spell.reload();
+    crate::spell::list_dictionaries(&spell_paths(&app_handle, &state))
+}
+
+/// Returns the subset of `words` that the dictionaries for `languages` reject.
+#[tauri::command]
+async fn spell_check_words(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    spell: State<'_, Arc<crate::spell::SpellState>>,
+    languages: Vec<String>,
+    words: Vec<String>,
+) -> Result<Vec<String>, String> {
+    let paths = spell_paths(&app_handle, &state);
+    let spell = Arc::clone(&spell);
+    tauri::async_runtime::spawn_blocking(move || spell.misspelled(&paths, &languages, &words))
+        .await
+        .map_err(|e| format!("Spell check failed: {e}"))?
+}
+
+#[tauri::command]
+async fn spell_suggest(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    spell: State<'_, Arc<crate::spell::SpellState>>,
+    languages: Vec<String>,
+    word: String,
+) -> Result<Vec<String>, String> {
+    let paths = spell_paths(&app_handle, &state);
+    let spell = Arc::clone(&spell);
+    tauri::async_runtime::spawn_blocking(move || spell.suggest(&paths, &languages, &word))
+        .await
+        .map_err(|e| format!("Spelling suggestions failed: {e}"))?
+}
+
+#[tauri::command]
+fn spell_add_word(
+    app_handle: AppHandle,
+    state: State<'_, AppState>,
+    spell: State<'_, Arc<crate::spell::SpellState>>,
+    word: String,
+) -> Result<(), String> {
+    spell.add_personal_word(&spell_paths(&app_handle, &state), &word)
+}
+
+#[tauri::command]
+fn open_dictionaries_folder(app_handle: AppHandle, state: State<'_, AppState>) -> Result<(), String> {
+    crate::snippets::reveal_folder(&spell_paths(&app_handle, &state).user)
+}
+
 #[tauri::command]
 fn configure_summon(app_handle: AppHandle, enabled: bool, shortcut: String) -> Result<(), String> {
     crate::tray::configure(&app_handle, enabled, &shortcut)
@@ -995,11 +1026,8 @@ fn keep_app_open(app_handle: AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app_data_dir = std::env::var_os("LOCALAPPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir)
-        .join("Jotter");
-    let _ = std::fs::create_dir_all(&app_data_dir);
+    let app_data_dir = crate::platform::app_data_dir().expect("Cannot locate Jotter app data");
+    std::fs::create_dir_all(&app_data_dir).expect("Cannot create Jotter app data folder");
     let recent_vaults_file = app_data_dir.join("recent_vaults.json");
 
     // Placeholder index until a vault opens; `open_vault` swaps in the vault's own database.
@@ -1009,8 +1037,10 @@ pub fn run() {
     let search_idx = VaultSearchIndex::new().expect("Failed to initialize Tantivy search index");
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(crate::tray::SummonState::default())
+        .manage(Arc::new(crate::spell::SpellState::default()))
         .manage(AppState {
             backdrop: Mutex::new(BackdropState {
                 mica_applied: false,
@@ -1084,6 +1114,11 @@ pub fn run() {
             restore_deleted_entry,
             list_css_snippets,
             open_snippets_folder,
+            list_spell_dictionaries,
+            spell_check_words,
+            spell_suggest,
+            spell_add_word,
+            open_dictionaries_folder,
             configure_summon,
             quit_app,
             keep_app_open
@@ -1106,10 +1141,19 @@ mod vault_index_path_tests {
     }
 
     #[test]
+    #[cfg(target_os = "windows")]
     fn same_vault_maps_to_the_same_database_regardless_of_case_and_slashes() {
         let data = Path::new("C:/Users/test/AppData/Local/Jotter");
         let a = vault_index_db_path(data, Path::new(r"C:\Notes\Work"));
         let b = vault_index_db_path(data, Path::new("c:/notes/work/"));
         assert_eq!(a, b);
     }
+    #[test]
+    #[cfg(not(target_os = "windows"))]
+    fn case_sensitive_vaults_do_not_share_an_index() {
+        let data = Path::new("/tmp/Jotter");
+        assert_ne!(vault_index_db_path(data, Path::new("/notes/Work")),
+                   vault_index_db_path(data, Path::new("/notes/work")));
+    }
+
 }

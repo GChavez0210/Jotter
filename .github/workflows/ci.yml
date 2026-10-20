@@ -28,9 +28,12 @@ jobs:
       - run: npm test
 
   rust:
-    name: Rust tests
-    # Jotter calls Win32 APIs (file dialogs, tray), so the backend builds and tests on Windows.
-    runs-on: windows-latest
+    name: Rust tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -44,5 +47,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
+      - run: npx tauri build --no-bundle --debug
       - run: cargo test --locked
         working-directory: src-tauri

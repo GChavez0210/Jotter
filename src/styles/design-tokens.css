@@ -121,7 +121,7 @@
 
 /* Dark theme: Night. Keep both blocks identical. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme='light']) {
+  :root:not([data-theme]) {
     color-scheme: dark;
     --surface-app: #161512;
     --surface-mica: rgba(22, 21, 18, 0.66);
@@ -208,6 +208,48 @@
 
 :root[data-theme='light'] {
   color-scheme: light;
+}
+
+/* High Contrast Dark uses opaque surfaces and stronger text and control boundaries. */
+:root[data-theme='high-contrast'] {
+  color-scheme: dark;
+  --surface-app: #000000;
+  --surface-mica: #000000;
+  --surface-editor: #000000;
+  --surface-raised: #121212;
+  --surface-field: #000000;
+  --surface-subtle: #181818;
+  --surface-hover: #202020;
+  --surface-active: #292929;
+  --surface-code: #161616;
+
+  --text-primary: #ffffff;
+  --text-secondary: #e0e0e0;
+  --text-muted: #c6c6c6;
+  --text-danger: #ffb4ab;
+
+  --line-subtle: #767676;
+  --line-control: #8b8b8b;
+  --line-strong: #ffffff;
+
+  --accent: var(--accent-dark);
+  --on-accent: #000000;
+  --selection: color-mix(in srgb, var(--accent) 35%, transparent);
+  --mark: #665000;
+
+  --status-ok: #91e3af;
+  --status-warn: #ffdb80;
+  --status-danger: #ffb4ab;
+  --on-danger: #000000;
+  --shadow-popover: none;
+  --scrim: rgb(0 0 0 / 0.8);
+
+  --tag-1: #c7b4ff;
+  --tag-2: #91e3af;
+  --tag-3: #ffdb80;
+  --tag-4: #ffb1c8;
+  --tag-5: #a9caff;
+  --syn-code: #ffdb80;
 }
 
 :root[data-font='sans'] {

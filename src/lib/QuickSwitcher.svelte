@@ -4,7 +4,7 @@
   import { tabsStore } from './stores/tabs.svelte';
   import { stripMdExt, vaultStore } from './stores/vault.svelte';
   import type { VaultNode } from './types';
-  import { validateWindowsEntryName } from './validation';
+  import { validateEntryName } from './validation';
 
   interface Props {
     onClose: () => void;
@@ -118,7 +118,7 @@
     const trimmed = query.trim();
     if (!trimmed || !vaultStore.vaultSnapshot) return false;
     const leafName = trimmed.split('/').pop() ?? trimmed;
-    if (validateWindowsEntryName(leafName) !== null) return false;
+    if (validateEntryName(leafName) !== null) return false;
     return !vaultStore.resolveWikiTarget(trimmed);
   });
 

@@ -96,29 +96,78 @@ pub fn configure(app: &AppHandle, enabled: bool, shortcut_text: &str) -> Result<
         .shortcut
         .lock()
         .map_err(|e| format!("Failed to lock shortcut state: {e}"))?;
-    if let Some(previous) = current.take() {
-        let _ = global.unregister(previous);
-    }
-
-    if enabled {
-        let shortcut: Shortcut = shortcut_text
-            .parse()
-            .map_err(|e| format!("'{shortcut_text}' is not a valid shortcut: {e}"))?;
-        global
-            .on_shortcut(shortcut, |app, _shortcut, event| {
-                if event.state == ShortcutState::Pressed {
-                    toggle_main_window(app);
-                }
-            })
-            .map_err(|e| {
-                format!("Cannot register {shortcut_text}. Another app may already use it: {e}")
-            })?;
-        *current = Some(shortcut);
-    }
+    let next = if enabled {
+        Some(shortcut_text.parse::<Shortcut>()
+            .map_err(|e| format!("'{shortcut_text}' is not a valid shortcut: {e}"))?)
+    } else { None };
+    replace_shortcut(&mut current, next,
+        |shortcut| global.on_shortcut(shortcut, |app, _, event| {
+            if event.state == ShortcutState::Pressed { toggle_main_window(app); }
+        }).map_err(|e| format!("Cannot register {shortcut_text}. Another app may already use it: {e}")),
+        |shortcut| global.unregister(shortcut).map_err(|e| format!("Cannot unregister shortcut: {e}")),
+    )?;
 
     state.resident.store(enabled, Ordering::SeqCst);
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let _ = tray.set_visible(enabled);
     }
     Ok(())
+}
+
+
+/// Keep the previous hotkey and residency when a replacement cannot be registered.
+fn replace_shortcut<T: Copy + Eq>(
+    current: &mut Option<T>, next: Option<T>,
+    mut register: impl FnMut(T) -> Result<(), String>,
+    mut unregister: impl FnMut(T) -> Result<(), String>,
+) -> Result<(), String> {
+    if *current == next { return Ok(()); }
+    if let Some(candidate) = next { register(candidate)?; }
+    if let Some(previous) = *current {
+        if let Err(err) = unregister(previous) {
+            if let Some(candidate) = next { let _ = unregister(candidate); }
+            return Err(err);
+        }
+    }
+    *current = next;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::replace_shortcut;
+    use std::cell::RefCell;
+
+    #[test]
+    fn failed_replacement_keeps_previous_hotkey() {
+        let mut current = Some(1);
+        let removed = RefCell::new(Vec::new());
+        assert!(replace_shortcut(&mut current, Some(2), |_| Err("occupied".into()),
+            |id| { removed.borrow_mut().push(id); Ok(()) }).is_err());
+        assert_eq!(current, Some(1));
+        assert!(removed.borrow().is_empty());
+    }
+
+    #[test]
+    fn successful_replacement_registers_before_removing_previous() {
+        let mut current = Some(1);
+        let events = RefCell::new(Vec::new());
+        replace_shortcut(&mut current, Some(2),
+            |id| { events.borrow_mut().push(("register", id)); Ok(()) },
+            |id| { events.borrow_mut().push(("unregister", id)); Ok(()) }).unwrap();
+        assert_eq!(current, Some(2));
+        assert_eq!(*events.borrow(), vec![("register", 2), ("unregister", 1)]);
+    }
+
+    #[test]
+    fn failed_unregister_rolls_back_candidate() {
+        let mut current = Some(1);
+        let removed = RefCell::new(Vec::new());
+        assert!(replace_shortcut(&mut current, Some(2), |_| Ok(()), |id| {
+            removed.borrow_mut().push(id);
+            if id == 1 { Err("failed".into()) } else { Ok(()) }
+        }).is_err());
+        assert_eq!(current, Some(1));
+        assert_eq!(*removed.borrow(), vec![1, 2]);
+    }
 }
