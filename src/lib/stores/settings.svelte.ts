@@ -1,9 +1,7 @@
 import { defaultSummonShortcut } from '../platform';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { designTokens, isAccentPresetId, type AccentPresetId } from '../designTokens';
-import { getBackdropState, syncWindowTheme } from '../ipc';
 import type {
-  BackdropState,
   CopyMode,
   EditingMode,
   FocusMode,
@@ -39,14 +37,6 @@ class SettingsStore {
   copyMode = $state<CopyMode>('markdown_source');
   themePref = $state<ThemePreference>('system');
   systemIsDark = $state(false);
-  // Mica is opt-in: the default window surface is solid paper.
-  forceSolidBackdrop = $state(true);
-  backdropState = $state<BackdropState>({
-    micaApplied: true,
-    backdropKind: 'mica',
-    darkMode: null,
-  });
-
   // Milestone 3: Editing Mode, Focus Mode & Focus Options
   editingMode = $state<EditingMode>('live');
   focusMode = $state<FocusMode>('off');
@@ -93,10 +83,6 @@ class SettingsStore {
 
   effectiveDark = $derived(
     this.themePref === 'system' ? this.systemIsDark : this.themePref !== 'light'
-  );
-
-  effectiveSolidBackdrop = $derived(
-    this.themePref === 'high-contrast' || this.forceSolidBackdrop || !this.backdropState.micaApplied
   );
 
   setCopyMode(next: CopyMode, onAfterChange?: () => void) {
@@ -147,15 +133,6 @@ class SettingsStore {
     document.documentElement.style.setProperty('--editor-font-size', `${next}px`);
     try {
       localStorage.setItem('jotter.editorFontSize', String(next));
-    } catch {
-      // ignore
-    }
-  }
-
-  setForceSolidBackdrop(solid: boolean) {
-    this.forceSolidBackdrop = solid;
-    try {
-      localStorage.setItem('jotter.forceSolidBackdrop', String(solid));
     } catch {
       // ignore
     }
@@ -353,7 +330,7 @@ class SettingsStore {
     } catch {
       // ignore
     }
-    this.applyThemeToDocument(next, this.systemIsDark);
+    this.applyThemeToDocument(next);
   }
 
   setSidebarWidth(width: number) {
@@ -409,25 +386,13 @@ class SettingsStore {
     }
   }
 
-  applyThemeToDocument(pref: ThemePreference, sysDark: boolean) {
+  applyThemeToDocument(pref: ThemePreference) {
     const root = document.documentElement;
     if (pref === 'system') {
       root.removeAttribute('data-theme');
     } else {
       root.setAttribute('data-theme', pref);
     }
-    const isDark = pref === 'system' ? sysDark : pref !== 'light';
-    void syncWindowTheme(isDark)
-      .then((res) => {
-        this.backdropState = res;
-      })
-      .catch(() => {
-        this.backdropState = {
-          micaApplied: false,
-          backdropKind: 'solid_fallback',
-          darkMode: isDark,
-        };
-      });
   }
 
   initFromStorageAndSystem(): () => void {
@@ -497,10 +462,6 @@ class SettingsStore {
         '--editor-font-size',
         `${this.editorFontSize}px`
       );
-      const savedSolid = localStorage.getItem('jotter.forceSolidBackdrop');
-      if (savedSolid === 'true' || savedSolid === 'false') {
-        this.forceSolidBackdrop = savedSolid === 'true';
-      }
       const savedAccentMode = localStorage.getItem('jotter.accentMode');
       if (savedAccentMode === 'preset' || savedAccentMode === 'system' || savedAccentMode === 'custom') {
         this.accentColorMode = savedAccentMode;
@@ -580,25 +541,13 @@ class SettingsStore {
 
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     this.systemIsDark = mediaQuery.matches;
-    this.applyThemeToDocument(this.themePref, this.systemIsDark);
+    this.applyThemeToDocument(this.themePref);
 
     const handleMediaChange = (e: MediaQueryListEvent) => {
       this.systemIsDark = e.matches;
-      this.applyThemeToDocument(this.themePref, this.systemIsDark);
+      this.applyThemeToDocument(this.themePref);
     };
     mediaQuery.addEventListener('change', handleMediaChange);
-
-    void getBackdropState()
-      .then((s) => {
-        this.backdropState = s;
-      })
-      .catch(() => {
-        this.backdropState = {
-          micaApplied: false,
-          backdropKind: 'solid_fallback',
-          darkMode: this.systemIsDark,
-        };
-      });
 
     return () => {
       mediaQuery.removeEventListener('change', handleMediaChange);

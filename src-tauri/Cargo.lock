@@ -1995,7 +1995,6 @@ dependencies = [
  "tempfile",
  "tokio",
  "trash",
- "window-vibrancy",
 ]
 
 [[package]]

@@ -36,7 +36,7 @@ use crate::index::{
 };
 use crate::search::VaultSearchIndex;
 use crate::types::{
-    BackdropState, BacklinkEntry, CalendarDateField, CalendarDaySummary, CalendarNoteEntry,
+    BacklinkEntry, CalendarDateField, CalendarDaySummary, CalendarNoteEntry,
     ClipboardPayload, CopyRequest, CssSnippet, DeletedEntry, NoteDocument, RecentVault,
     NoteCard, RenameEntryResult, SearchHit, SpellDictionaryInfo, TagSummary, TaskEntry, VaultFsEvent, VaultSnapshot,
 };
@@ -47,7 +47,6 @@ use crate::vault::{
 };
 
 pub struct AppState {
-    pub backdrop: Mutex<BackdropState>,
     pub active_vault: Mutex<Option<PathBuf>>,
     pub sqlite_conn: Arc<Mutex<Connection>>,
     pub search_index: Arc<VaultSearchIndex>,
@@ -79,35 +78,6 @@ fn vault_index_db_path(app_data_dir: &Path, vault_root: &Path) -> PathBuf {
         "{:016x}.sqlite",
         fnv1a_64(key.trim_end_matches('/'))
     ))
-}
-
-/// Applies the Windows 11 Mica backdrop via `window-vibrancy`, returning whether Mica succeeded
-/// or if the frontend should use the solid-color fallback (e.g. on Windows 10).
-fn try_apply_mica(window: &tauri::WebviewWindow, dark_mode: Option<bool>) -> BackdropState {
-    #[cfg(target_os = "windows")]
-    {
-        match window_vibrancy::apply_mica(window, dark_mode) {
-            Ok(()) => BackdropState {
-                mica_applied: true,
-                backdrop_kind: "mica".to_string(),
-                dark_mode,
-            },
-            Err(_) => BackdropState {
-                mica_applied: false,
-                backdrop_kind: "solid_fallback".to_string(),
-                dark_mode,
-            },
-        }
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        let _ = window;
-        BackdropState {
-            mica_applied: false,
-            backdrop_kind: "solid_fallback".to_string(),
-            dark_mode,
-        }
-    }
 }
 
 fn require_active_vault(state: &State<'_, AppState>) -> Result<PathBuf, String> {
@@ -342,28 +312,6 @@ fn preview_clipboard_payload(req: CopyRequest) -> ClipboardPayload {
 #[tauri::command]
 fn paste_plain_from_clipboard() -> Result<String, String> {
     read_plain_from_system_clipboard()
-}
-
-#[tauri::command]
-fn sync_window_theme(
-    window: tauri::WebviewWindow,
-    state: State<'_, AppState>,
-    dark_mode: Option<bool>,
-) -> Result<BackdropState, String> {
-    let next_state = try_apply_mica(&window, dark_mode);
-    if let Ok(mut guard) = state.backdrop.lock() {
-        *guard = next_state.clone();
-    }
-    Ok(next_state)
-}
-
-#[tauri::command]
-fn get_backdrop_state(state: State<'_, AppState>) -> Result<BackdropState, String> {
-    state
-        .backdrop
-        .lock()
-        .map(|g| g.clone())
-        .map_err(|e| format!("Failed to read backdrop state: {e}"))
 }
 
 #[tauri::command]
@@ -1042,11 +990,6 @@ pub fn run() {
         .manage(crate::tray::SummonState::default())
         .manage(Arc::new(crate::spell::SpellState::default()))
         .manage(AppState {
-            backdrop: Mutex::new(BackdropState {
-                mica_applied: false,
-                backdrop_kind: "initializing".to_string(),
-                dark_mode: None,
-            }),
             active_vault: Mutex::new(None),
             sqlite_conn: Arc::new(Mutex::new(conn)),
             search_index: Arc::new(search_idx),
@@ -1057,14 +1000,6 @@ pub fn run() {
             vault_operation: Arc::new(Mutex::new(())),
         })
         .setup(|app| {
-            if let Some(window) = app.get_webview_window("main") {
-                let initial_dark = window.theme().ok().map(|t| matches!(t, tauri::Theme::Dark));
-                let applied = try_apply_mica(&window, initial_dark);
-                let state = app.state::<AppState>();
-                if let Ok(mut guard) = state.backdrop.lock() {
-                    *guard = applied;
-                };
-            }
             crate::tray::create_tray(app)?;
             Ok(())
         })
@@ -1080,8 +1015,6 @@ pub fn run() {
             copy_to_clipboard,
             preview_clipboard_payload,
             paste_plain_from_clipboard,
-            sync_window_theme,
-            get_backdrop_state,
             pick_vault_folder,
             open_vault,
             create_new_vault,

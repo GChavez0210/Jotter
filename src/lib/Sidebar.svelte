@@ -542,11 +542,6 @@
     transition: background-color var(--transition-fast);
   }
 
-  /* Mica, when enabled, shows through the sidebar only. */
-  :global([data-backdrop='mica']) .sidebar-pane {
-    background: var(--surface-mica);
-  }
-
   .sidebar-header {
     display: flex;
     align-items: center;

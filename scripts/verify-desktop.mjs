@@ -11,7 +11,7 @@ const root = resolve(`src-tauri/target/desktop-verification/${Date.now()}`);
 const vault = join(root, 'vault');
 await mkdir(vault, {recursive:true});
 await mkdir(join(root, 'app-data/Jotter/snippets'), {recursive:true});
-await writeFile(join(root, 'app-data/Jotter/snippets/verify.css'), ':root { --verify-snippet: loaded; }');
+await writeFile(join(root, 'app-data/Jotter/snippets/verify.css'), ':root { --verify-snippet: loaded; }\n.cm-content { line-height: 1.8; }');
 const note = '# Verification\n\nWe receive the budget.\n\nA mispeled word.\n\nInline $x^2$.\n\n$$ x^2 + y^2 $$\n\n```mermaid\ngraph TD; A-->B\n```\n\n> ```mermaid\n> graph TD; C-->D\n> ```\n\n    $$ indented code $$\n';
 await writeFile(join(vault,'Verification.md'),note);
 await mkdir(join(vault,'Templates'),{recursive:true});
@@ -94,9 +94,20 @@ try {
   await page.getByRole('button',{name:'System',exact:true}).click();
   await page.getByLabel('verify',{exact:true}).check();
   await expect.poll(()=>page.evaluate(()=>getComputedStyle(document.documentElement).getPropertyValue('--verify-snippet').trim())).toBe('loaded');
+  const editorLineSpacing = () => page.locator('.cm-content').evaluate((el) => {
+    const style = getComputedStyle(el);
+    return Number.parseFloat(style.lineHeight) / Number.parseFloat(style.fontSize);
+  });
+  await expect.poll(editorLineSpacing).toBeCloseTo(1.8, 2);
+  await page.getByLabel('verify',{exact:true}).uncheck();
+  await expect.poll(editorLineSpacing).not.toBeCloseTo(1.8, 2);
+  await page.getByLabel('verify',{exact:true}).check();
+  await expect.poll(editorLineSpacing).toBeCloseTo(1.8, 2);
+  await expect(page.getByText('CSS snippets are small style files', {exact:false})).toBeVisible();
+  await page.screenshot({path:join(root,'css-snippets-settings.png')});
   await page.getByLabel('Summon hotkey',{exact:true}).check();
   await expect(page.getByRole('alert')).toHaveCount(0);
-  checks.push('CSS snippet toggles apply and native summon shortcut registers');
+  checks.push('CSS snippet example applies, toggles off cleanly, and native summon shortcut registers');
   await page.keyboard.press('Escape');
   // Jotter's dictionaries replace the WebView checker, so the native attribute is off.
   expect(await page.locator('.cm-content').getAttribute('spellcheck')).toBe('false');

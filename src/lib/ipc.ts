@@ -1,7 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
-  BackdropState,
   BacklinkEntry,
   CalendarDateField,
   CalendarDaySummary,
@@ -32,14 +31,6 @@ export async function previewClipboardPayload(req: CopyRequest): Promise<Clipboa
 
 export async function pastePlainFromClipboard(): Promise<string> {
   return invoke<string>('paste_plain_from_clipboard');
-}
-
-export async function syncWindowTheme(darkMode: boolean | null): Promise<BackdropState> {
-  return invoke<BackdropState>('sync_window_theme', { darkMode });
-}
-
-export async function getBackdropState(): Promise<BackdropState> {
-  return invoke<BackdropState>('get_backdrop_state');
 }
 
 export async function pickVaultFolder(title?: string): Promise<string | null> {

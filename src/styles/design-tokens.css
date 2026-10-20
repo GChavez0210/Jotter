@@ -60,7 +60,6 @@
 
   /* Light theme: Paper */
   --surface-app: #f3f1ea;
-  --surface-mica: rgba(243, 241, 234, 0.72);
   --surface-editor: #fbfaf6;
   --surface-raised: #ffffff;
   --surface-field: #ffffff;
@@ -124,7 +123,6 @@
   :root:not([data-theme]) {
     color-scheme: dark;
     --surface-app: #161512;
-    --surface-mica: rgba(22, 21, 18, 0.66);
     --surface-editor: #1c1b18;
     --surface-raised: #25231f;
     --surface-field: #211f1c;
@@ -167,7 +165,6 @@
 :root[data-theme='dark'] {
   color-scheme: dark;
   --surface-app: #161512;
-  --surface-mica: rgba(22, 21, 18, 0.66);
   --surface-editor: #1c1b18;
   --surface-raised: #25231f;
   --surface-field: #211f1c;
@@ -214,7 +211,6 @@
 :root[data-theme='high-contrast'] {
   color-scheme: dark;
   --surface-app: #000000;
-  --surface-mica: #000000;
   --surface-editor: #000000;
   --surface-raised: #121212;
   --surface-field: #000000;
@@ -275,7 +271,6 @@
     --selection: Highlight;
     --mark: Mark;
     --surface-app: Canvas;
-    --surface-mica: Canvas;
     --surface-editor: Canvas;
     --surface-raised: Canvas;
     --surface-field: Field;

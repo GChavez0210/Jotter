@@ -10,9 +10,9 @@
   - **Rich**: Writes both `text/html` and `text/plain` via `arboard::Clipboard::set_html(html, Some(plain))`. Renders inline/block Markdown via `comrak` per line, drops code fence lines (` ``` ` and `~~~`), preserves indentation and repeated spaces/tabs via `plain_to_br_html` (`&nbsp;`), leaves `[[wiki links]]` inside inline code spans untouched, and joins lines strictly with `<br>`.
   - **Safe Cut (`Ctrl+X`)**: In `Editor.svelte`, `cut` writes to the system clipboard first and dispatches the document deletion only after the clipboard write succeeds.
 
-## 2. Desktop frames and optional backdrop
+## 2. Desktop frames and opaque surfaces
 - **Decision**: Use custom window controls on Windows and Linux. The macOS override enables native traffic lights with an overlay title bar and an opaque window.
-- **Backdrop**: Mica remains a Windows adapter, compiled only on Windows. Its Settings control appears only there. Other platforms use opaque theme surfaces. High Contrast Dark always uses solid surfaces.
+- **Surfaces**: All platforms use opaque theme surfaces. Native window transparency, backdrop effects, their settings, and the app’s vibrancy dependency are removed.
 
 ## 3. Vault Storage, `.obsidian` Isolation, and SQLite Cache Location
 - **Zero-Modification Guarantee**: Opening a vault, scanning its file tree, or reading a note never writes to the vault directory. `save_vault_note` compares the new content against the existing file bytes on disk and skips writing if they are identical.
@@ -67,7 +67,7 @@
   - Organized into four sections with immediate persistence to `localStorage`:
     1. **Editor**: Default editing mode (`Live` vs `Source`), Typewriter scrolling toggle, Focus paragraph dimming toggle, Editor font size (`12`, `14`, `16`, `20` px matching the strict Fluent type scale), and Pasted image link syntax (`![[Pasted image ...png]]` wiki-embed vs `![](attachments/...)` standard Markdown).
     2. **Copy**: Default copy mode selector with detailed explanations of the three copy modes (`Markdown source`, `Plain`, `Rich`) and their clipboard format behavior.
-    3. **Appearance**: Theme mode (`Follow System`, `Light`, `Dark`), platform-supported backdrop toggle (with solid fallback), and Accent color selector (`System Accent` using CSS `AccentColor` vs custom Fluent swatches/color picker).
+    3. **Appearance**: Theme mode (`Follow System`, `Light`, `Dark`), writing font, and Accent color selector (`System Accent` using CSS `AccentColor` vs custom Fluent swatches/color picker).
     4. **Vault**: One-click **Rebuild Index** button (`rebuild_vault_index` IPC command that re-scans the vault and rebuilds both SQLite and Tantivy indexes while preserving `edit_log`) and **Show hidden files** toggle (default `off`; `.obsidian` is always ignored for vault safety).
 - **Clipboard Image Paste & Live Mode Image Rendering (`src-tauri/src/media_export.rs`, `src/lib/Editor.svelte`, `src/lib/livePreview.ts`)**:
   - When pasting an image (`Ctrl+V`) in the editor, `Editor.svelte` checks `clipboardData.items` for `image/*` or invokes `save_pasted_image` in Rust, which reads raw RGBA pixels from the system clipboard via `arboard::Clipboard::get_image()` and encodes a valid PNG (`encode_rgba_to_png`) saved atomically to `<vault_root>/attachments/Pasted image YYYYMMDD-HHMMSS.png`.

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { isWindows, defaultSummonShortcut, shortcutLabel } from './platform';
+  import { defaultSummonShortcut, shortcutLabel } from './platform';
   import { onMount } from 'svelte';
   import { getVersion } from '@tauri-apps/api/app';
   import aboutLogo from '../assets/about-jack.png';
@@ -397,7 +397,7 @@
           <section class="settings-section" aria-labelledby="sec-appearance">
             <h3 id="sec-appearance" class="section-title">Appearance</h3>
             <p class="section-subtitle">
-              Theme, accent, writing font and window backdrop.
+              Theme, accent and writing font.
             </p>
 
             <div class="setting-card column-card">
@@ -504,28 +504,6 @@
               </ChoiceCards>
             </div>
 
-            {#if isWindows}
-            <div class="setting-card">
-              <div class="setting-info">
-                <label for="toggle-mica" class="setting-label">
-                  Desktop backdrop
-                </label>
-                <div class="setting-desc">
-                  Tint the sidebar with the desktop behind the window. Off by default.
-                </div>
-              </div>
-              <input
-                id="toggle-mica"
-                type="checkbox"
-                class="fluent-toggle"
-                checked={!settingsStore.forceSolidBackdrop}
-                onchange={(e) =>
-                  settingsStore.setForceSolidBackdrop(
-                    !(e.currentTarget as HTMLInputElement).checked
-                  )}
-              />
-            </div>
-            {/if}
           </section>
         {:else if activeSection === 'vault'}
           <section class="settings-section" aria-labelledby="sec-vault">
@@ -735,7 +713,7 @@
                 <div class="setting-info">
                   <div class="setting-label">CSS snippets</div>
                   <div class="setting-desc">
-                    Jotter loads <code>.css</code> files from its snippets folder on top of the theme. Turn each one on below.
+                    CSS snippets are small style files that customize Jotter’s appearance, such as colors, spacing, and text size. They change how the app looks without changing your notes.
                   </div>
                 </div>
                 <div class="button-row">
@@ -746,6 +724,20 @@
                     Open folder
                   </Button>
                 </div>
+              </div>
+              <div class="setting-desc">
+                To add one, choose <strong>Open folder</strong>, create a plain-text file named
+                <code>my-style.css</code> there, and save your CSS. Choose <strong>Reload</strong>,
+                then turn on the file below. After editing a file, reload again to apply its changes.
+              </div>
+              <div class="setting-desc">
+                For example, this snippet increases the editor’s line spacing:
+              </div>
+              <pre class="snippet-example"><code>{'.cm-content { line-height: 1.8; }'}</code></pre>
+              <div class="setting-desc">
+                Turn a snippet off to undo its appearance changes. Snippets load after the theme,
+                so they can override its styles. They apply to every vault on this computer and
+                stay in Jotter’s app data folder, outside your vaults.
               </div>
               {#if systemStore.snippets.length === 0}
                 <div class="setting-desc">No snippets yet. Add a <code>.css</code> file to the folder, then reload.</div>
@@ -1024,6 +1016,17 @@
     padding: var(--space-2) 0;
     font-family: var(--font-mono);
     font-size: var(--fs-13);
+  }
+
+  .snippet-example {
+    margin: 0;
+    padding: var(--space-3);
+    border-radius: var(--radius-control);
+    background: var(--surface-code);
+    color: var(--text-primary);
+    font-size: var(--fs-13);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 
   .dictionary-list li {

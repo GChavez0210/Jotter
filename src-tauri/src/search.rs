@@ -512,7 +512,7 @@ mod tests {
                 root,
                 "Daily/2026-10-19.md",
                 "2026-10-19",
-                "Worked on Windows 11 Mica backdrop and Fluent icons.",
+                "Worked on Windows 11 window controls and Fluent icons.",
             ),
         ];
 

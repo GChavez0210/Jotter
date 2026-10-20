@@ -17,12 +17,6 @@ export interface ClipboardPayload {
   charCount: number;
 }
 
-export interface BackdropState {
-  micaApplied: boolean;
-  backdropKind: string;
-  darkMode: boolean | null;
-}
-
 export type ThemePreference = 'system' | 'light' | 'dark' | 'high-contrast';
 
 export type EditingMode = 'live' | 'source';

@@ -46,6 +46,21 @@ Desktop portability foundations are in place. Release validation for additional 
 - [ ] **Typst blocks.** Render Typst code blocks to SVG. Markdown stays the file format.
 - [ ] **Calendar task sync.** Push due dates to a calendar service over CalDAV. Depends on `.ics` export.
 
+## Review follow-ups: desktop validation and release readiness
+
+These items remain open after the [portability review](docs/PORTABILITY_REVIEW.md). Validation tasks do not imply that the behavior has already failed.
+
+- [ ] **Run native macOS CI.** Confirm the configured Mac build and Rust tests pass. Exercise Unix symlink containment, distinct case-sensitive vault index keys, and rename protection on a case-sensitive filesystem.
+- [ ] **Verify Mac window behavior.** Test native traffic lights, dragging, resizing, full screen, and reopening from the menu and Dock.
+- [ ] **Verify native Quit saves.** Confirm Cmd+Q and the app menu wait for dirty and in-flight saves, retain edits on save failure, and exit only after successful saving.
+- [ ] **Verify Mac dialogs.** Test vault selection and creation, HTML export, and task-calendar save dialogs, including cancellation and overwrite confirmation.
+- [ ] **Verify WKWebView editing and output.** Test copy, cut, clipboard image paste, bundled and System spelling, Cmd shortcuts, Option-based folding, printing, and PDF output.
+- [ ] **Verify Mac background operation.** Test summon shortcut registration, replacement, conflicts, disable behavior, and menu-bar residency.
+- [ ] **Verify Mac persistence and iCloud Drive.** Restart with recent vaults, personal dictionaries, and CSS snippets; confirm they persist outside the vault. Exercise downloaded iCloud Drive vault files and external changes.
+- [ ] **Complete Mac distribution checks.** Build and install signed, notarized app and DMG packages on supported Intel and Apple Silicon systems. Follow the [manual release gate](MANUAL_TESTS.md#macos-release-gate).
+- [ ] **Evaluate in-app Mac Trash restoration.** The trash library cannot list or restore macOS Trash. Keep Finder restoration guidance until a supported implementation can restore notes without overwriting existing files.
+- [ ] **Reduce the frontend entry bundle.** Investigate Vite’s large-chunk advisory and split optional features where useful. Verify startup and editor behavior after changes.
+
 ## Phase 4: Major projects and platforms
 
 - [ ] **Optional hosted AI subscriptions.** Basic at USD $5/month and Pro at USD $10/month, with the same summarize, rewrite, translate, and dictation features and different monthly allowances. BYOK stays free, and notes remain usable without an account. Polar handles checkout, subscription billing, and customer billing management. A separate private backend authenticates users, enforces allowances and spending limits, and calls providers with server-held commercial keys. Start by evaluating prepaid DeepSeek for text and a separately budgeted transcription provider. Confirm provider-side cutoff and possible overspend before launch; prepaid credit and concurrency limits alone do not guarantee a financial ceiling. Depends on Phase 2 AI and dictation. See the [AI implementation plan](docs/AI_IMPLEMENTATION_PLAN.md) for delivery steps, billing rules, cost controls, and acceptance criteria.
@@ -55,6 +70,6 @@ Desktop portability foundations are in place. Release validation for additional 
 - [ ] **Linux desktop.** Validate the desktop adapters and ship AppImage and `.deb` builds.
 - [ ] **Android.** Tauri 2 mobile build with a touch-first UI. Depends on a sync story.
 - [ ] **Native cloud sync APIs.** Provider sign-in, change tracking, and conflict handling for mobile, where folder sync is not available.
-- [ ] **macOS release.** Validate the native dialogs, WKWebView clipboard and printing, global shortcuts, and iCloud Drive vaults. Complete signing, notarization, and Intel/Apple Silicon packaging. CI covers native build and unit-test checks.
+- [ ] **macOS release.** Validate the native dialogs, WKWebView clipboard and printing, global shortcuts, and iCloud Drive vaults. Complete signing, notarization, and Intel/Apple Silicon packaging. CI is configured for native build and unit-test checks; execution and runtime acceptance remain in the review follow-ups above.
 - [ ] **iOS.** Mobile UI and sandboxed file access.
 - [ ] **Apple Notes import.** Read the Apple Notes database on macOS and convert notes to Markdown. Depends on macOS. Two-way sync is out of scope.

@@ -423,10 +423,8 @@
 <div
   inert={closing}
   class="app-shell"
-  class:solid-backdrop={settingsStore.effectiveSolidBackdrop}
   class:focus-minimal={settingsStore.focusMode === 'minimal'}
   class:focus-zen={settingsStore.focusMode === 'zen'}
-  data-backdrop={settingsStore.effectiveSolidBackdrop ? 'solid' : 'mica'}
   data-focus-mode={settingsStore.focusMode}
 >
   {#if vaultStore.vaultSnapshot && settingsStore.focusMode === 'off'}
@@ -644,10 +642,6 @@
     display: flex;
     width: 100vw;
     height: 100vh;
-    background-color: transparent;
-  }
-
-  .app-shell.solid-backdrop {
     background-color: var(--surface-app);
   }
 

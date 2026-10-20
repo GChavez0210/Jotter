@@ -6,7 +6,13 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 
 Roadmap Phase 2.
 
+### Removed
+
+- Remove Mica and all app-level backdrop integration, including its setting, state, IPC commands, theme tokens, and direct dependency. Use opaque window surfaces on every desktop.
+
 ### Added
+
+- Track pending desktop verification and Mac release work in the roadmap. Expand Settings → System → CSS snippets with setup steps, a working CSS example, scope, and undo instructions.
 
 - Prepare desktop portability: native cross-platform dialogs, persistent OS data paths, Mac shortcut hints, opaque native Mac frame, app icon, and macOS CI. Preserve shared-vault filename safety. Fix spelling reload/persistence and case-sensitive rename protection.
 

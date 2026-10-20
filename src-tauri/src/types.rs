@@ -33,16 +33,6 @@ pub struct ClipboardPayload {
     pub char_count: usize,
 }
 
-/// Window backdrop state reported to the frontend so it can toggle solid-color fallback
-/// when Windows 11 Mica is unavailable or transparency effects are disabled.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BackdropState {
-    pub mica_applied: bool,
-    pub backdrop_kind: String,
-    pub dark_mode: Option<bool>,
-}
-
 /// Parsed Obsidian-compatible `[[wiki link]]`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

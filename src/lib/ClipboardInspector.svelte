@@ -7,7 +7,6 @@
 {#if settingsStore.showInspector && clipboardStore.lastPayload}
   <aside
     class="inspector-card"
-    class:solid-backdrop={settingsStore.effectiveSolidBackdrop}
     aria-label="Clipboard format inspector"
   >
     <div class="inspector-header">
@@ -48,17 +47,13 @@
   .inspector-card {
     height: 184px;
     flex-shrink: 0;
-    background: var(--surface-editor);
+    background: var(--surface-raised);
     border-top: 1px solid var(--line-subtle);
     padding: var(--space-3) var(--space-4);
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
     overflow: hidden;
-  }
-
-  .inspector-card.solid-backdrop {
-    background: var(--surface-raised);
   }
 
   .inspector-header {
