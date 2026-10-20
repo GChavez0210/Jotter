@@ -102,7 +102,8 @@ try {
   // Dark-mode print uses a light diagram palette, independent of screen colors.
   await page.evaluate(()=>{localStorage.setItem('jotter.themePref','dark');});
   await page.reload();
-  await expect(page.locator('.cm-content')).toBeVisible();
+  // Reload reopens the last vault on Home with no tabs, so the note is reopened below.
+  await expect(page.getByRole('region',{name:'Home'})).toBeVisible();
   await page.keyboard.press('Control+o');
   await page.getByPlaceholder('Find a note by name').fill('Verification');
   await page.keyboard.press('Enter');
