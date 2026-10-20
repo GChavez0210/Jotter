@@ -155,3 +155,59 @@ export interface NoteCard {
   /** Number of other notes that link to this note. */
   linkedFrom: number;
 }
+
+export type AiProvider = 'openai-compatible' | 'anthropic' | 'ollama';
+
+export interface AiEndpoint {
+  baseUrl: string;
+  model: string;
+}
+
+/** Bring-your-own AI settings, stored in Jotter's app data folder. Never contains keys. */
+export interface AiConfig {
+  enabled: boolean;
+  provider: AiProvider;
+  openaiCompatible: AiEndpoint;
+  anthropic: AiEndpoint;
+  ollama: AiEndpoint;
+  /** The user's writing style for Polish, the other rewrites, and summaries. */
+  styleInstructions: string;
+}
+
+/** `endpointChanged`: a key is saved, but for a different address than the current base URL. */
+export type AiKeyState = 'none' | 'saved' | 'endpointChanged';
+
+export interface AiKeyStatus {
+  provider: AiProvider;
+  state: AiKeyState;
+  origin: string | null;
+}
+
+export interface AiStatus {
+  config: AiConfig;
+  keys: AiKeyStatus[];
+  /** Where keys are kept, such as "Windows Credential Manager". */
+  credentialStore: string;
+  defaultStyleInstructions: string;
+}
+
+export type RewriteStyle = 'polish' | 'clearer' | 'shorter' | 'formal' | 'casual' | 'grammar';
+
+export type AiOperation =
+  | { kind: 'summarize' }
+  | { kind: 'rewrite'; style: RewriteStyle }
+  | { kind: 'translate'; targetLanguage: string };
+
+export interface AiRequest {
+  operationId: string;
+  operation: AiOperation;
+  text: string;
+}
+
+export interface AiResult {
+  operationId: string;
+  text: string;
+  provider: AiProvider;
+  model: string;
+  usage: { inputTokens: number | null; outputTokens: number | null };
+}

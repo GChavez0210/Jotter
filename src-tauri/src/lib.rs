@@ -1,3 +1,4 @@
+pub mod ai;
 pub mod clipboard;
 pub mod fs_atomic;
 pub mod index;
@@ -972,11 +973,66 @@ fn keep_app_open(app_handle: AppHandle) {
     crate::tray::show_main_window(&app_handle);
 }
 
+#[tauri::command]
+fn ai_get_status(ai: State<'_, Arc<crate::ai::AiState>>) -> Result<crate::ai::AiStatus, String> {
+    ai.status()
+}
+
+#[tauri::command]
+fn ai_save_config(
+    ai: State<'_, Arc<crate::ai::AiState>>,
+    config: crate::ai::config::AiConfig,
+) -> Result<crate::ai::AiStatus, String> {
+    ai.save_config(config)
+}
+
+/// The credential store can block, for example on a macOS Keychain prompt.
+#[tauri::command]
+async fn ai_save_key(
+    ai: State<'_, Arc<crate::ai::AiState>>,
+    provider: crate::ai::config::AiProvider,
+    key: String,
+) -> Result<crate::ai::AiStatus, String> {
+    let ai = Arc::clone(&ai);
+    tauri::async_runtime::spawn_blocking(move || ai.save_key(provider, &key))
+        .await
+        .map_err(|e| format!("Saving the API key failed: {e}"))?
+}
+
+#[tauri::command]
+async fn ai_delete_key(
+    ai: State<'_, Arc<crate::ai::AiState>>,
+    provider: crate::ai::config::AiProvider,
+) -> Result<crate::ai::AiStatus, String> {
+    let ai = Arc::clone(&ai);
+    tauri::async_runtime::spawn_blocking(move || ai.delete_key(provider))
+        .await
+        .map_err(|e| format!("Removing the API key failed: {e}"))?
+}
+
+#[tauri::command]
+async fn ai_run(
+    ai: State<'_, Arc<crate::ai::AiState>>,
+    request: crate::ai::AiRequest,
+) -> Result<crate::ai::AiResult, String> {
+    let ai = Arc::clone(&ai);
+    ai.run(request).await
+}
+
+#[tauri::command]
+fn ai_cancel(ai: State<'_, Arc<crate::ai::AiState>>, operation_id: String) -> bool {
+    ai.cancel(&operation_id)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_data_dir = crate::platform::app_data_dir().expect("Cannot locate Jotter app data");
     std::fs::create_dir_all(&app_data_dir).expect("Cannot create Jotter app data folder");
     let recent_vaults_file = app_data_dir.join("recent_vaults.json");
+    let ai_state = Arc::new(crate::ai::AiState::new(
+        crate::ai::config::settings_path(&app_data_dir),
+        Arc::new(crate::ai::secrets::OsSecretStore),
+    ));
 
     // Placeholder index until a vault opens; `open_vault` swaps in the vault's own database.
     let conn = Connection::open_in_memory().expect("Failed to open in-memory SQLite index");
@@ -989,6 +1045,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(crate::tray::SummonState::default())
         .manage(Arc::new(crate::spell::SpellState::default()))
+        .manage(ai_state)
         .manage(AppState {
             active_vault: Mutex::new(None),
             sqlite_conn: Arc::new(Mutex::new(conn)),
@@ -1054,7 +1111,13 @@ pub fn run() {
             open_dictionaries_folder,
             configure_summon,
             quit_app,
-            keep_app_open
+            keep_app_open,
+            ai_get_status,
+            ai_save_config,
+            ai_save_key,
+            ai_delete_key,
+            ai_run,
+            ai_cancel
         ])
         .run(tauri::generate_context!())
         .expect("error while running Jotter Tauri application");

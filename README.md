@@ -39,6 +39,8 @@ Math and diagrams also appear in HTML export and in Print to PDF. Exported HTML 
 ### Calculations
 End a line with an arithmetic expression and `=`, such as `Rent split: 1850 / 3 =`, and Jotter shows the result after the `=`. Press `Tab` or click the result to insert it. Expressions support `+ - * / ^`, parentheses, percentages (`200 - 25%`, `15% of 80`), `pi`, `e`, and the functions `sqrt`, `abs`, `round`, `floor`, `ceil`, `min`, `max`, `sin`, `cos`, `tan`, `log`, `ln`, and `exp`. A line needs an operator or function, so `x = 5` stays text.
 
+For inline subtraction between integers, put spaces on both sides of the minus: `100 - 250 =`. Unspaced forms such as `100-250 =` stay text to avoid treating dates and phone numbers as calculations. Inside `calc` blocks, `100-250` still works.
+
 A fenced code block tagged `calc` shows a result after each line:
 
 ````markdown
@@ -63,10 +65,12 @@ Markdown lists work as an outline:
 - `Tab` nests an item under the item above it, and `Shift+Tab` moves it back out.
 - Numbered lists renumber after a move, indent, or outdent. A list keeps its first number, and an item that starts a new sublist becomes `1.`.
 - These commands skip `- ` lines in code blocks and in YAML frontmatter.
-- Hover over an item with children and click the arrow in the left margin to fold them. `Ctrl+Shift+[` folds and `Ctrl+Shift+]` unfolds at the cursor, including heading sections.
+- Click the arrow in the left margin to fold an item's children, or focus the arrow and press Enter or Space. `Ctrl+Shift+[` folds and `Ctrl+Shift+]` unfolds at the cursor, including heading sections.
 - `Ctrl+.` shows only the item at the cursor and its children. Press `Ctrl+.` again on that item, or click **Show whole note**, to zoom out.
 
 ### Task Due Dates
+Due dates inside backtick code spans stay literal and do not create calendar events or due-date chips.
+
 Give a checklist item a due date in any of three common formats, each with an optional time:
 
 ```markdown

@@ -16,6 +16,7 @@ import { parseFrontmatter, removeProperty, renameProperty, serializeProperty, se
 import {
   createOutlinerExtension,
   foldCaretAttributes,
+  FoldCaretWidget,
   insertZoomChild,
   itemAt,
   itemOnLine,
@@ -28,7 +29,7 @@ import {
 } from '../src/lib/outliner';
 import { createFrontmatterHideExtension, frontmatterNeedsReparse, positionAfterFrontmatter } from '../src/lib/frontmatterPreview';
 import { ChangeSet } from '@codemirror/state';
-import { foldable } from '@codemirror/language';
+import { foldable, foldEffect, unfoldEffect } from '@codemirror/language';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { readFileSync } from 'node:fs';
 import { calendarControl } from './ipc.mock';
@@ -40,6 +41,11 @@ import { buildHomeSections, buildTagTree, type HomeSection } from '../src/lib/no
 import type { NoteCard } from '../src/lib/types';
 import { collectCheckableWords, findCheckableWords, matchDictionaries, resolveNoteLanguages } from '../src/lib/spellcheck';
 import { invalidateImagePreviews, cachedImage, rememberImage, imagePreviewEpoch } from '../src/lib/imagePreviewCache';
+import { aiResultChange, aiTargetRange } from '../src/lib/aiText';
+import { aiStore } from '../src/lib/stores/ai.svelte';
+import { aiControl } from './ipc.mock';
+import { history, undo } from '@codemirror/commands';
+import type { AiConfig, AiResult, AiStatus } from '../src/lib/types';
 
 function dirtyTab() {
   tabsStore.resetTabs();
@@ -420,9 +426,9 @@ test('inline calculation skips dates and phone numbers but still subtracts', () 
   assert.equal(inlineCalculation('Meeting 2026-10-19 ='), null);
   assert.equal(inlineCalculation('call 555-1234 ='), null);
   assert.equal(inlineCalculation('call 1-800-555-0100 ='), null);
-  assert.equal(inlineCalculation('see 10-5 =')?.result, '5');
-  assert.equal(inlineCalculation('100-25 =')?.result, '75');
-  assert.equal(inlineCalculation('2*3-1 =')?.result, '5');
+  assert.equal(inlineCalculation('see 10-5 ='), null);
+  assert.equal(inlineCalculation('100-25 ='), null);
+  assert.equal(inlineCalculation('2*3 - 1 =')?.result, '5');
   assert.equal(inlineCalculation('555 - 1234 =')?.result, '-679');
 });
 
@@ -475,9 +481,10 @@ test('due date times use the same 24-hour range as the indexer', () => {
   assert.equal(findDueDate('- [ ] Night 📅 2026-10-20 23:59')?.time, '23:59');
 });
 
-test('fold carets stay out of the accessibility tree, and views drop tree roles', () => {
-  assert.equal(foldCaretAttributes(false)['aria-hidden'], 'true');
-  assert.equal(foldCaretAttributes(true).role, undefined);
+test('fold carets expose their action and state, and views drop tree roles', () => {
+  assert.equal(foldCaretAttributes(false)['aria-label'], 'Fold list item');
+  assert.equal(foldCaretAttributes(true)['aria-expanded'], 'false');
+  assert.equal(foldCaretAttributes(false)['aria-hidden'], undefined);
   const source = (name: string) => readFileSync(`src/lib/${name}`, 'utf8');
   assert.ok(!/role="(tree|treeitem|group)"/.test(source('TagsLinksView.svelte')));
   for (const name of ['TagsLinksView.svelte', 'HomePage.svelte', 'SyncConflictsPanel.svelte']) {
@@ -525,6 +532,14 @@ test('frontmatter detection matches the Rust indexer', () => {
 });
 
 test('due dates inside code spans are ignored, as the Rust indexer ignores them', () => {
+  for (const syntax of ['due:2026-01-01', '📅 2026-01-01', '[due:: 2026-01-01]']) {
+    assert.equal(findDueDate(`- [ ] Example \`\`x \` ${syntax} \` y\`\``), null);
+    assert.equal(findDueDate(`- [ ] Example \`\`\`${syntax}\`\`\``), null);
+  }
+  const multi = '- [ ] Example ``é ` due:2026-01-01`` then due:2026-11-06';
+  const actual = findDueDate(multi)!;
+  assert.equal(actual.date, '2026-11-06');
+  assert.equal(multi.slice(actual.from, actual.to), 'due:2026-11-06');
   assert.equal(findDueDate('- [ ] Read `due:2026-01-01` docs'), null);
   assert.equal(findDueDate('- [ ] Run `📅 2026-01-02` then ship 📅 2026-11-03')?.date, '2026-11-03');
   assert.equal(findDueDate('- [ ] Odd `é` text due:2026-11-04')?.date, '2026-11-04');
@@ -534,12 +549,65 @@ test('due dates inside code spans are ignored, as the Rust indexer ignores them'
   assert.equal(line.slice(found.from, found.to), '📅 2026-11-03');
 });
 
-test('inline calculation skips phone numbers but computes three-digit subtraction', () => {
-  assert.equal(inlineCalculation('100-250 =')?.result, '-150');
+test('inline integer subtraction requires spaces on both sides of the minus', () => {
+  assert.equal(inlineCalculation('100-250 ='), null);
+  assert.equal(inlineCalculation('100 -250 ='), null);
+  assert.equal(inlineCalculation('100- 250 ='), null);
+  assert.equal(inlineCalculation('100 - 250 =')?.result, '-150');
+  assert.equal(evaluate('100-250'), -150);
+  assert.equal(evaluateCalcBlock(['100-250'])[0].result, '-150');
   assert.equal(inlineCalculation('call 555-1234 ='), null);
   assert.equal(inlineCalculation('call 1-800-555-0100 ='), null);
   assert.equal(inlineCalculation('Meeting 2026-10-19 ='), null);
-  assert.equal(inlineCalculation('see 10-5 =')?.result, '5');
+  assert.equal(inlineCalculation('see 10-5 ='), null);
+  assert.equal(inlineCalculation('see 10 - 5 =')?.result, '5');
+});
+
+test('ordered list edits preserve the original first number even when later numbers are lower', () => {
+  const edit = (doc: string, text: string, operation: (s: EditorState) => any) => {
+    const state = EditorState.create({doc, selection:{anchor:doc.indexOf(text)}});
+    return state.update(operation(state)).state.doc.toString();
+  };
+  assert.equal(edit('5) a\n1) b\n2) c', 'b', (s) => moveItem(s, -1)), '5) b\n6) a\n7) c');
+  assert.equal(edit('5. a\n1. b\n2. c', 'a', (s) => moveItem(s, 1)), '5. b\n6. a\n7. c');
+  assert.equal(edit('5. a\n1. b\n2. c', 'b', (s) => shiftItem(s, 1)), '5. a\n   1. b\n6. c');
+  assert.equal(edit('5. a\n   8. x\n   1. y\n2. b', 'x', (s) => shiftItem(s, -1)), '5. a\n6. x\n   8. y\n7. b');
+});
+
+test('fold caret uses native button activation and leaves keyboard defaults available', () => {
+  class Element {
+    attributes: Record<string, string> = {};
+    listeners: Record<string, (e: any) => void> = {};
+    children: Element[] = [];
+    constructor(readonly tagName: string) {}
+    setAttribute(name: string, value: string) { this.attributes[name] = value; }
+    addEventListener(name: string, listener: (e: any) => void) { this.listeners[name] = listener; }
+    append(child: Element) { this.children.push(child); }
+  }
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  Object.defineProperty(globalThis, 'document', {configurable:true, value:{createElement:(name: string) => new Element(name)}});
+  try {
+    for (const folded of [false, true]) {
+      const effects: any[] = [];
+      const anchor = new FoldCaretWidget(3, 12, folded).toDOM({dispatch:(spec: any) => effects.push(spec.effects)} as any) as unknown as Element;
+      const button = anchor.children[0];
+      assert.equal(button.tagName, 'button');
+      assert.equal(button.attributes.type, 'button');
+      assert.equal(button.attributes['aria-label'], folded ? 'Unfold list item' : 'Fold list item');
+      for (const key of ['Enter', ' ', 'Tab']) {
+        let stopped = false;
+        button.listeners.keydown({key, stopPropagation() { stopped = true; }, preventDefault() { assert.fail('native keyboard defaults must remain enabled'); }});
+        assert.equal(stopped, true);
+      }
+      button.listeners.click({stopPropagation() {}});
+      assert.equal(effects.length, 1);
+      assert.equal(effects[0].is(folded ? unfoldEffect : foldEffect), true);
+      assert.deepEqual(effects[0].value, {from:3, to:12});
+    }
+  } finally {
+    if (previous) Object.defineProperty(globalThis, 'document', previous);
+    else Reflect.deleteProperty(globalThis, 'document');
+  }
 });
 
 test('the outliner caches the frontmatter end and updates it when the top changes', () => {
@@ -651,4 +719,121 @@ test('failed summon changes restore the last working setting and keep the error'
   settingsStore.setSummon(false);
   await systemStore.syncSummon();
   assert.equal(systemStore.summonError, '');
+});
+
+test('AI targets skip frontmatter and results apply as one undoable step', () => {
+  const doc = '---\ntags: [a]\n---\nFirst line\nSecond line';
+  let state = EditorState.create({doc, extensions:[history()], selection:{anchor:20, head:30}});
+  const note = aiTargetRange(state, 'note')!;
+  assert.equal(note.text, 'First line\nSecond line');
+  assert.equal(aiTargetRange(state, 'selection')!.text, doc.slice(20, 30));
+  assert.equal(aiTargetRange(EditorState.create({doc:'  \n'}), 'note'), null);
+
+  state = state.update(aiResultChange(state, note, 'Primera\nSegunda', 'replace')).state;
+  assert.equal(state.doc.toString(), '---\ntags: [a]\n---\nPrimera\nSegunda');
+  let undone: EditorState | null = null;
+  undo({state, dispatch: (tr) => {undone = tr.state;}});
+  assert.equal(undone!.doc.toString(), doc);
+});
+
+test('AI results insert below as their own paragraph', () => {
+  const below = (doc: string, from: number, to: number) => {
+    const state = EditorState.create({doc});
+    return state.update(aiResultChange(state, {from, to}, ' Summary ', 'below')).state.doc.toString();
+  };
+  assert.equal(below('Alpha', 0, 5), 'Alpha\n\nSummary');
+  assert.equal(below('Alpha\nBeta', 0, 5), 'Alpha\n\nSummary\n\nBeta');
+  assert.equal(below('Alpha\n\nBeta', 0, 6), 'Alpha\n\nSummary\n\nBeta');
+  assert.equal(below('Alpha\n', 0, 6), 'Alpha\n\nSummary\n');
+});
+
+test('AI selections retain full-document protection context', () => {
+  const selection = (doc: string, text: string) => aiTargetRange(EditorState.create({
+    doc, selection: {anchor: doc.indexOf(text), head: doc.indexOf(text) + text.length},
+  }), 'selection');
+  for (const doc of [
+    '```sh\nsecret_command\n```',
+    '> ```sh\n> secret_command\n> ```',
+    'Intro\n\n    secret_command\n',
+    'Run `secret_command` now.',
+    'Run `first\nsecret_command` now.',
+    'See [[secret_command]].',
+    'See [guide](secret_command).',
+    '[guide]: /secret_command.md',
+    'Math $secret_command$ here.',
+    '$$\nsecret_command\n$$',
+    'Tagged #secret_command today.',
+  ]) {
+    assert.throws(() => selection(doc, 'secret_command'), /protected Markdown/, doc);
+  }
+  assert.throws(() => selection('---\ntitle: secret\n---\nBody', 'secret'), /note properties/);
+  assert.equal(selection('Read `code` today.', 'Read `code`')?.text, 'Read `code`');
+  assert.equal(selection('```sh\ncode\n```', '```sh\ncode\n```')?.text, '```sh\ncode\n```');
+  assert.equal(selection('Read `code` today.', 'today')?.text, 'today');
+});
+
+test('AI settings serialize overlapping edits and recover after a failed save', async () => {
+  const originalStatus = aiStore.status;
+  const originalSave = aiControl.saveConfig;
+  const config: AiConfig = {
+    enabled: true, provider: 'openai-compatible', styleInstructions: '',
+    openaiCompatible: {baseUrl:'https://old.example',model:'old'},
+    anthropic: {baseUrl:'https://anthropic.example',model:'a'},
+    ollama: {baseUrl:'http://localhost:11434',model:'o'},
+  };
+  const status: AiStatus = {config,keys:[],credentialStore:'mock',defaultStyleInstructions:''};
+  aiStore.status = status;
+  const pending: Array<{config: AiConfig; resolve: (status: AiStatus) => void}> = [];
+  aiControl.saveConfig = (config) => new Promise((resolve) => pending.push({config,resolve}));
+  try {
+    const url = aiStore.setEndpointField('openai-compatible', 'baseUrl', 'https://new.example');
+    const model = aiStore.setEndpointField('openai-compatible', 'model', 'new-model');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(pending.length, 1);
+    pending[0].resolve({...status,config:pending[0].config});
+    await url;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(pending.length, 2);
+    assert.equal(pending[1].config.openaiCompatible.baseUrl, 'https://new.example');
+    pending[1].resolve({...status,config:pending[1].config});
+    await model;
+    assert.deepEqual(aiStore.status!.config.openaiCompatible, {baseUrl:'https://new.example',model:'new-model'});
+
+    let calls = 0;
+    aiControl.saveConfig = async (config) => {
+      if (++calls === 1) throw new Error('disk full');
+      return {...status,config};
+    };
+    const failed = aiStore.setEndpointField('openai-compatible', 'model', 'rejected');
+    const next = aiStore.updateConfig((c) => {c.styleInstructions = 'Be direct.';});
+    await assert.rejects(failed, /disk full/);
+    await next;
+    assert.equal(aiStore.status!.config.openaiCompatible.model, 'new-model');
+    assert.equal(aiStore.status!.config.styleInstructions, 'Be direct.');
+  } finally {
+    aiControl.saveConfig = originalSave;
+    aiStore.status = originalStatus;
+  }
+});
+
+test('AI store ignores late results after cancel and reports errors', async () => {
+  let release: (r: AiResult) => void = () => {};
+  aiControl.run = (req) => new Promise((resolve) => {
+    release = (r) => resolve({...r, operationId: req.operationId});
+  });
+  const pending = aiStore.start({kind:'summarize'}, 'text');
+  assert.equal(aiStore.run.phase, 'running');
+  aiStore.cancel();
+  assert.equal(aiStore.run.phase, 'idle');
+  assert.equal(aiControl.cancels.length, 1);
+  release({operationId:'', text:'late', provider:'ollama', model:'m', usage:{inputTokens:null, outputTokens:null}});
+  await pending;
+  assert.equal(aiStore.run.phase, 'idle');
+
+  aiControl.run = async () => {throw 'The provider rejected the API key. (HTTP 401)';};
+  await aiStore.start({kind:'rewrite', style:'polish'}, 'text');
+  assert.deepEqual(aiStore.run, {phase:'error', message:'The provider rejected the API key. (HTTP 401)'});
+  aiStore.panelOperation = 'translate';
+  aiStore.targetLanguage = ' German ';
+  assert.deepEqual(aiStore.operation(), {kind:'translate', targetLanguage:'German'});
 });

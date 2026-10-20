@@ -68,22 +68,30 @@ fn parse_date_at(s: &str) -> Option<(String, Option<String>, usize)> {
     Some((date, None, 10))
 }
 
-/// Blanks the text inside backtick code spans with spaces of the same byte length, so a due date
-/// written as code, such as `` `due:2026-01-01` ``, is not read and offsets stay valid. Each
-/// backtick pairs with the next one, as `/`[^`]*`/g` pairs them in `src/lib/dueDates.ts`.
+/// Masks code spans between equal-length backtick runs, preserving byte offsets.
 fn mask_code_spans(line: &str) -> String {
-    let mut out = String::with_capacity(line.len());
-    let mut rest = line;
-    while let Some(open) = rest.find('`') {
-        let Some(close) = rest[open + 1..].find('`') else { break };
-        let close = open + 1 + close;
-        out.push_str(&rest[..=open]);
-        out.extend(std::iter::repeat_n(' ', close - open - 1));
-        out.push('`');
-        rest = &rest[close + 1..];
+    let mut ticks = Vec::new();
+    let bytes = line.as_bytes();
+    let mut pos = 0;
+    while pos < bytes.len() {
+        if bytes[pos] != b'`' {
+            pos += 1;
+            continue;
+        }
+        let start = pos;
+        while pos < bytes.len() && bytes[pos] == b'`' { pos += 1; }
+        ticks.push((start, pos - start));
     }
-    out.push_str(rest);
-    out
+    let mut out = bytes.to_vec();
+    let mut i = 0;
+    while i < ticks.len() {
+        if let Some(close) = (i + 1..ticks.len()).find(|&j| ticks[j].1 == ticks[i].1) {
+            out[ticks[i].0..ticks[close].0 + ticks[close].1].fill(b' ');
+            i = close;
+        }
+        i += 1;
+    }
+    String::from_utf8(out).expect("masking complete code spans preserves UTF-8")
 }
 
 fn find_due(line: &str) -> Option<DueMatch> {
@@ -367,6 +375,14 @@ mod tests {
 
     #[test]
     fn due_dates_inside_code_spans_are_ignored() {
+        for syntax in ["due:2026-01-01", "📅 2026-01-01", "[due:: 2026-01-01]"] {
+            assert!(find_due(&format!("- [ ] Example ``x ` {syntax} ` y``")).is_none());
+            assert!(find_due(&format!("- [ ] Example ```{syntax}```")).is_none());
+        }
+        let line = "- [ ] Example ``é ` due:2026-01-01`` then due:2026-11-06";
+        let found = find_due(line).unwrap();
+        assert_eq!(found.date, "2026-11-06");
+        assert_eq!(&line[found.start..found.end], "due:2026-11-06");
         // The same cases as the due-date test in tests/frontend.test.ts.
         let doc = "- [ ] Read `due:2026-01-01` docs\n- [ ] Run `📅 2026-01-02` then ship 📅 2026-11-03\n- [ ] Odd `é` text due:2026-11-04\n- [ ] Unclosed ` tick due:2026-11-05\n";
         let tasks = parse_due_tasks(doc);

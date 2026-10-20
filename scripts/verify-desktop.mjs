@@ -113,10 +113,15 @@ try {
   expect(await page.locator('.cm-content').getAttribute('spellcheck')).toBe('false');
   await expect(page.locator('.cm-misspelled',{hasText:'mispeled'})).toBeVisible();
   await expect(page.locator('.cm-misspelled',{hasText:'budget'})).toHaveCount(0);
+  // Clicking into the word first puts the cursor inside it, as a user does before right-clicking.
+  await page.locator('.cm-misspelled',{hasText:'mispeled'}).click();
+  await expect(page.locator('.cm-misspelled',{hasText:'mispeled'})).toBeVisible();
   await page.locator('.cm-misspelled',{hasText:'mispeled'}).click({button:'right'});
-  await expect(page.getByRole('menuitem',{name:'misspelled',exact:true})).toBeVisible();
-  await page.keyboard.press('Escape');
-  checks.push('Bundled en-US dictionary underlines a misspelling and suggests a correction');
+  await page.getByRole('menuitem',{name:'misspelled',exact:true}).click();
+  await expect(page.locator('.cm-content')).toContainText('A misspelled word.');
+  await page.keyboard.press('Control+z');
+  await expect(page.locator('.cm-misspelled',{hasText:'mispeled'})).toBeVisible();
+  checks.push('Bundled en-US dictionary underlines a misspelling under the cursor, and its suggestion replaces it in one undo step');
 
   // Dark-mode print uses a light diagram palette, independent of screen colors.
   await page.evaluate(()=>{localStorage.setItem('jotter.themePref','dark');});

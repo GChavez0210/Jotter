@@ -17,7 +17,8 @@
   import { taskCalendarStore } from './stores/taskCalendar.svelte';
   import { spellingStore } from './stores/spelling.svelte';
   import { openDictionariesFolder } from './ipc';
-  import type { CopyMode } from './types';
+  import { AI_PROVIDER_LABELS, aiStore } from './stores/ai.svelte';
+  import type { AiProvider, CopyMode } from './types';
 
   interface Props {
     onClose: () => void;
@@ -26,9 +27,64 @@
 
   let { onClose, onRefreshInspector }: Props = $props();
 
-  type SettingsSection = 'editor' | 'copy' | 'appearance' | 'vault' | 'system' | 'about';
+  type SettingsSection = 'editor' | 'copy' | 'appearance' | 'vault' | 'ai' | 'system' | 'about';
+  const SECTIONS: SettingsSection[] = ['editor', 'copy', 'appearance', 'vault', 'ai', 'system', 'about'];
   let appVersion = $state('');
-  let activeSection = $state<SettingsSection>('editor');
+  const requested = settingsStore.settingsSectionRequest as SettingsSection | null;
+  let activeSection = $state<SettingsSection>(
+    requested && SECTIONS.includes(requested) ? requested : 'editor'
+  );
+  settingsStore.settingsSectionRequest = null;
+
+  const AI_PROVIDER_OPTIONS = (Object.keys(AI_PROVIDER_LABELS) as AiProvider[]).map((value) => ({
+    value,
+    label: AI_PROVIDER_LABELS[value],
+  }));
+  const AI_MODEL_EXAMPLES: Record<AiProvider, string> = {
+    'openai-compatible': 'gpt-4o-mini',
+    anthropic: 'claude-haiku-5-5',
+    ollama: 'llama3.2',
+  };
+  const AI_STYLE_LIMIT = 4000;
+  let aiError = $state('');
+  let aiNotice = $state('');
+  let aiBusy = $state(false);
+  let keyDraft = $state('');
+  let styleDraft = $state<string | null>(null);
+  const aiProvider = $derived<AiProvider>(aiStore.status?.config.provider ?? 'openai-compatible');
+  const aiEndpoint = $derived(aiStore.endpoint(aiProvider));
+  const aiKey = $derived(aiStore.keyStatus(aiProvider));
+  const aiIsLocal = $derived.by(() => {
+    try {
+      const host = new URL(aiEndpoint?.baseUrl ?? '').hostname;
+      return host === 'localhost' || host === '127.0.0.1' || host === '[::1]';
+    } catch {
+      return false;
+    }
+  });
+  const styleValue = $derived(styleDraft ?? aiStore.status?.config.styleInstructions ?? '');
+
+  /** Runs an AI settings change and shows Rust's validation message when it fails. */
+  async function aiChange(task: () => Promise<void>, success = '') {
+    aiError = '';
+    aiNotice = '';
+    aiBusy = true;
+    try {
+      await task();
+      aiNotice = success;
+    } catch (err) {
+      aiError = String(err);
+    } finally {
+      aiBusy = false;
+    }
+  }
+
+  function saveStyle(text: string, success = 'Saved your writing style.') {
+    return aiChange(async () => {
+      await aiStore.updateConfig((c) => (c.styleInstructions = text));
+      styleDraft = null;
+    }, success);
+  }
   let rebuildStatus = $state('');
   let isRebuilding = $state(false);
   let closeBtnRef: HTMLButtonElement | undefined = $state();
@@ -80,6 +136,7 @@
   onMount(() => {
     closeBtnRef?.focus();
     void spellingStore.ensureLoaded();
+    void aiStore.reload();
     getVersion()
       .then((version) => (appVersion = version))
       .catch(() => {
@@ -131,6 +188,16 @@
         >
           <Icon name="folder-simple" />
           <span>Vault</span>
+        </button>
+        <button
+          type="button"
+          class="nav-item"
+          class:active={activeSection === 'ai'}
+          aria-current={activeSection === 'ai' ? 'page' : undefined}
+          onclick={() => (activeSection = 'ai')}
+        >
+          <Icon name="sparkle" />
+          <span>AI</span>
         </button>
         <button
           type="button"
@@ -666,6 +733,189 @@
               </div>
             </div>
           </section>
+        {:else if activeSection === 'ai'}
+          <section class="settings-section" aria-labelledby="sec-ai">
+            <h3 id="sec-ai" class="section-title">AI</h3>
+            <p class="section-subtitle">
+              Summarize, rewrite, and translate notes with your own AI provider. No Jotter account
+              is needed. Requests go straight from this computer to the provider you choose, and
+              that provider bills you. Local models run on your own hardware.
+            </p>
+
+            {#if !aiStore.status}
+              <div class="setting-card">
+                <div class="setting-desc">{aiStore.loadError || 'Loading AI settings…'}</div>
+              </div>
+            {:else}
+              <div class="setting-card">
+                <div class="setting-info">
+                  <label for="toggle-ai" class="setting-label">Use AI</label>
+                  <div class="setting-desc">
+                    Off by default. While off, Jotter sends nothing to any AI provider.
+                  </div>
+                </div>
+                <input
+                  id="toggle-ai"
+                  type="checkbox"
+                  class="fluent-toggle"
+                  checked={aiStore.status.config.enabled}
+                  disabled={aiBusy}
+                  onchange={(e) => {
+                    const enabled = (e.currentTarget as HTMLInputElement).checked;
+                    void aiChange(() => aiStore.updateConfig((c) => (c.enabled = enabled)));
+                  }}
+                />
+              </div>
+
+              <div class="setting-card column-card">
+                <div class="setting-info">
+                  <div class="setting-label">Provider</div>
+                  <div class="setting-desc">
+                    OpenAI-compatible covers OpenAI, OpenRouter, Groq, Mistral, LM Studio, and other
+                    servers that accept the OpenAI chat format. Ollama runs models on this computer
+                    or your network and needs no key.
+                  </div>
+                </div>
+                <Segmented
+                  label="Provider"
+                  options={AI_PROVIDER_OPTIONS}
+                  value={aiProvider}
+                  onchange={(next) => {
+                    keyDraft = '';
+                    void aiChange(() => aiStore.updateConfig((c) => (c.provider = next)));
+                  }}
+                />
+                <div class="field-row">
+                  <label class="text-field">
+                    <span>Base URL</span>
+                    <input
+                      type="url"
+                      spellcheck="false"
+                      value={aiEndpoint?.baseUrl ?? ''}
+                      onchange={(e) => {
+                        const value = (e.currentTarget as HTMLInputElement).value;
+                        void aiChange(() => aiStore.setEndpointField(aiProvider, 'baseUrl', value));
+                      }}
+                    />
+                  </label>
+                  <label class="text-field">
+                    <span>Model</span>
+                    <input
+                      type="text"
+                      spellcheck="false"
+                      placeholder={AI_MODEL_EXAMPLES[aiProvider]}
+                      value={aiEndpoint?.model ?? ''}
+                      onchange={(e) => {
+                        const value = (e.currentTarget as HTMLInputElement).value;
+                        void aiChange(() => aiStore.setEndpointField(aiProvider, 'model', value));
+                      }}
+                    />
+                  </label>
+                </div>
+                <div class="setting-desc">
+                  Cloud addresses must use <code>https://</code>. Plain <code>http://</code> works only
+                  for a server on this computer, or for Ollama, which never receives a key.
+                </div>
+              </div>
+
+              {#if aiProvider !== 'ollama'}
+                <div class="setting-card column-card">
+                  <div class="setting-info">
+                    <div class="setting-label">API key</div>
+                    <div class="setting-desc">
+                      {#if aiKey?.state === 'saved'}
+                        Saved in {aiStore.status.credentialStore}. Jotter sends it only to
+                        <code>{aiKey.origin}</code>.
+                      {:else if aiKey?.state === 'endpointChanged'}
+                        <span class="field-warning">
+                          The saved key belongs to <code>{aiKey.origin}</code>. Enter it again to send
+                          it to the new base URL.
+                        </span>
+                      {:else}
+                        No key saved.{aiIsLocal ? ' A server on this computer may not need one.' : ''}
+                        Jotter keeps keys in {aiStore.status.credentialStore}, never in your vault or
+                        settings files.
+                      {/if}
+                    </div>
+                  </div>
+                  <form
+                    class="key-row"
+                    onsubmit={(e) => {
+                      e.preventDefault();
+                      const key = keyDraft;
+                      void aiChange(async () => {
+                        await aiStore.saveKey(aiProvider, key);
+                        keyDraft = '';
+                      }, 'Saved the API key.');
+                    }}
+                  >
+                    <label class="text-field">
+                      <span>{aiKey?.state === 'saved' ? 'Replace key' : 'Key'}</span>
+                      <input type="password" autocomplete="off" spellcheck="false" bind:value={keyDraft} />
+                    </label>
+                    <div class="button-row">
+                      <Button type="submit" disabled={aiBusy || !keyDraft.trim()}>Save key</Button>
+                      {#if aiKey && aiKey.state !== 'none'}
+                        <Button
+                          variant="danger"
+                          disabled={aiBusy}
+                          onclick={() =>
+                            void aiChange(() => aiStore.deleteKey(aiProvider), 'Removed the API key.')}
+                        >
+                          Remove
+                        </Button>
+                      {/if}
+                    </div>
+                  </form>
+                </div>
+              {/if}
+
+              <div class="setting-card column-card">
+                <div class="setting-row-top">
+                  <div class="setting-info">
+                    <label for="ai-style" class="setting-label">Writing style</label>
+                    <div class="setting-desc">
+                      Describe how you want polished notes to read. <strong>Polish</strong> applies
+                      this style, and the other rewrite styles and summaries follow it too.
+                      Translation and grammar-only fixes ignore it, so they never reword your text.
+                      Jotter always adds its own rules that keep Markdown, code, and links intact.
+                    </div>
+                  </div>
+                  <Button
+                    disabled={aiBusy || styleValue === aiStore.status.defaultStyleInstructions}
+                    onclick={() =>
+                      void saveStyle(aiStore.status!.defaultStyleInstructions, 'Restored the example style.')}
+                  >
+                    Reset to example
+                  </Button>
+                </div>
+                <textarea
+                  id="ai-style"
+                  class="style-field"
+                  rows="5"
+                  maxlength={AI_STYLE_LIMIT}
+                  placeholder={aiStore.status.defaultStyleInstructions}
+                  value={styleValue}
+                  oninput={(e) => (styleDraft = (e.currentTarget as HTMLTextAreaElement).value)}
+                  onblur={() => {
+                    if (styleDraft !== null && styleDraft !== aiStore.status?.config.styleInstructions) {
+                      void saveStyle(styleDraft);
+                    }
+                  }}
+                ></textarea>
+                <div class="setting-desc">
+                  {styleValue.length} / {AI_STYLE_LIMIT} characters. Saves when you leave the box.
+                  Leave it empty to have Polish simply make text clearer and more concise.
+                </div>
+              </div>
+
+              {#if aiError}
+                <div class="field-error" role="alert">{aiError}</div>
+              {:else if aiNotice}
+                <div class="setting-desc" role="status">{aiNotice}</div>
+              {/if}
+            {/if}
+          </section>
         {:else if activeSection === 'system'}
           <section class="settings-section" aria-labelledby="sec-system">
             <h3 id="sec-system" class="section-title">System</h3>
@@ -993,6 +1243,32 @@
   .field-error {
     color: var(--text-danger);
     font-size: var(--fs-12);
+  }
+
+  .field-warning {
+    color: var(--text-danger);
+  }
+
+  .key-row {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-3);
+  }
+
+  .style-field {
+    min-height: 112px;
+    padding: var(--space-2);
+    border: 1px solid var(--line-control);
+    border-radius: var(--radius-control);
+    background: var(--surface-field);
+    color: var(--text-primary);
+    font: var(--fs-13) / 1.5 var(--font-ui);
+    resize: vertical;
+  }
+
+  .style-field:focus-visible {
+    outline: 2px solid var(--focus-ring, var(--accent));
+    outline-offset: 0;
   }
 
   .button-row {

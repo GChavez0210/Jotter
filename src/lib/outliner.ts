@@ -231,16 +231,16 @@ function orderedRun(doc: Text, lineNo: number): Array<{ line: number; digitsFrom
   return run;
 }
 
-/** The lowest number in the ordered run at `lineNo`, or undefined when there is none. */
+/** The first number in the ordered run at `lineNo`, or undefined when there is none. */
 function runStart(doc: Text, lineNo: number | undefined): number | undefined {
   const run = lineNo === undefined ? [] : orderedRun(doc, lineNo);
-  return run.length ? Math.min(...run.map((r) => r.number)) : undefined;
+  return run[0]?.number;
 }
 
-/** Renumbers the ordered run at `lineNo` from `start`, or from its lowest number. */
+/** Renumbers the ordered run at `lineNo` from `start`, or from its first number. */
 function renumberRun(doc: Text, lineNo: number, start?: number): NumberChange[] {
   const run = orderedRun(doc, lineNo);
-  let next = start ?? Math.min(...run.map((r) => r.number));
+  let next = start ?? run[0]?.number ?? 1;
   const changes: NumberChange[] = [];
   for (const r of run) {
     if (r.number !== next) changes.push({ from: r.digitsFrom, to: r.digitsFrom + r.width, insert: String(next) });
@@ -262,10 +262,13 @@ function withRenumbering(
   const doc = tr.state.doc;
   // Keyed by position: two lines can name the same run, and the first request wins.
   const changes = new Map<number, NumberChange>();
+  const seen = new Set<number>();
   for (const { line, start } of runs(doc, tr.newSelection.main.head)) {
     if (line < 1 || line > doc.lines) continue;
+    const first = orderedRun(doc, line)[0];
+    if (!first || seen.has(first.digitsFrom)) continue;
+    seen.add(first.digitsFrom);
     const run = renumberRun(doc, line, start);
-    if (run.some((c) => changes.has(c.from))) continue;
     for (const change of run) changes.set(change.from, change);
   }
   if (changes.size === 0) return spec;
@@ -301,7 +304,9 @@ export function moveItem(state: EditorState, direction: -1 | 1): TransactionSpec
     userEvent: 'move.line',
   };
   // The two swapped items share one run, which contains the moved item at the cursor.
-  return withRenumbering(state, spec, (newDoc, newHead) => [{ line: newDoc.lineAt(newHead).number }]);
+  return withRenumbering(state, spec, (newDoc, newHead) => [
+    { line: newDoc.lineAt(newHead).number, start: runStart(doc, item.line) },
+  ]);
 }
 
 /** Indents (`1`) or outdents (`-1`) the item at the cursor together with its children. */
@@ -553,20 +558,20 @@ function isFolded(state: EditorState, from: number, to: number): boolean {
   return found;
 }
 
-/**
- * The caret is a mouse shortcut for `Ctrl+Shift+[` and `Ctrl+Shift+]`, which fold at the cursor.
- * Screen readers skip it: as a button it would need a tab stop inside the editor text, where Tab
- * indents list items.
- */
 export function foldCaretAttributes(folded: boolean): Record<string, string> {
-  return { 'aria-hidden': 'true', title: isMac ? (folded ? 'Unfold (Cmd+Option+])' : 'Fold (Cmd+Option+[)') : shortcutLabel(folded ? 'Unfold (Ctrl+Shift+])' : 'Fold (Ctrl+Shift+[)') };
+  return {
+    type: 'button',
+    'aria-label': folded ? 'Unfold list item' : 'Fold list item',
+    'aria-expanded': String(!folded),
+    title: isMac ? (folded ? 'Unfold (Cmd+Option+])' : 'Fold (Cmd+Option+[)') : shortcutLabel(folded ? 'Unfold (Ctrl+Shift+])' : 'Fold (Ctrl+Shift+[)'),
+  };
 }
 
 /**
  * A caret in the left margin of each foldable list item. It sits outside the text column, so
  * the note keeps its alignment with the header, which a fold gutter would shift.
  */
-class FoldCaretWidget extends WidgetType {
+export class FoldCaretWidget extends WidgetType {
   constructor(
     readonly from: number,
     readonly to: number,
@@ -582,16 +587,18 @@ class FoldCaretWidget extends WidgetType {
   toDOM(view: EditorView): HTMLElement {
     const anchor = document.createElement('span');
     anchor.className = 'cm-fold-anchor';
-    const button = document.createElement('span');
+    const button = document.createElement('button');
     button.className = this.folded ? 'cm-fold-caret cm-fold-closed' : 'cm-fold-caret';
     for (const [name, value] of Object.entries(foldCaretAttributes(this.folded))) button.setAttribute(name, value);
     button.innerHTML =
       '<svg viewBox="0 0 256 256" width="12" height="12" fill="currentColor" aria-hidden="true"><path d="M213.66,101.66l-80,80a8,8,0,0,1-11.32,0l-80-80A8,8,0,0,1,53.66,90.34L128,164.69l74.34-74.35a8,8,0,0,1,11.32,11.32Z"/></svg>';
-    button.addEventListener('mousedown', (e) => {
-      e.preventDefault();
+    button.addEventListener('click', (e) => {
+      e.stopPropagation();
       const range = { from: this.from, to: this.to };
       view.dispatch({ effects: this.folded ? unfoldEffect.of(range) : foldEffect.of(range) });
     });
+    // Keep editor Tab/Space bindings from intercepting native button activation and traversal.
+    button.addEventListener('keydown', (e) => e.stopPropagation());
     anchor.append(button);
     return anchor;
   }
@@ -665,6 +672,9 @@ export function createOutlinerExtension(): Extension {
     EditorView.baseTheme({
       '.cm-fold-anchor': { position: 'relative', display: 'inline-block', width: '0' },
       '.cm-fold-caret': {
+        border: '0',
+        background: 'transparent',
+        font: 'inherit',
         position: 'absolute',
         right: '6px',
         top: '-0.95em',
@@ -676,7 +686,8 @@ export function createOutlinerExtension(): Extension {
         cursor: 'pointer',
         transition: 'opacity 120ms',
       },
-      '.cm-line:hover .cm-fold-caret, .cm-fold-caret.cm-fold-closed': { opacity: '1' },
+      '.cm-line:hover .cm-fold-caret, .cm-fold-caret.cm-fold-closed, .cm-fold-caret:focus-visible': { opacity: '1' },
+      '.cm-fold-caret:focus-visible': { outline: '2px solid var(--text-primary)' },
       '.cm-fold-caret:hover': { color: 'var(--text-primary)', background: 'var(--surface-app)' },
       '.cm-fold-closed svg': { transform: 'rotate(-90deg)' },
       '.cm-foldPlaceholder': {

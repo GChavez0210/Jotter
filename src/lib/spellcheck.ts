@@ -222,6 +222,8 @@ const spellPlugin = ViewPlugin.fromClass(
     pending = new Set<string>();
     timer: ReturnType<typeof setTimeout> | undefined;
     destroyed = false;
+    /** True after typing, until the cursor moves some other way, such as a click. */
+    typing = false;
 
     constructor(readonly view: EditorView) {
       this.languages = this.resolveLanguages();
@@ -242,6 +244,13 @@ const spellPlugin = ViewPlugin.fromClass(
           this.pending.clear();
         }
       }
+      if (update.docChanged) {
+        this.typing = update.transactions.some((tr) => tr.isUserEvent('input') || tr.isUserEvent('delete'));
+      } else if (update.selectionSet) {
+        // A click or arrow key, including the caret move a right-click makes, ends typing so
+        // the word under the cursor keeps its underline for the spelling menu.
+        this.typing = false;
+      }
       const arrived = update.transactions.some((tr) => tr.effects.some((e) => e.is(resultsArrived)));
       if (
         update.docChanged ||
@@ -259,9 +268,9 @@ const spellPlugin = ViewPlugin.fromClass(
       if (this.languages.length === 0) return Decoration.none;
       const { state } = this.view;
       const cache = cacheFor(this.languages);
-      // While the cursor sits on a word, the user is probably still typing it.
+      // Leave the word being typed alone until the user moves on from it.
       const sel = state.selection.main;
-      const cursor = this.view.hasFocus && sel.empty ? sel.head : -1;
+      const cursor = this.typing && this.view.hasFocus && sel.empty ? sel.head : -1;
       const marks: Range<Decoration>[] = [];
       for (const w of collectCheckableWords(state, this.view.visibleRanges, cursor)) {
         const known = cache.get(w.word);

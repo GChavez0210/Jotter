@@ -42,9 +42,17 @@ function validDate(date: string): boolean {
 export function findDueDate(line: string): DueDateMatch | null {
   const task = TASK_RE.exec(line);
   if (!task) return null;
-  // A date written as code, such as `due:2026-01-01` in backticks, is not a due date. Blanking
-  // the span keeps offsets, and matches `mask_code_spans` in `src-tauri/src/tasks.rs`.
-  const masked = line.replace(/`[^`]*`/g, (span) => `\`${' '.repeat(span.length - 2)}\``);
+  // Pair runs of equal length, as Markdown does. Preserve UTF-16 offsets for decorations.
+  const ticks = [...line.matchAll(/`+/g)];
+  let masked = line;
+  for (let i = 0; i < ticks.length; i++) {
+    const close = ticks.findIndex((tick, j) => j > i && tick[0].length === ticks[i][0].length);
+    if (close < 0) continue;
+    const from = ticks[i].index!;
+    const to = ticks[close].index! + ticks[close][0].length;
+    masked = masked.slice(0, from) + ' '.repeat(to - from) + masked.slice(to);
+    i = close;
+  }
   for (const re of DUE_PATTERNS) {
     const m = re.exec(masked);
     if (m && validDate(m[1])) {

@@ -27,3 +27,19 @@ export const systemControl = { configure: async (_enabled: boolean, _shortcut: s
 export const configureSummon = (enabled: boolean, shortcut: string) => systemControl.configure(enabled, shortcut);
 export const listCssSnippets = async () => [];
 export const openSnippetsFolder = async () => {};
+
+import type { AiConfig, AiRequest, AiResult, AiStatus } from '../src/lib/types';
+export const aiControl = {
+  run: async (req: AiRequest): Promise<AiResult> => ({
+    operationId: req.operationId, text: req.text, provider: 'ollama', model: 'm',
+    usage: {inputTokens: null, outputTokens: null},
+  }),
+  cancels: [] as string[],
+  saveConfig: async (_config: AiConfig): Promise<AiStatus> => {throw Error('no AI in tests');},
+};
+export const aiRun = (req: AiRequest) => aiControl.run(req);
+export const aiCancel = async (id: string) => {aiControl.cancels.push(id); return true;};
+export const aiGetStatus = async () => {throw Error('no AI in tests');};
+export const aiSaveConfig = (config: AiConfig) => aiControl.saveConfig(config);
+export const aiSaveKey = aiGetStatus;
+export const aiDeleteKey = aiGetStatus;

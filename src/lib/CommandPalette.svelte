@@ -3,6 +3,7 @@
   import Icon from './ui/Icon.svelte';
   import Dialog from './ui/Dialog.svelte';
   import type { MarkdownFormatCommandId } from './markdownCommands';
+  import { aiStore } from './stores/ai.svelte';
   import { settingsStore } from './stores/settings.svelte';
   import { tabsStore } from './stores/tabs.svelte';
   import { vaultStore } from './stores/vault.svelte';
@@ -404,6 +405,35 @@
           },
         ]
       : []),
+    // AI, when a note is open
+    ...(tabsStore.activeTab || tabsStore.scratchpadMode
+      ? [
+          {
+            id: 'ai-rewrite',
+            category: 'AI',
+            label: 'AI: Polish or Rewrite Text',
+            action: () => aiStore.openPanel('rewrite'),
+          },
+          {
+            id: 'ai-translate',
+            category: 'AI',
+            label: 'AI: Translate Text',
+            action: () => aiStore.openPanel('translate'),
+          },
+          {
+            id: 'ai-summarize',
+            category: 'AI',
+            label: 'AI: Summarize Text',
+            action: () => aiStore.openPanel('summarize'),
+          },
+        ]
+      : []),
+    {
+      id: 'ai-settings',
+      category: 'AI',
+      label: 'AI: Open AI Settings (Provider, Key, Writing Style)',
+      action: () => settingsStore.openSettings('ai'),
+    },
     // Export & Settings
     {
       id: 'export-html',

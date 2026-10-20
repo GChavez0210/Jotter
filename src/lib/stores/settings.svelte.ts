@@ -77,6 +77,8 @@ class SettingsStore {
   sidebarWidth = $state<number>(designTokens.layout.sidebarDefaultWidth);
   sidebarCollapsed = $state(false);
   showSettings = $state(false);
+  /** Section the Settings dialog shows when it next opens, such as `ai`. */
+  settingsSectionRequest = $state<string | null>(null);
   showInspector = $state(false);
 
   private preFocusLayout: SavedPreFocusLayout | null = null;
@@ -205,6 +207,13 @@ class SettingsStore {
     const root = document.documentElement;
     if (this.writingFont === 'serif') delete root.dataset.font;
     else root.dataset.font = this.writingFont;
+  }
+
+  openSettings(section?: string) {
+    this.settingsSectionRequest = section ?? null;
+    this.showCommandPalette = false;
+    this.showQuickSwitcher = false;
+    this.showSettings = true;
   }
 
   setNotesNavigation(next: 'folders' | 'tags') {

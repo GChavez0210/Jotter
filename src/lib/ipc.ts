@@ -1,6 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
+  AiConfig,
+  AiProvider,
+  AiRequest,
+  AiResult,
+  AiStatus,
   BacklinkEntry,
   CalendarDateField,
   CalendarDaySummary,
@@ -246,4 +251,30 @@ export async function pickTaskCalendarPath(defaultName: string): Promise<string 
 /** Rewrites the task calendar file. Resolves to whether the file changed. */
 export async function writeTaskCalendar(targetPath: string): Promise<boolean> {
   return invoke<boolean>('write_task_calendar', { targetPath });
+}
+
+export async function aiGetStatus(): Promise<AiStatus> {
+  return invoke<AiStatus>('ai_get_status');
+}
+
+export async function aiSaveConfig(config: AiConfig): Promise<AiStatus> {
+  return invoke<AiStatus>('ai_save_config', { config });
+}
+
+/** Sends the key to Rust, which stores it in the OS credential store. The key never comes back. */
+export async function aiSaveKey(provider: AiProvider, key: string): Promise<AiStatus> {
+  return invoke<AiStatus>('ai_save_key', { provider, key });
+}
+
+export async function aiDeleteKey(provider: AiProvider): Promise<AiStatus> {
+  return invoke<AiStatus>('ai_delete_key', { provider });
+}
+
+export async function aiRun(request: AiRequest): Promise<AiResult> {
+  return invoke<AiResult>('ai_run', { request });
+}
+
+/** Resolves to whether a request with that ID was still running. */
+export async function aiCancel(operationId: string): Promise<boolean> {
+  return invoke<boolean>('ai_cancel', { operationId });
 }

@@ -248,10 +248,8 @@ export function inlineCalculation(line: string): { from: number; result: string 
     const candidate = expr.slice(offset);
     // A sign followed by a space is a list marker or prose dash, not a negative number.
     if (/^[-+]\s/.test(candidate)) continue;
-    // Dates (`2026-10-19`) and phone numbers (`555-1234`, `1-800-555-0100`) are not subtraction:
-    // integers joined by two or more unspaced hyphens, or a 3-digit and a 4-digit group joined by
-    // one hyphen. `10-5`, `100-25`, and `100-250` still compute.
-    if (/(?<![\d.])\d+(?:-\d+){2,}(?![\d.])|(?<![\d.])\d{3}-\d{4}(?![\d.])/.test(candidate)) return null;
+    // Spaces distinguish integer subtraction from dates and phone numbers in prose.
+    if (/(?<![\w.])\d+(?:-\s*|\s*-)\d+(?![\w.])/u.test(candidate)) return null;
     if (!/[-+*/^%×÷(]/.test(candidate.replace(/^-/, ''))) return null;
     try {
       const value = evaluate(candidate);

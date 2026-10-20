@@ -33,6 +33,8 @@
   } from './markdownCommands';
   import { settingsStore } from './stores/settings.svelte';
   import { spellingStore } from './stores/spelling.svelte';
+  import { aiStore } from './stores/ai.svelte';
+  import { aiResultChange, aiTargetRange, type AiPlacement, type AiScope, type AiTarget } from './aiText';
   import { createSpellcheckExtension, misspelledWordAt, refreshSpellcheck } from './spellcheck';
   import Icon from './ui/Icon.svelte';
   import type { IconName } from './ui/icons';
@@ -997,6 +999,25 @@
     view.focus();
   }
 
+  export function hasSelection(): boolean {
+    return !!view && !view.state.selection.main.empty;
+  }
+
+  /** The text an AI command should read, with a handle that detects later edits. */
+  export function captureAiTarget(scope: AiScope): AiTarget | null {
+    if (!view) return null;
+    const range = aiTargetRange(view.state, scope);
+    return range && { ...range, operation: captureEditorOperation(view, editorGeneration) };
+  }
+
+  /** Applies an AI result as one undo step. Returns false when the note changed since capture. */
+  export function applyAiResult(target: AiTarget, text: string, placement: AiPlacement): boolean {
+    if (!view || !target.operation.isCurrent(view, editorGeneration)) return false;
+    view.dispatch(aiResultChange(view.state, target, text, placement));
+    view.focus();
+    return true;
+  }
+
   export function getCurrentCopyTargetText(): string {
     if (!view) return initialDoc;
     return getSelectedOrCurrentLineText(view, true).text;
@@ -1059,6 +1080,21 @@
         <Icon name={action.icon} />
       </button>
     {/each}
+    {#if aiStore.enabled}
+      <span class="sep" aria-hidden="true"></span>
+      <button
+        type="button"
+        title="Rewrite with AI"
+        aria-label="Rewrite with AI"
+        onmousedown={(e) => {
+          e.preventDefault();
+          selectionBar = null;
+          aiStore.openPanel('rewrite');
+        }}
+      >
+        <Icon name="sparkle" />
+      </button>
+    {/if}
   </div>
 {/if}
 

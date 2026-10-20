@@ -3,7 +3,17 @@ name: CI
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'design/icon-concepts/**'
+      - 'design/sample-vault/**'
+      - 'LICENSE-MIT'
   pull_request:
+    paths-ignore:
+      - '**/*.md'
+      - 'design/icon-concepts/**'
+      - 'design/sample-vault/**'
+      - 'LICENSE-MIT'
 
 # A newer push to the same branch or PR cancels the run in progress.
 concurrency:
@@ -34,6 +44,10 @@ jobs:
       matrix:
         os: [windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      # Full debug symbols inflate Windows cache archives; CI does not use a debugger.
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -47,6 +61,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
-      - run: npx tauri build --no-bundle --debug
-      - run: cargo test --locked
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # cargo test builds the app binary too. Use the packaged-app feature set once,
+      # instead of a Tauri CLI build (which also repeats beforeBuildCommand).
+      - run: cargo test --locked --features tauri/custom-protocol
         working-directory: src-tauri

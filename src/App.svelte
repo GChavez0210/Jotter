@@ -2,6 +2,7 @@
   import { shortcutLabel } from './lib/platform';
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import type { UnlistenFn } from '@tauri-apps/api/event';
+  import AiPanel from './lib/AiPanel.svelte';
   import BacklinksPanel from './lib/BacklinksPanel.svelte';
   import ClipboardInspector from './lib/ClipboardInspector.svelte';
   import CommandPalette from './lib/CommandPalette.svelte';
@@ -24,6 +25,7 @@
   } from './lib/ipc';
   import { enhanceRenderedHtml } from './lib/richBlocks';
   import type { MarkdownFormatCommandId } from './lib/markdownCommands';
+  import { aiStore } from './lib/stores/ai.svelte';
   import { clipboardStore } from './lib/stores/clipboard.svelte';
   import { settingsStore } from './lib/stores/settings.svelte';
   import { systemStore } from './lib/stores/system.svelte';
@@ -289,6 +291,11 @@
         editorRef?.focusEditor();
         return;
       }
+      if (aiStore.showPanel) {
+        aiStore.closePanel();
+        editorRef?.focusEditor();
+        return;
+      }
       if (settingsStore.focusMode !== 'off') {
         e.preventDefault();
         settingsStore.exitFocusMode();
@@ -357,6 +364,7 @@
   onMount(() => {
     const cleanupSettings = settingsStore.initFromStorageAndSystem();
     void systemStore.reloadSnippets();
+    void aiStore.ensureLoaded();
 
     // Tray "Quit" asks the page first so pending edits reach disk.
     void listenQuitRequested(async (quit) => {
@@ -616,6 +624,23 @@
       onExportPdf={() => void handleExportPdf()}
       onClose={() => {
         settingsStore.showCommandPalette = false;
+        editorRef?.focusEditor();
+      }}
+    />
+  {/if}
+
+  {#if aiStore.showPanel && editorRef}
+    <AiPanel
+      hasSelection={editorRef.hasSelection()}
+      captureTarget={(scope) => editorRef?.captureAiTarget(scope) ?? null}
+      applyResult={(target, text, placement) =>
+        editorRef?.applyAiResult(target, text, placement) ?? false}
+      onOpenSettings={() => {
+        aiStore.closePanel();
+        settingsStore.openSettings('ai');
+      }}
+      onClose={() => {
+        aiStore.closePanel();
         editorRef?.focusEditor();
       }}
     />
