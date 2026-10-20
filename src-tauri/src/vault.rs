@@ -632,6 +632,26 @@ mod tests {
     }
 
     #[test]
+    fn note_moves_between_folders_and_root_preserve_contents_and_reject_overwrites() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        create_vault_folder(root, "Folder/Nested").unwrap();
+        create_vault_note(root, "Note.md", "# Original\n\nUnsaved edits now saved.").unwrap();
+        let moved = rename_vault_entry(root, "Note.md", "Folder/Nested/Note.md").unwrap();
+        assert_eq!(moved.new_rel_path, "Folder/Nested/Note.md");
+        assert!(!root.join("Note.md").exists());
+        assert_eq!(fs::read_to_string(root.join("Folder/Nested/Note.md")).unwrap(), "# Original\n\nUnsaved edits now saved.");
+        create_vault_note(root, "Note.md", "Existing destination").unwrap();
+        assert!(rename_vault_entry(root, "Folder/Nested/Note.md", "Note.md").is_err());
+        assert_eq!(fs::read_to_string(root.join("Note.md")).unwrap(), "Existing destination");
+        assert!(root.join("Folder/Nested/Note.md").exists());
+        fs::remove_file(root.join("Note.md")).unwrap();
+        rename_vault_entry(root, "Folder/Nested/Note.md", "Note.md").unwrap();
+        assert!(!root.join("Folder/Nested/Note.md").exists());
+        assert_eq!(fs::read_to_string(root.join("Note.md")).unwrap(), "# Original\n\nUnsaved edits now saved.");
+    }
+
+    #[test]
     fn recent_vaults_records_deduplicates_and_removes() {
         let temp = tempfile::tempdir().unwrap();
         let storage = temp.path().join("recent_vaults.json");

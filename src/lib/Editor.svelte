@@ -1088,6 +1088,8 @@
         aria-label="Rewrite with AI"
         onmousedown={(e) => {
           e.preventDefault();
+        }}
+        onclick={() => {
           selectionBar = null;
           aiStore.openPanel('rewrite');
         }}

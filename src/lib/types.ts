@@ -191,7 +191,7 @@ export interface AiStatus {
   defaultStyleInstructions: string;
 }
 
-export type RewriteStyle = 'polish' | 'clearer' | 'shorter' | 'formal' | 'casual' | 'grammar';
+export type RewriteStyle = 'polish' | 'shorter' | 'formal' | 'casual' | 'grammar';
 
 export type AiOperation =
   | { kind: 'summarize' }

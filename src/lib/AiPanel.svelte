@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Button from './ui/Button.svelte';
-  import Dialog from './ui/Dialog.svelte';
+  import { aiPopoverPosition, clampAiPopoverPosition } from './aiPopover';
   import Segmented from './ui/Segmented.svelte';
   import { copyToClipboard } from './ipc';
-  import { AI_PROVIDER_LABELS, REWRITE_STYLE_LABELS, aiStore, type AiOperationKind } from './stores/ai.svelte';
+  import { AI_PROVIDER_LABELS, REWRITE_ACTIONS, REWRITE_TONES, REWRITE_STYLE_LABELS, aiStore, type AiOperationKind } from './stores/ai.svelte';
   import type { AiPlacement, AiScope, AiTarget } from './aiText';
   import type { RewriteStyle } from './types';
 
@@ -30,10 +30,63 @@
     'Simplified Chinese', 'Traditional Chinese',
   ];
 
-  let scope = $state<AiScope>('note');
-  let target = $state<AiTarget | null>(null);
-  let notice = $state('');
+  const screens = $state<Record<AiOperationKind, { scope: AiScope; target: AiTarget | null; notice: string }>>({
+    rewrite: { scope: 'note', target: null, notice: '' },
+    translate: { scope: 'note', target: null, notice: '' },
+    summarize: { scope: 'note', target: null, notice: '' },
+  });
+  const screen = $derived(screens[aiStore.panelOperation]);
   let resultEl: HTMLTextAreaElement | undefined = $state();
+  let menuEl: HTMLDivElement | undefined = $state();
+  let position = $state({ left: 12, top: 12 });
+  let moved = false;
+  let drag = $state<{ id: number; x: number; y: number; left: number; top: number } | null>(null);
+
+  function clampPosition(next: { left: number; top: number }) {
+    if (!menuEl) return next;
+    return clampAiPopoverPosition(next, menuEl.getBoundingClientRect(), {
+      width: window.innerWidth, height: window.innerHeight,
+    });
+  }
+
+  function reposition() {
+    if (!menuEl) return;
+    if (moved) {
+      position = clampPosition(position);
+      return;
+    }
+    position = aiPopoverPosition(menuEl.getBoundingClientRect(), {
+      width: window.innerWidth, height: window.innerHeight,
+    });
+  }
+
+  function startDrag(event: PointerEvent) {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    moved = true;
+    drag = { id: event.pointerId, x: event.clientX, y: event.clientY, ...position };
+  }
+
+  function moveDrag(event: PointerEvent) {
+    if (!drag || event.pointerId !== drag.id) return;
+    position = clampPosition({
+      left: drag.left + event.clientX - drag.x,
+      top: drag.top + event.clientY - drag.y,
+    });
+  }
+
+  function moveWithKeyboard(event: KeyboardEvent) {
+    const step = event.shiftKey ? 10 : 1;
+    const dx = event.key === 'ArrowLeft' ? -step : event.key === 'ArrowRight' ? step : 0;
+    const dy = event.key === 'ArrowUp' ? -step : event.key === 'ArrowDown' ? step : 0;
+    if (!dx && !dy && event.key !== 'Home') return;
+    event.preventDefault();
+    event.stopPropagation();
+    moved = event.key !== 'Home';
+    if (moved) position = clampPosition({ left: position.left + dx, top: position.top + dy });
+    else reposition();
+  }
 
   const provider = $derived(aiStore.status?.config.provider ?? 'openai-compatible');
   const endpoint = $derived(aiStore.endpoint(provider));
@@ -52,46 +105,63 @@
   );
 
   onMount(() => {
-    scope = hasSelection ? 'selection' : 'note';
+    for (const tab of Object.values(screens)) tab.scope = hasSelection ? 'selection' : 'note';
+    function dismissOutside(event: PointerEvent) {
+      if (event.target instanceof Node && !menuEl?.contains(event.target)) onClose();
+    }
+    const observer = new ResizeObserver(reposition);
+    if (menuEl) observer.observe(menuEl);
+    reposition();
+    menuEl?.focus({ preventScroll: true });
+    window.addEventListener('pointerdown', dismissOutside, true);
+    window.addEventListener('resize', reposition);
+    window.addEventListener('scroll', reposition, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('pointerdown', dismissOutside, true);
+      window.removeEventListener('resize', reposition);
+      window.removeEventListener('scroll', reposition, true);
+    };
   });
 
   function run() {
-    notice = '';
+    screen.notice = '';
     let captured: AiTarget | null;
     try {
-      captured = captureTarget(scope);
+      captured = captureTarget(screen.scope);
     } catch (err) {
-      notice = err instanceof Error ? err.message : String(err);
+      screen.notice = err instanceof Error ? err.message : String(err);
       return;
     }
     if (!captured) {
-      notice = scope === 'selection' ? 'Select some text first.' : 'The note has no text to send.';
+      screen.notice = screen.scope === 'selection' ? 'Select some text first.' : 'The note has no text to send.';
       return;
     }
     if (aiStore.panelOperation === 'translate' && !aiStore.targetLanguage.trim()) {
-      notice = 'Choose a language to translate into.';
+      screen.notice = 'Choose a language to translate into.';
       return;
     }
-    target = captured;
+    screen.target = captured;
     void aiStore.start(aiStore.operation(), captured.text);
   }
 
   function apply(placement: AiPlacement) {
-    if (!result || !target) return;
-    if (applyResult(target, result.text, placement)) {
+    if (!result || !screen.target) return;
+    if (applyResult(screen.target, result.text, placement)) {
       onClose();
     } else {
-      notice = 'The note changed after the request started, so Jotter did not apply the result. Run the command again.';
+      screen.notice = 'The note changed after the request started, so Jotter did not apply the result. Run the command again.';
     }
   }
 
   async function copyResult() {
     if (!result) return;
+    const copiedScreen = screen;
     try {
       await copyToClipboard({ text: result.text, mode: 'markdown_source' });
-      notice = 'Copied the result.';
+      copiedScreen.notice = 'Copied the result.';
     } catch (err) {
-      notice = `Copy failed: ${err}`;
+      copiedScreen.notice = `Copy failed: ${err}`;
     }
   }
 
@@ -103,6 +173,12 @@
   }
 
   function handleKeydown(event: KeyboardEvent) {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
+      return;
+    }
     if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
       event.preventDefault();
       if (result) apply(preferredPlacement);
@@ -115,22 +191,39 @@
   });
 </script>
 
-<Dialog label="AI" variant="panel" {onClose} onkeydown={handleKeydown}>
-  <div class="ai-panel">
+<div
+  class="ai-panel"
+  role="dialog"
+  aria-label="AI"
+  tabindex="-1"
+  bind:this={menuEl}
+  style:left="{position.left}px"
+  style:top="{position.top}px"
+  onkeydown={handleKeydown}
+>
     <header class="ai-head">
-      <h2>AI</h2>
+      <button
+        type="button"
+        class="move-handle"
+        class:dragging={drag !== null}
+        aria-label="Move AI menu"
+        title="Drag to move. Arrow keys move; Shift moves faster. Home resets position."
+        onpointerdown={startDrag}
+        onpointermove={moveDrag}
+        onpointerup={() => (drag = null)}
+        onpointercancel={() => (drag = null)}
+        onlostpointercapture={() => (drag = null)}
+        onkeydown={moveWithKeyboard}
+      ><span aria-hidden="true">⠿</span> AI</button>
+      <button type="button" class="close" aria-label="Close AI menu" onclick={onClose}>×</button>
+    </header>
       <Segmented
         label="Command"
+        fill
         options={OPERATIONS}
         value={aiStore.panelOperation}
-        onchange={(kind) => {
-          aiStore.cancel();
-          aiStore.panelOperation = kind;
-          aiStore.run = { phase: 'idle' };
-          notice = '';
-        }}
+        onchange={(kind) => (aiStore.panelOperation = kind)}
       />
-    </header>
 
     {#if !aiStore.status}
       <p class="muted">{aiStore.loadError || 'Loading AI settings…'}</p>
@@ -138,8 +231,8 @@
       <div class="setup">
         <p>
           {aiStore.enabled
-            ? `Enter a base URL and model for ${AI_PROVIDER_LABELS[provider]} first.`
-            : 'AI is off. Turn it on and choose a provider to summarize, rewrite, and translate notes.'}
+            ? `Set a base URL and model for ${AI_PROVIDER_LABELS[provider]}.`
+            : 'AI is off.'}
         </p>
         <Button variant="primary" icon="gear-six" onclick={onOpenSettings}>Open AI settings</Button>
       </div>
@@ -151,19 +244,24 @@
             { value: 'selection', label: 'Selection' },
             { value: 'note', label: 'Whole note' },
           ]}
-          value={scope}
-          onchange={(next) => (scope = next)}
+          value={screen.scope}
+          onchange={(next) => (screen.scope = next)}
         />
         {#if aiStore.panelOperation === 'rewrite'}
           <label class="field">
-            <span>Style</span>
+            <span>Action</span>
             <select
               value={aiStore.rewriteStyle}
               onchange={(e) => aiStore.setRewriteStyle((e.currentTarget as HTMLSelectElement).value as RewriteStyle)}
             >
-              {#each Object.entries(REWRITE_STYLE_LABELS) as [value, label] (value)}
-                <option {value}>{label}</option>
+              {#each REWRITE_ACTIONS as value (value)}
+                <option {value}>{REWRITE_STYLE_LABELS[value]}</option>
               {/each}
+              <optgroup label="Tone">
+                {#each REWRITE_TONES as value (value)}
+                  <option {value}>{REWRITE_STYLE_LABELS[value]}</option>
+                {/each}
+              </optgroup>
             </select>
           </label>
         {:else if aiStore.panelOperation === 'translate'}
@@ -185,16 +283,11 @@
 
       {#if aiStore.panelOperation === 'rewrite' && aiStore.rewriteStyle === 'polish'}
         <p class="muted">
-          Polish follows the writing style in Settings › AI.
           <button type="button" class="link" onclick={onOpenSettings}>Edit writing style</button>
         </p>
       {/if}
 
-      <p class="muted">
-        Sends the {scope === 'selection' ? 'selected text' : 'note, without its properties,'} to
-        <strong>{destination}</strong> ({AI_PROVIDER_LABELS[provider]}, {endpoint?.model}). Code,
-        links, and math stay unchanged.
-      </p>
+      <p class="muted">{endpoint?.model} · {destination}</p>
 
       <div class="result-area">
         {#if aiStore.run.phase === 'running'}
@@ -202,7 +295,9 @@
         {:else if aiStore.run.phase === 'error'}
           <div class="error" role="alert">{aiStore.run.message}</div>
         {:else if result}
+          <label class="muted" for="ai-result-preview">Markdown preview</label>
           <textarea
+            id="ai-result-preview"
             bind:this={resultEl}
             class="result"
             readonly
@@ -211,12 +306,12 @@
           ></textarea>
           <div class="muted small">{usageLabel()}</div>
         {:else}
-          <div class="status muted">Run the command to preview the result here. Nothing changes in the note until you apply it.</div>
+          <div class="status muted">The result appears here.</div>
         {/if}
       </div>
     {/if}
 
-    {#if notice}<div class="notice" role="status">{notice}</div>{/if}
+    {#if screen.notice}<div class="notice" role="status">{screen.notice}</div>{/if}
 
     <footer class="actions">
       {#if result}
@@ -239,17 +334,24 @@
         {/if}
       {/if}
     </footer>
-  </div>
-</Dialog>
+</div>
 
 <style>
   .ai-panel {
+    position: fixed;
+    z-index: 190;
     display: flex;
-    flex: 1;
     flex-direction: column;
     gap: var(--space-3);
-    min-height: 0;
-    padding: var(--space-5) var(--space-6);
+    box-sizing: border-box;
+    width: min(440px, calc(100vw - 24px));
+    max-height: calc(100dvh - 24px);
+    overflow: auto;
+    padding: var(--space-4);
+    border: 1px solid var(--line-control);
+    border-radius: var(--radius-card);
+    background: var(--surface-raised);
+    box-shadow: var(--shadow-popover);
   }
 
   .ai-head {
@@ -259,9 +361,35 @@
     gap: var(--space-4);
   }
 
-  h2 {
-    margin: 0;
-    font: 600 var(--fs-24) / 1.25 var(--font-display);
+  .move-handle {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-1) 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-primary);
+    text-align: left;
+    font: 600 var(--fs-16) / 1.25 var(--font-ui);
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+  }
+
+  .move-handle.dragging {
+    cursor: grabbing;
+  }
+
+  .close {
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 0 var(--space-2);
   }
 
   .options {
@@ -275,7 +403,8 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
-    min-width: 220px;
+    flex: 1;
+    min-width: min(200px, 100%);
     color: var(--text-secondary);
     font-size: var(--fs-12);
   }
@@ -296,10 +425,6 @@
     color: var(--text-muted);
     font-size: var(--fs-12);
     line-height: var(--leading-normal);
-  }
-
-  .muted strong {
-    color: var(--text-secondary);
   }
 
   .small {
@@ -330,7 +455,7 @@
 
   .result-area {
     display: flex;
-    flex: 1;
+    flex: none;
     flex-direction: column;
     gap: var(--space-1);
     min-height: 0;
@@ -350,15 +475,17 @@
   }
 
   .result {
-    flex: 1;
-    min-height: 160px;
+    box-sizing: border-box;
+    width: 100%;
+    height: 160px;
+    min-height: 100px;
     padding: var(--space-3);
     border: 1px solid var(--line-control);
     border-radius: var(--radius-card);
     background: var(--surface-editor);
     color: var(--text-primary);
     font: var(--fs-13) / 1.6 var(--font-mono);
-    resize: none;
+    resize: vertical;
   }
 
   .notice {
@@ -368,6 +495,7 @@
 
   .actions {
     display: flex;
+    flex-wrap: wrap;
     justify-content: flex-end;
     gap: var(--space-2);
   }

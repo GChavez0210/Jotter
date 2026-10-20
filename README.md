@@ -28,6 +28,14 @@ When a vault is open, pasting an image from the system clipboard (such as a scre
 
 ## Writing and Organizing
 
+### Moving Notes
+In the sidebar's **Folders** view, drag a note onto a folder to move it there. Drop it on the vault name above the tree to move it back to the root. Jotter saves pending edits first, keeps open tabs on the moved note, and refuses to replace another file with the same name.
+
+### AI Menu
+The AI menu opens in the center of the app window. Drag its **AI** header to reposition it. You can also focus the header and use the arrow keys; hold Shift for larger steps, or press Home to center it again.
+
+The **Rewrite**, **Translate**, and **Summarize** tabs each keep their settings and preview while the menu is open. Switching tabs lets pending requests finish in the background. **Cancel** stops the current tab's request; closing the menu cancels all pending requests and clears its previews.
+
 ### Math
 Write inline math as `$e^{i\pi} + 1 = 0$` and display math between `$$` lines. Live mode renders it with KaTeX; move the cursor into a block to edit the TeX, with a rendered preview below it. A `$` followed by a space, or a closing `$` followed by a digit, stays plain text, so `$5 and $10` is not treated as math.
 

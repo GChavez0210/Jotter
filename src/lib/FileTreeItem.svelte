@@ -17,6 +17,12 @@
     onCancelRename: () => void;
     onContextMenu: (e: MouseEvent, node: VaultNode) => void;
     onRequestDelete: (node: VaultNode) => void;
+    dropTargetRel: string | null;
+    onNoteDragStart: (event: DragEvent, node: VaultNode) => void;
+    onNoteDragEnd: () => void;
+    onNoteDragOver: (event: DragEvent, folder: string) => void;
+    onNoteDragLeave: (event: DragEvent) => void;
+    onNoteDrop: (event: DragEvent, folder: string) => void;
   }
 
   let {
@@ -32,6 +38,12 @@
     onCancelRename,
     onContextMenu,
     onRequestDelete,
+    dropTargetRel,
+    onNoteDragStart,
+    onNoteDragEnd,
+    onNoteDragOver,
+    onNoteDragLeave,
+    onNoteDrop,
   }: Props = $props();
 
   let renameDraft = $state('');
@@ -129,6 +141,13 @@
       type="button"
       class="tree-row"
       class:active={isActive}
+      class:drop-target={isFolder && dropTargetRel === node.relPath}
+      draggable={!isFolder}
+      ondragstart={(event) => onNoteDragStart(event, node)}
+      ondragend={onNoteDragEnd}
+      ondragover={(event) => { if (isFolder) onNoteDragOver(event, node.relPath); }}
+      ondragleave={onNoteDragLeave}
+      ondrop={(event) => { if (isFolder) onNoteDrop(event, node.relPath); }}
       style:padding-left="{depth * 16 + 8}px"
       onclick={handleRowClick}
       onkeydown={handleKeyDown}
@@ -168,6 +187,12 @@
           {onCancelRename}
           {onContextMenu}
           {onRequestDelete}
+          {dropTargetRel}
+          {onNoteDragStart}
+          {onNoteDragEnd}
+          {onNoteDragOver}
+          {onNoteDragLeave}
+          {onNoteDrop}
         />
       {/each}
     </ul>
@@ -211,6 +236,11 @@
   .tree-row.active {
     background: var(--selection);
     font-weight: 600;
+  }
+
+  .tree-row.drop-target {
+    border-color: var(--accent);
+    background: var(--selection);
   }
 
   .chevron-icon {

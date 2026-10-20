@@ -19,6 +19,7 @@ import { clipboardStore } from './clipboard.svelte';
 import { settingsStore } from './settings.svelte';
 import { tabsStore } from './tabs.svelte';
 import { invalidateImagePreviews } from '../imagePreviewCache';
+import { noteMoveDestination } from '../noteMove';
 
 function findFirstFileNode(nodes: VaultNode[]): VaultNode | null {
   for (const node of nodes) {
@@ -309,20 +310,38 @@ class VaultStore {
     }
   }
 
-  async renameEntryInVault(oldRelPath: string, newRelPath: string) {
-    if (!(await tabsStore.flushAllAutosaves())) return;
+  async renameEntryInVault(oldRelPath: string, newRelPath: string, action: 'rename' | 'move' = 'rename'): Promise<boolean> {
+    const root = this.vaultSnapshot?.rootPath;
+    if (!(await tabsStore.flushAllAutosaves())) return false;
+    if (!root || this.vaultSnapshot?.rootPath !== root) return false;
     try {
       const res = await renameEntry(oldRelPath, newRelPath);
+      if (this.vaultSnapshot?.rootPath !== root) return false;
       this.vaultSnapshot = res.snapshot;
       this.bumpIndexVersion();
       tabsStore.updatePathsAfterRename(res.oldRelPath, res.newRelPath);
       clipboardStore.setStatus(
-        `Renamed ${res.oldRelPath} → ${res.newRelPath}`
+        `${action === 'move' ? 'Moved' : 'Renamed'} ${res.oldRelPath} → ${res.newRelPath}`
       );
+      return true;
     } catch (err) {
       clipboardStore.setStatus(
-        `Rename failed: ${err instanceof Error ? err.message : String(err)}`
+        `${action === 'move' ? 'Move' : 'Rename'} failed: ${err instanceof Error ? err.message : String(err)}`
       );
+      return false;
+    }
+  }
+
+  async moveNoteIntoFolder(source: string, folder: string, vaultRoot: string): Promise<boolean> {
+    const snapshot = this.vaultSnapshot;
+    if (!snapshot || snapshot.rootPath !== vaultRoot) return false;
+    try {
+      const destination = noteMoveDestination(snapshot.tree, source, folder);
+      if (!destination) return false;
+      return await this.renameEntryInVault(source, destination, 'move');
+    } catch (err) {
+      clipboardStore.setStatus(`Move failed: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
     }
   }
 

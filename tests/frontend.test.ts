@@ -42,10 +42,12 @@ import type { NoteCard } from '../src/lib/types';
 import { collectCheckableWords, findCheckableWords, matchDictionaries, resolveNoteLanguages } from '../src/lib/spellcheck';
 import { invalidateImagePreviews, cachedImage, rememberImage, imagePreviewEpoch } from '../src/lib/imagePreviewCache';
 import { aiResultChange, aiTargetRange } from '../src/lib/aiText';
-import { aiStore } from '../src/lib/stores/ai.svelte';
+import { aiPopoverPosition, clampAiPopoverPosition } from '../src/lib/aiPopover';
+import { noteMoveDestination } from '../src/lib/noteMove';
+import { aiStore, normalizeRewriteStyle } from '../src/lib/stores/ai.svelte';
 import { aiControl } from './ipc.mock';
 import { history, undo } from '@codemirror/commands';
-import type { AiConfig, AiResult, AiStatus } from '../src/lib/types';
+import type { AiConfig, AiResult, AiStatus, VaultNode, VaultSnapshot } from '../src/lib/types';
 
 function dirtyTab() {
   tabsStore.resetTabs();
@@ -747,6 +749,119 @@ test('AI results insert below as their own paragraph', () => {
   assert.equal(below('Alpha\n', 0, 6), 'Alpha\n\nSummary\n');
 });
 
+test('AI menu opens centered and stays within the viewport', () => {
+  const menu = {width: 440, height: 380};
+  const viewport = {width: 1200, height: 800};
+  assert.deepEqual(aiPopoverPosition(menu, viewport), {left:380,top:210});
+  assert.deepEqual(aiPopoverPosition({width:440,height:560}, viewport), {left:380,top:120});
+  // A long preview must not push controls out of reach on a small window.
+  const small = {width:320,height:480};
+  const bounded = {width:296,height:456};
+  assert.deepEqual(aiPopoverPosition(bounded, small), {left:12,top:12});
+});
+
+test('a moved AI menu stays within bounds after dragging or resizing', () => {
+  const menu = {width:440,height:380};
+  const viewport = {width:1200,height:800};
+  assert.deepEqual(clampAiPopoverPosition({left:250,top:120},menu,viewport), {left:250,top:120});
+  assert.deepEqual(clampAiPopoverPosition({left:-200,top:-300},menu,viewport), {left:12,top:12});
+  assert.deepEqual(clampAiPopoverPosition({left:5000,top:5000},menu,viewport), {left:748,top:408});
+  assert.deepEqual(clampAiPopoverPosition({left:748,top:408},menu,{width:640,height:460}), {left:188,top:68});
+});
+
+function moveTestSnapshot(): VaultSnapshot {
+  const node = (relPath: string, kind: 'file' | 'folder', children: VaultNode[] = []): VaultNode => ({
+    relPath, name:relPath.split('/').pop()!, kind, children, modifiedMs:0, createdMs:0,
+  });
+  return {rootPath:'move-test-vault',name:'Move test',noteCount:3,tree:[
+    node('A.md','file'), node('Taken.md','file'),
+    node('Folder','folder',[
+      node('Folder/Taken.md','file'), node('Folder/Nested','folder'),
+    ]),
+  ]};
+}
+
+test('note moves retain filenames and reject collisions and missing destinations', () => {
+  const {tree} = moveTestSnapshot();
+  assert.equal(noteMoveDestination(tree,'A.md','Folder'), 'Folder/A.md');
+  assert.equal(noteMoveDestination(tree,'A.md','Folder/Nested'), 'Folder/Nested/A.md');
+  assert.equal(noteMoveDestination(tree,'Folder/Taken.md','Folder/Nested'), 'Folder/Nested/Taken.md');
+  assert.equal(noteMoveDestination(tree,'A.md',''), null);
+  assert.equal(noteMoveDestination(tree,'Folder/Taken.md','Folder'), null);
+  assert.throws(()=>noteMoveDestination(tree,'Taken.md','Folder'), /already exists/);
+  assert.throws(()=>noteMoveDestination(tree,'Folder/Taken.md',''), /already exists/);
+  assert.throws(()=>noteMoveDestination(tree,'A.md','missing'), /destination folder/);
+  assert.throws(()=>noteMoveDestination(tree,'missing.md','Folder'), /dragged note/);
+  assert.throws(()=>noteMoveDestination(tree,'Folder',''), /dragged note/);
+});
+
+test('dropping an open note saves its edits before moving and follows its new path', async () => {
+  const oldSnapshot = vaultStore.vaultSnapshot;
+  const oldSave = control.save;
+  const oldRename = control.rename;
+  const snapshot = moveTestSnapshot();
+  dirtyTab();
+  vaultStore.vaultSnapshot = snapshot;
+  const calls: string[] = [];
+  control.save = async (path,content) => {calls.push(`save:${path}:${content}`);return {relPath:path,title:path,content};};
+  control.rename = async (oldRelPath,newRelPath) => {
+    calls.push(`move:${oldRelPath}:${newRelPath}`);
+    return {oldRelPath,newRelPath,snapshot};
+  };
+  try {
+    assert.equal(await vaultStore.moveNoteIntoFolder('A.md','Folder',snapshot.rootPath), true);
+    assert.deepEqual(calls,['save:A.md:unsaved','move:A.md:Folder/A.md']);
+    assert.equal(tabsStore.activeTabPath,'Folder/A.md');
+    assert.equal(tabsStore.openTabs[0].content,'unsaved');
+    assert.equal(tabsStore.openTabs[0].dirty,false);
+    assert.equal(await vaultStore.moveNoteIntoFolder('A.md','',snapshot.rootPath),false);
+    assert.equal(await vaultStore.moveNoteIntoFolder('A.md','Folder','another-vault'),false);
+    assert.equal(calls.length,2);
+  } finally {
+    control.save = oldSave;
+    control.rename = oldRename;
+    vaultStore.vaultSnapshot = oldSnapshot;
+    tabsStore.resetTabs();
+  }
+});
+
+test('note drops preserve the original path when saving or moving fails or the vault switches', async () => {
+  const oldSnapshot = vaultStore.vaultSnapshot;
+  const oldSave = control.save;
+  const oldRename = control.rename;
+  const snapshot = moveTestSnapshot();
+  let renames = 0;
+  control.rename = async () => {renames++;throw Error('destination already exists');};
+  try {
+    dirtyTab();
+    vaultStore.vaultSnapshot = snapshot;
+    control.save = async () => {throw Error('disk full');};
+    assert.equal(await vaultStore.moveNoteIntoFolder('A.md','Folder',snapshot.rootPath),false);
+    assert.equal(renames,0);
+    assert.equal(tabsStore.openTabs[0].dirty,true);
+    control.save = async (path,content) => ({relPath:path,title:path,content});
+    assert.equal(await vaultStore.moveNoteIntoFolder('A.md','Folder',snapshot.rootPath),false);
+    assert.equal(renames,1);
+    assert.equal(tabsStore.activeTabPath,'A.md');
+
+    dirtyTab();
+    let finish!: () => void;
+    const waiting = new Promise<void>((resolve) => {finish=resolve;});
+    control.save = async (path,content) => {await waiting;return {relPath:path,title:path,content};};
+    const moving = vaultStore.moveNoteIntoFolder('A.md','Folder',snapshot.rootPath);
+    vaultStore.vaultSnapshot = {...snapshot,rootPath:'different-vault'};
+    finish();
+    assert.equal(await moving,false);
+    assert.equal(renames,1);
+    assert.equal(tabsStore.activeTabPath,'A.md');
+  } finally {
+    control.save = oldSave;
+    control.rename = oldRename;
+    vaultStore.vaultSnapshot = oldSnapshot;
+    tabsStore.resetTabs();
+  }
+});
+
 test('AI selections retain full-document protection context', () => {
   const selection = (doc: string, text: string) => aiTargetRange(EditorState.create({
     doc, selection: {anchor: doc.indexOf(text), head: doc.indexOf(text) + text.length},
@@ -836,4 +951,87 @@ test('AI store ignores late results after cancel and reports errors', async () =
   aiStore.panelOperation = 'translate';
   aiStore.targetLanguage = ' German ';
   assert.deepEqual(aiStore.operation(), {kind:'translate', targetLanguage:'German'});
+});
+
+test('saved AI rewrite choices migrate Clearer to Polish and retain distinct actions', () => {
+  const previous = aiStore.rewriteStyle;
+  const operation = aiStore.panelOperation;
+  try {
+    aiStore.panelOperation = 'rewrite';
+    for (const [saved, expected] of [
+      ['clearer', 'polish'], ['polish', 'polish'], ['shorter', 'shorter'],
+      ['grammar', 'grammar'], ['formal', 'formal'], ['casual', 'casual'],
+      [null, 'polish'], ['unknown', 'polish'], ['toString', 'polish'],
+    ] as const) {
+      aiStore.setRewriteStyle(normalizeRewriteStyle(saved));
+      assert.deepEqual(aiStore.operation(), {kind:'rewrite',style:expected});
+    }
+  } finally {
+    aiStore.setRewriteStyle(previous);
+    aiStore.panelOperation = operation;
+  }
+});
+
+test('AI command tabs retain independent results and errors when switching screens', async () => {
+  const originalRun = aiControl.run;
+  aiStore.closePanel();
+  const cancelledBefore = aiControl.cancels.length;
+  aiControl.run = async (request) => {
+    if (request.operation.kind === 'summarize') throw Error('Summary failed');
+    return {operationId:request.operationId,text:`${request.operation.kind} result`,provider:'ollama',model:'m',usage:{inputTokens:null,outputTokens:null}};
+  };
+  try {
+    await aiStore.start({kind:'rewrite',style:'polish'}, 'first selection');
+    await aiStore.start({kind:'translate',targetLanguage:'French'}, 'whole note');
+    await aiStore.start({kind:'summarize'}, 'whole note');
+    assert.deepEqual(aiStore.run,{phase:'error',message:'Error: Summary failed'});
+    aiStore.openPanel('rewrite');
+    assert.equal(aiStore.run.phase,'done');
+    assert.equal(aiStore.run.phase === 'done' && aiStore.run.result.text,'rewrite result');
+    aiStore.openPanel('translate');
+    assert.equal(aiStore.run.phase === 'done' && aiStore.run.result.text,'translate result');
+    aiStore.run = {phase:'idle'};
+    aiStore.panelOperation = 'rewrite';
+    assert.equal(aiStore.run.phase,'done');
+    aiStore.panelOperation = 'summarize';
+    assert.equal(aiStore.run.phase,'error');
+    assert.equal(aiControl.cancels.length,cancelledBefore);
+  } finally {
+    aiStore.closePanel();
+    aiControl.run = originalRun;
+  }
+});
+
+test('AI requests finish in their own tabs and closing cancels all hidden requests', async () => {
+  const originalRun = aiControl.run;
+  aiStore.closePanel();
+  const requests: Array<{id:string;resolve:()=>void}> = [];
+  aiControl.run = (req) => new Promise((resolve) => requests.push({id:req.operationId,resolve:()=>resolve({
+    operationId:req.operationId,text:req.operation.kind,provider:'ollama',model:'m',usage:{inputTokens:null,outputTokens:null},
+  })}));
+  try {
+    const rewrite = aiStore.start({kind:'rewrite',style:'polish'},'text');
+    const translate = aiStore.start({kind:'translate',targetLanguage:'French'},'text');
+    requests[0].resolve();
+    await rewrite;
+    assert.equal(aiStore.panelOperation,'translate');
+    assert.equal(aiStore.run.phase,'running');
+    aiStore.panelOperation = 'rewrite';
+    assert.equal(aiStore.run.phase === 'done' && aiStore.run.result.text,'rewrite');
+    const summary = aiStore.start({kind:'summarize'},'text');
+    aiStore.panelOperation = 'rewrite';
+    aiStore.closePanel();
+    assert.ok(aiControl.cancels.includes(requests[1].id));
+    assert.ok(aiControl.cancels.includes(requests[2].id));
+    requests[1].resolve();
+    requests[2].resolve();
+    await Promise.all([translate,summary]);
+    for (const kind of ['rewrite','translate','summarize'] as const) {
+      aiStore.panelOperation = kind;
+      assert.equal(aiStore.run.phase,'idle');
+    }
+  } finally {
+    aiStore.closePanel();
+    aiControl.run = originalRun;
+  }
 });

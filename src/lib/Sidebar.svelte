@@ -15,6 +15,7 @@
   import { vaultStore } from './stores/vault.svelte';
   import type { LeftSidebarView, RecentVault, VaultNode, VaultSnapshot } from './types';
   import { validateEntryName } from './validation';
+  import { NOTE_DRAG_TYPE, noteMoveDestination } from './noteMove';
 
   const trashName = isWindows ? 'Recycle Bin' : 'Trash';
 
@@ -70,6 +71,65 @@
   let pendingDeleteNode: VaultNode | null = $state(null);
   let isResizing = $state(false);
   let vaultMenuOpen = $state(false);
+  let draggedNote = $state<{ path: string; root: string } | null>(null);
+  let dropTargetRel = $state<string | null>(null);
+  let movingNote = $state(false);
+
+  function endNoteDrag() {
+    draggedNote = null;
+    dropTargetRel = null;
+  }
+
+  function startNoteDrag(event: DragEvent, node: VaultNode) {
+    if (movingNote || node.kind !== 'file' || !event.dataTransfer) {
+      event.preventDefault();
+      return;
+    }
+    contextMenu = null;
+    draggedNote = { path: node.relPath, root: snapshot.rootPath };
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData(NOTE_DRAG_TYPE, node.relPath);
+  }
+
+  function canDropNote(event: DragEvent, folder: string) {
+    if (!draggedNote || draggedNote.root !== snapshot.rootPath || movingNote ||
+        !event.dataTransfer?.types.includes(NOTE_DRAG_TYPE)) return false;
+    try {
+      return noteMoveDestination(snapshot.tree, draggedNote.path, folder) !== null;
+    } catch {
+      // Accept a conflicting destination so dropping can explain why it failed.
+      return true;
+    }
+  }
+
+  function dragOverFolder(event: DragEvent, folder: string) {
+    if (!canDropNote(event, folder)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer!.dropEffect = 'move';
+    dropTargetRel = folder;
+  }
+
+  function leaveFolder(event: DragEvent) {
+    if (event.relatedTarget instanceof Node && (event.currentTarget as HTMLElement).contains(event.relatedTarget)) return;
+    dropTargetRel = null;
+  }
+
+  async function dropNote(event: DragEvent, folder: string) {
+    if (!canDropNote(event, folder) || !draggedNote) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const source = draggedNote;
+    endNoteDrag();
+    movingNote = true;
+    try {
+      if (await vaultStore.moveNoteIntoFolder(source.path, folder, source.root)) {
+        if (folder) expandedPaths = { ...expandedPaths, [folder]: true };
+      }
+    } finally {
+      movingNote = false;
+    }
+  }
 
   // macOS draws its traffic lights over the top-left corner of the window.
   const isMac = navigator.userAgent.includes('Mac');
@@ -409,6 +469,16 @@
         {:else if settingsStore.notesNavigation === 'tags'}
           <TagsLinksView {activeRelPath} {onSelectFile} />
         {:else}
+          <button
+            type="button"
+            class="root-drop-target"
+            class:drop-target={dropTargetRel === ''}
+            aria-label="Vault root"
+            title="Drop a note here to move it to the vault root"
+            ondragover={(event) => dragOverFolder(event, '')}
+            ondragleave={leaveFolder}
+            ondrop={(event) => void dropNote(event, '')}
+          ><Icon name="folder-simple" size={14} /> {snapshot.name}</button>
           <ul class="tree-root" role="tree" aria-label="Notes and folders">
             {#each snapshot.tree as node (node.relPath)}
               <FileTreeItem
@@ -417,6 +487,12 @@
                 {activeRelPath}
                 {expandedPaths}
                 {renamingRelPath}
+                {dropTargetRel}
+                onNoteDragStart={startNoteDrag}
+                onNoteDragEnd={endNoteDrag}
+                onNoteDragOver={dragOverFolder}
+                onNoteDragLeave={leaveFolder}
+                onNoteDrop={(event, folder) => void dropNote(event, folder)}
                 {onSelectFile}
                 onToggleFolder={toggleFolder}
                 onStartRename={handleStartRename}
@@ -529,6 +605,25 @@
 {/if}
 
 <style>
+  .root-drop-target {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-2);
+    border: 1px solid transparent;
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--text-muted);
+    text-align: left;
+    font: inherit;
+    font-size: var(--fs-12);
+  }
+
+  .root-drop-target.drop-target {
+    border-color: var(--accent);
+    background: var(--selection);
+  }
   .sidebar-pane {
     position: relative;
     height: 100%;

@@ -90,27 +90,16 @@
   let closeBtnRef: HTMLButtonElement | undefined = $state();
 
 
-  const COPY_MODE_DETAILS: Record<
-    CopyMode,
-    { badge: string; formats: string; details: string }
-  > = {
+  const COPY_MODE_DETAILS: Record<CopyMode, { badge?: string; details: string }> = {
     markdown_source: {
       badge: 'Default',
-      formats: 'Writes text/plain + text/html (<br> & &nbsp;)',
-      details:
-        'Preserves raw Markdown syntax and exact Notepad line breaks and indentation across Google Chat, Slack, Gmail, Word, and Notepad.',
+      details: 'Copies the Markdown as written.',
     },
     plain: {
-      badge: 'Opt-in Clean Text',
-      formats: 'Writes text/plain ONLY (no CF_HTML)',
-      details:
-        'Strips Markdown markers (#, **, *, ~~, `, [label](url), [[Target|Alias]] outside inline code) and drops ``` / ~~~ fence lines so line counts match.',
+      details: 'Copies text without Markdown symbols.',
     },
     rich: {
-      badge: 'Formatted HTML',
-      formats: 'Writes text/html (<br> & &nbsp;) + text/plain',
-      details:
-        'Renders inline Markdown (bold, italic, code, links) via comrak, drops code fences, preserves leading/repeated spaces with &nbsp;, and joins lines strictly with <br> instead of <p> margins.',
+      details: 'Copies formatted text with bold, italics, and links.',
     },
   };
 
@@ -123,11 +112,11 @@
   async function handleRebuildIndex() {
     if (!vaultStore.vaultSnapshot || isRebuilding) return;
     isRebuilding = true;
-    rebuildStatus = 'Rebuilding SQLite and Tantivy indexes...';
+    rebuildStatus = 'Rebuilding index…';
     const count = await vaultStore.rebuildIndex();
     isRebuilding = false;
     if (count !== null) {
-      rebuildStatus = `Rebuilt index for ${count} notes (in-app edit_log preserved).`;
+      rebuildStatus = `Rebuilt index for ${count} notes.`;
     } else {
       rebuildStatus = 'Failed to rebuild vault index.';
     }
@@ -235,14 +224,14 @@
           <section class="settings-section" aria-labelledby="sec-editor">
             <h3 id="sec-editor" class="section-title">Editor</h3>
             <p class="section-subtitle">
-              Configure default editing mode, focus aids, font scale, and image paste syntax.
+              Editing mode, focus aids, spelling, and font size.
             </p>
 
             <div class="setting-card">
               <div class="setting-info">
                 <div class="setting-label">Default editing mode</div>
                 <div class="setting-desc">
-                  Live mode renders headings, emphasis, links, task checkboxes, and images inline while keeping raw Markdown on the active cursor line ({shortcutLabel('Ctrl+/')}).
+                  Live Preview formats text as you write. Toggle with {shortcutLabel('Ctrl+/')}.
                 </div>
               </div>
               <Segmented
@@ -262,7 +251,7 @@
                   Typewriter scrolling
                 </label>
                 <div class="setting-desc">
-                  Keep the active cursor line vertically centered in the editor viewport while typing.
+                  Keep the current line centered.
                 </div>
               </div>
               <input
@@ -283,7 +272,7 @@
                   Focus paragraph dimming
                 </label>
                 <div class="setting-desc">
-                  Dim all lines outside the current paragraph to help focus on the active block.
+                  Dim everything except the current paragraph.
                 </div>
               </div>
               <input
@@ -304,7 +293,7 @@
                   Check spelling
                 </label>
                 <div class="setting-desc">
-                  Underline misspelled words. Right-click a word for suggestions.
+                  Underline misspelled words.
                 </div>
               </div>
               <input
@@ -323,7 +312,7 @@
                   <div class="setting-info">
                     <div class="setting-label">Spelling dictionaries</div>
                     <div class="setting-desc">
-                      Jotter's dictionaries let each vault and note pick its languages. System uses the languages installed in your operating system for every note.
+                      Jotter lets each vault and note pick languages. System uses your OS languages.
                     </div>
                   </div>
                   <Segmented
@@ -341,7 +330,7 @@
                     <div class="setting-info">
                       <div class="setting-label">Languages for this vault</div>
                       <div class="setting-desc">
-                        A note can override these with a <code>lang</code> property, such as <code>lang: es</code> or <code>lang: [en, fr]</code>. Set <code>spellcheck: false</code> to skip a note.
+                        Override per note with <code>lang: es</code>, or skip one with <code>spellcheck: false</code>.
                       </div>
                     </div>
                     <div class="button-row">
@@ -379,7 +368,7 @@
                     </ul>
                   {/if}
                   <div class="setting-desc">
-                    To add a language, put a Hunspell <code>.aff</code> and <code>.dic</code> pair with the same name in the folder, then reload. Words you add from the editor go to <code>personal.txt</code> there.
+                    Add a language by dropping a Hunspell <code>.aff</code> and <code>.dic</code> pair in the folder, then reload.
                   </div>
                   {#if spellingStore.loadError}
                     <div class="field-error" role="alert">{spellingStore.loadError}</div>
@@ -392,7 +381,7 @@
               <div class="setting-info">
                 <div class="setting-label">Editor font size</div>
                 <div class="setting-desc">
-                  Size of note text: 12, 14, 16 or 20 px.
+                  Size of note text.
                 </div>
               </div>
               <Segmented
@@ -407,7 +396,7 @@
               <div class="setting-info">
                 <div class="setting-label">Pasted image link format</div>
                 <div class="setting-desc">
-                  Choose how images pasted from the clipboard into the <code>attachments/</code> folder are inserted into the note.
+                  Link style for pasted images.
                 </div>
               </div>
               <Segmented
@@ -425,7 +414,7 @@
           <section class="settings-section" aria-labelledby="sec-copy">
             <h3 id="sec-copy" class="section-title">Copy</h3>
             <p class="section-subtitle">
-              Choose the default clipboard copy mode. Every mode guarantees Notepad-identical line breaks when pasting into Google Chat, Slack, Gmail, Word, or Notepad.
+              What Copy puts on the clipboard. Line breaks always survive pasting.
             </p>
 
             <div class="copy-modes-list" role="radiogroup" aria-label="Default copy mode">
@@ -445,12 +434,11 @@
                       <span class="copy-mode-title">
                         {COPY_MODE_LABELS[mode].label}
                       </span>
-                      <span class="copy-mode-badge">
-                        {COPY_MODE_DETAILS[mode].badge}
-                      </span>
-                    </div>
-                    <div class="copy-mode-formats">
-                      {COPY_MODE_DETAILS[mode].formats}
+                      {#if COPY_MODE_DETAILS[mode].badge}
+                        <span class="copy-mode-badge">
+                          {COPY_MODE_DETAILS[mode].badge}
+                        </span>
+                      {/if}
                     </div>
                     <div class="copy-mode-desc">
                       {COPY_MODE_DETAILS[mode].details}
@@ -470,7 +458,7 @@
             <div class="setting-card column-card">
               <div class="setting-info">
                 <div class="setting-label">Theme</div>
-                <div class="setting-desc">System follows your operating system's light or dark setting.</div>
+                <div class="setting-desc">System matches your OS.</div>
               </div>
               <ChoiceCards
                 label="Theme"
@@ -497,7 +485,7 @@
                 <div class="setting-info">
                   <div class="setting-label">Accent color</div>
                   <div class="setting-desc">
-                    Used for links, the active note, selection and primary buttons.
+                    Color for links, selection, and buttons.
                   </div>
                 </div>
                 <Segmented
@@ -553,7 +541,7 @@
             <div class="setting-card column-card">
               <div class="setting-info">
                 <div class="setting-label">Writing font</div>
-                <div class="setting-desc">Font for note text. Titles and headings stay in Literata.</div>
+                <div class="setting-desc">Font for note text.</div>
               </div>
               <ChoiceCards
                 label="Writing font"
@@ -576,7 +564,7 @@
           <section class="settings-section" aria-labelledby="sec-vault">
             <h3 id="sec-vault" class="section-title">Vault</h3>
             <p class="section-subtitle">
-              Manage the derived SQLite & Tantivy indexes and hidden file isolation.
+              Index, home page, tasks, and daily notes.
             </p>
 
             <div class="setting-card">
@@ -584,9 +572,9 @@
                 <div class="setting-label">Rebuild vault index</div>
                 <div class="setting-desc">
                   {#if vaultStore.vaultSnapshot}
-                    Re-scan all <code>.md</code> files in <strong>{vaultStore.vaultSnapshot.name}</strong> ({vaultStore.vaultSnapshot.noteCount} notes) and rebuild the SQLite metadata/links cache and Tantivy search index while preserving <code>edit_log</code>.
+                    Re-scan <strong>{vaultStore.vaultSnapshot.name}</strong> ({vaultStore.vaultSnapshot.noteCount} notes) if search or links look wrong.
                   {:else}
-                    Open a vault to rebuild its SQLite and Tantivy indexes.
+                    Open a vault to rebuild its index.
                   {/if}
                 </div>
                 {#if rebuildStatus}
@@ -603,20 +591,14 @@
               </Button>
             </div>
 
-            {#if vaultStore.vaultSnapshot}
+            {#if vaultStore.vaultSnapshot && (vaultStore.syncProvider || vaultStore.syncConflicts.length > 0)}
               <div class="setting-card">
                 <div class="setting-info">
                   <div class="setting-label">Cloud sync</div>
                   <div class="setting-desc">
                     {#if vaultStore.syncProvider}
-                      This vault is in a {PROVIDER_NAMES[vaultStore.syncProvider]} folder. Keep the
-                      vault folder downloaded on this device (in OneDrive and Google Drive, choose
-                      "Always keep on this device" or "Available offline"), so search and backlinks
-                      can read every note. Jotter lists conflict copies under Sync conflicts.
-                    {:else}
-                      No cloud folder detected. To sync, keep the vault inside your Dropbox,
-                      OneDrive, Google Drive, or Box folder. Jotter still detects Dropbox, Nextcloud,
-                      and Syncthing conflict copies here.
+                      Synced by {PROVIDER_NAMES[vaultStore.syncProvider]}. Keep the folder available
+                      offline so search sees every note.
                     {/if}
                     {#if vaultStore.syncConflicts.length > 0}
                       <strong>{vaultStore.syncConflicts.length} conflict {vaultStore.syncConflicts.length === 1 ? 'copy needs' : 'copies need'} review.</strong>
@@ -641,7 +623,7 @@
               <div class="setting-info">
                 <label for="toggle-home-page" class="setting-label">Home page</label>
                 <div class="setting-desc">
-                  When no note is open, show cards for recent, new, linked, and forgotten notes. Click the gear on the Home page to choose its sections.
+                  Show recent and related notes when no note is open.
                 </div>
               </div>
               <input
@@ -658,7 +640,7 @@
                 <div class="setting-info">
                   <div class="setting-label">Task calendar</div>
                   <div class="setting-desc">
-                    Writes checklist items with due dates, such as <code>- [ ] Pay rent 📅 2026-11-01</code>, to an <code>.ics</code> file and keeps it up to date. Subscribe to the file in your calendar app. Completed tasks are left out.
+                    Export open tasks with due dates (<code>📅 2026-11-01</code>) to an <code>.ics</code> file your calendar can subscribe to.
                     {#if taskCalendarStore.path}
                       <br />Writing to <code>{taskCalendarStore.path}</code>
                     {/if}
@@ -684,7 +666,7 @@
                   Show hidden files
                 </label>
                 <div class="setting-desc">
-                  Off by default. `.obsidian` is always ignored for Obsidian vault safety.
+                  Show dotfiles in the sidebar. <code>.obsidian</code> stays hidden.
                 </div>
               </div>
               <input
@@ -704,7 +686,7 @@
               <div class="setting-info">
                 <div class="setting-label">Daily notes</div>
                 <div class="setting-desc">
-                  <kbd>{shortcutLabel('Ctrl Shift D')}</kbd> opens today's note, named like <code>2026-10-19.md</code>, and creates it from the template note if it does not exist. In the template, <code>{'{{date}}'}</code> and <code>{'{{time}}'}</code> become the current date and time.
+                  <kbd>{shortcutLabel('Ctrl Shift D')}</kbd> opens today's note. Templates can use <code>{'{{date}}'}</code> and <code>{'{{time}}'}</code>.
                 </div>
               </div>
               <div class="field-row">
@@ -737,9 +719,7 @@
           <section class="settings-section" aria-labelledby="sec-ai">
             <h3 id="sec-ai" class="section-title">AI</h3>
             <p class="section-subtitle">
-              Summarize, rewrite, and translate notes with your own AI provider. No Jotter account
-              is needed. Requests go straight from this computer to the provider you choose, and
-              that provider bills you. Local models run on your own hardware.
+              Summarize, rewrite, and translate with your own provider. Requests go straight to it.
             </p>
 
             {#if !aiStore.status}
@@ -751,7 +731,7 @@
                 <div class="setting-info">
                   <label for="toggle-ai" class="setting-label">Use AI</label>
                   <div class="setting-desc">
-                    Off by default. While off, Jotter sends nothing to any AI provider.
+                    While off, AI features are disabled and the app remains 100% local.
                   </div>
                 </div>
                 <input
@@ -771,9 +751,7 @@
                 <div class="setting-info">
                   <div class="setting-label">Provider</div>
                   <div class="setting-desc">
-                    OpenAI-compatible covers OpenAI, OpenRouter, Groq, Mistral, LM Studio, and other
-                    servers that accept the OpenAI chat format. Ollama runs models on this computer
-                    or your network and needs no key.
+                    OpenAI-compatible also works with OpenRouter, Groq, Mistral, and LM Studio.
                   </div>
                 </div>
                 <Segmented
@@ -813,8 +791,7 @@
                   </label>
                 </div>
                 <div class="setting-desc">
-                  Cloud addresses must use <code>https://</code>. Plain <code>http://</code> works only
-                  for a server on this computer, or for Ollama, which never receives a key.
+                  Use <code>https://</code> for cloud providers.
                 </div>
               </div>
 
@@ -824,17 +801,15 @@
                     <div class="setting-label">API key</div>
                     <div class="setting-desc">
                       {#if aiKey?.state === 'saved'}
-                        Saved in {aiStore.status.credentialStore}. Jotter sends it only to
+                        Saved in {aiStore.status.credentialStore}. Sent only to
                         <code>{aiKey.origin}</code>.
                       {:else if aiKey?.state === 'endpointChanged'}
                         <span class="field-warning">
-                          The saved key belongs to <code>{aiKey.origin}</code>. Enter it again to send
-                          it to the new base URL.
+                          Base URL changed. Enter the key again to use it there.
                         </span>
                       {:else}
-                        No key saved.{aiIsLocal ? ' A server on this computer may not need one.' : ''}
-                        Jotter keeps keys in {aiStore.status.credentialStore}, never in your vault or
-                        settings files.
+                        No key saved.{aiIsLocal ? ' Local servers may not need one.' : ''}
+                        Keys stay in {aiStore.status.credentialStore}.
                       {/if}
                     </div>
                   </div>
@@ -875,23 +850,21 @@
                   <div class="setting-info">
                     <label for="ai-style" class="setting-label">Writing style</label>
                     <div class="setting-desc">
-                      Describe how you want polished notes to read. <strong>Polish</strong> applies
-                      this style, and the other rewrite styles and summaries follow it too.
-                      Translation and grammar-only fixes ignore it, so they never reword your text.
-                      Jotter always adds its own rules that keep Markdown, code, and links intact.
+                      How rewrites and summaries should read. Translation and grammar fixes ignore it.
                     </div>
                   </div>
                   <Button
                     disabled={aiBusy || styleValue === aiStore.status.defaultStyleInstructions}
                     onclick={() =>
-                      void saveStyle(aiStore.status!.defaultStyleInstructions, 'Restored the example style.')}
+                      void saveStyle(aiStore.status!.defaultStyleInstructions, 'Restored the default style.')}
                   >
-                    Reset to example
+                    Reset to default
                   </Button>
                 </div>
                 <textarea
                   id="ai-style"
                   class="style-field"
+                  class:default-style={styleValue === aiStore.status.defaultStyleInstructions}
                   rows="5"
                   maxlength={AI_STYLE_LIMIT}
                   placeholder={aiStore.status.defaultStyleInstructions}
@@ -904,8 +877,7 @@
                   }}
                 ></textarea>
                 <div class="setting-desc">
-                  {styleValue.length} / {AI_STYLE_LIMIT} characters. Saves when you leave the box.
-                  Leave it empty to have Polish simply make text clearer and more concise.
+                  {styleValue.length} / {AI_STYLE_LIMIT}
                 </div>
               </div>
 
@@ -920,7 +892,7 @@
           <section class="settings-section" aria-labelledby="sec-system">
             <h3 id="sec-system" class="section-title">System</h3>
             <p class="section-subtitle">
-              Bring Jotter to the front from any app, and customize its look with your own CSS.
+              Global hotkey and custom CSS.
             </p>
 
             <div class="setting-card column-card">
@@ -928,7 +900,7 @@
                 <div class="setting-info">
                   <label for="toggle-summon" class="setting-label">Summon hotkey</label>
                   <div class="setting-desc">
-                    Press the hotkey anywhere to show or hide Jotter. While this is on, Jotter keeps an icon in the tray and closing the window hides it instead of quitting. Quit from the tray icon.
+                    Show or hide Jotter from anywhere. Closing the window sends it to the tray.
                   </div>
                 </div>
                 <input
@@ -963,7 +935,7 @@
                 <div class="setting-info">
                   <div class="setting-label">CSS snippets</div>
                   <div class="setting-desc">
-                    CSS snippets are small style files that customize Jotter’s appearance, such as colors, spacing, and text size. They change how the app looks without changing your notes.
+                    Restyle Jotter with your own <code>.css</code> files. Add one to the folder, reload, then turn it on.
                   </div>
                 </div>
                 <div class="button-row">
@@ -975,22 +947,8 @@
                   </Button>
                 </div>
               </div>
-              <div class="setting-desc">
-                To add one, choose <strong>Open folder</strong>, create a plain-text file named
-                <code>my-style.css</code> there, and save your CSS. Choose <strong>Reload</strong>,
-                then turn on the file below. After editing a file, reload again to apply its changes.
-              </div>
-              <div class="setting-desc">
-                For example, this snippet increases the editor’s line spacing:
-              </div>
-              <pre class="snippet-example"><code>{'.cm-content { line-height: 1.8; }'}</code></pre>
-              <div class="setting-desc">
-                Turn a snippet off to undo its appearance changes. Snippets load after the theme,
-                so they can override its styles. They apply to every vault on this computer and
-                stay in Jotter’s app data folder, outside your vaults.
-              </div>
               {#if systemStore.snippets.length === 0}
-                <div class="setting-desc">No snippets yet. Add a <code>.css</code> file to the folder, then reload.</div>
+                <div class="setting-desc">No snippets yet.</div>
               {:else}
                 <ul class="snippet-list">
                   {#each systemStore.snippets as snippet (snippet.name)}
@@ -1025,9 +983,7 @@
                 <p class="about-version">Version {appVersion}</p>
               {/if}
               <p class="about-desc">
-                Jotter is a Markdown notes app for plain-text folders. Your notes stay as
-                <code>.md</code> files on your own disk, it opens Obsidian vaults as they are,
-                and it copies text that pastes cleanly into chat, email and documents.
+                A Markdown notebook with smart editing and optional AI.
               </p>
             </div>
           </section>
@@ -1142,11 +1098,6 @@
     margin: var(--space-3) 0 0;
     color: var(--text-secondary);
     font: var(--fs-15) / var(--leading-relaxed) var(--font-display);
-  }
-
-  .about-desc code {
-    font-family: var(--font-mono);
-    font-size: 0.86em;
   }
 
   .section-title {
@@ -1266,6 +1217,12 @@
     resize: vertical;
   }
 
+  .style-field.default-style,
+  .style-field::placeholder {
+    color: var(--text-muted);
+    opacity: 1;
+  }
+
   .style-field:focus-visible {
     outline: 2px solid var(--focus-ring, var(--accent));
     outline-offset: 0;
@@ -1292,17 +1249,6 @@
     padding: var(--space-2) 0;
     font-family: var(--font-mono);
     font-size: var(--fs-13);
-  }
-
-  .snippet-example {
-    margin: 0;
-    padding: var(--space-3);
-    border-radius: var(--radius-control);
-    background: var(--surface-code);
-    color: var(--text-primary);
-    font-size: var(--fs-13);
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
   }
 
   .dictionary-list li {
@@ -1425,12 +1371,6 @@
     color: var(--accent);
     font-size: var(--fs-11);
     font-weight: 500;
-  }
-
-  .copy-mode-formats {
-    color: var(--text-secondary);
-    font-family: var(--font-mono);
-    font-size: var(--fs-12);
   }
 
   .copy-mode-desc {

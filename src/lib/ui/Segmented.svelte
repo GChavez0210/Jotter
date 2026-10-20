@@ -15,10 +15,12 @@
     value: T;
     /** Accessible name of the group. */
     label: string;
+    /** Fill the available width with equally sized options. */
+    fill?: boolean;
     onchange: (value: T) => void;
   }
 
-  let { options, value, label, onchange }: Props = $props();
+  let { options, value, label, fill = false, onchange }: Props = $props();
 
   function handleKeydown(event: KeyboardEvent, index: number) {
     const step = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 0;
@@ -31,7 +33,7 @@
   }
 </script>
 
-<div class="segmented" role="radiogroup" aria-label={label}>
+<div class="segmented" class:fill role="radiogroup" aria-label={label}>
   {#each options as option, index (option.value)}
     <button
       type="button"
@@ -75,6 +77,17 @@
     transition:
       background-color var(--transition-fast),
       color var(--transition-fast);
+  }
+
+  .segmented.fill {
+    box-sizing: border-box;
+    width: 100%;
+  }
+
+  .fill button {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
   }
 
   button:hover {

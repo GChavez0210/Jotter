@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "kebab-case")]
 pub enum RewriteStyle {
     /// Applies the user's writing style from Settings.
+    #[serde(alias = "clearer")]
     Polish,
-    Clearer,
     Shorter,
     Formal,
     Casual,
@@ -18,7 +18,6 @@ impl RewriteStyle {
     fn instruction(self) -> &'static str {
         match self {
             Self::Polish => "Polish the text so it follows the user's writing style below.",
-            Self::Clearer => "Rewrite the text so it is clearer and easier to read.",
             Self::Shorter => "Rewrite the text so it is noticeably shorter. Keep every key fact.",
             Self::Formal => "Rewrite the text in a more formal, professional tone.",
             Self::Casual => "Rewrite the text in a more relaxed, conversational tone.",
@@ -107,10 +106,13 @@ cells, and link labels. {STRUCTURE} If part of the text is already in {lang}, ke
     let style = style.trim();
     if wants_style && !style.is_empty() {
         prompt.push_str(
-            "\n\nThe user's writing style follows. It overrides general tone advice but not the rules above.\n<style>\n",
+            "\n\nThe user's writing style follows. Apply it where it does not conflict with the requested operation or the rules above.\n<style>\n",
         );
         prompt.push_str(style);
         prompt.push_str("\n</style>");
+        if matches!(operation, AiOperation::Rewrite { style: RewriteStyle::Formal | RewriteStyle::Casual }) {
+            prompt.push_str("\nThe selected rewrite tone takes priority over conflicting tone instructions in the writing style.");
+        }
     } else if matches!(operation, AiOperation::Rewrite { style: RewriteStyle::Polish }) {
         prompt.push_str("\n\nNo writing style is set, so make the text clearer and more concise.");
     }
@@ -169,5 +171,30 @@ mod tests {
         assert!(system_prompt(&AiOperation::Summarize, false, "Be brief.").unwrap().contains("Be brief."));
         let grammar = AiOperation::Rewrite { style: RewriteStyle::Grammar };
         assert!(!system_prompt(&grammar, false, "Be brief.").unwrap().contains("Be brief."));
+    }
+
+    #[test]
+    fn legacy_clearer_requests_use_polish() {
+        let op: AiOperation = serde_json::from_str(r#"{"kind":"rewrite","style":"clearer"}"#).unwrap();
+        assert_eq!(op, AiOperation::Rewrite { style: RewriteStyle::Polish });
+        assert_eq!(
+            system_prompt(&op, true, "Be direct.").unwrap(),
+            system_prompt(&AiOperation::Rewrite { style: RewriteStyle::Polish }, true, "Be direct.").unwrap(),
+        );
+    }
+
+    #[test]
+    fn explicit_tone_takes_priority_without_disabling_markdown_protection() {
+        for (style, custom, task) in [
+            (RewriteStyle::Formal, "Use a casual tone.", "formal, professional tone"),
+            (RewriteStyle::Casual, "Use a formal tone.", "relaxed, conversational tone"),
+        ] {
+            let prompt = system_prompt(&AiOperation::Rewrite { style }, true, custom).unwrap();
+            assert!(prompt.contains(task));
+            assert!(prompt.contains(custom));
+            assert!(prompt.contains("selected rewrite tone takes priority"));
+            assert!(prompt.contains(STRUCTURE));
+            assert!(prompt.ends_with(PLACEHOLDERS));
+        }
     }
 }

@@ -3,6 +3,7 @@ export const control = {
   openCalls: 0,
   closeCalls: 0,
   noteCardCalls: 0,
+  rename: async (_oldPath: string, _newPath: string): Promise<import('../src/lib/types').RenameEntryResult> => { throw Error('rename not configured'); },
 };
 export const getNoteCards = async () => {control.noteCardCalls++; return [];};
 export const calendarControl = {pick: async (_name: string): Promise<string | null> => null, writes: [] as string[]};
@@ -21,7 +22,7 @@ export const getVaultSnapshot = async () => null;
 export const rebuildVaultIndex = async () => 0;
 export const restoreDeletedEntry = async () => {};
 export const removeRecentVaultEntry = async () => [];
-export const renameEntry = async () => {};
+export const renameEntry = (oldPath: string, newPath: string) => control.rename(oldPath, newPath);
 
 export const systemControl = { configure: async (_enabled: boolean, _shortcut: string): Promise<void> => {} };
 export const configureSummon = (enabled: boolean, shortcut: string) => systemControl.configure(enabled, shortcut);
