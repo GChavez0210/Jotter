@@ -1,4 +1,4 @@
-# Architectural & Design Decisions (`DECISIONS.md`)
+# Architecture Decisions
 
 ## 1. Clipboard Architecture (`arboard::Clipboard::set_html` & `set_text`)
 - **Problem**: Standard Markdown editors and browser-based webviews either collapse single `\n` line breaks into spaces (CommonMark soft-break rule), wrap paragraphs in `<p>` tags (which adds 8pt–12pt paragraph margins in Microsoft Word and Gmail), collapse leading/repeated spaces in HTML, or attach inline CSS font/background styles from the code editor DOM.

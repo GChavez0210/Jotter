@@ -159,7 +159,7 @@ Shortcut labels use Ctrl on Windows/Linux and Cmd on macOS. Folding uses Cmd+Opt
 | `Ctrl+S` | Flush autosave for the active note immediately |
 | `Ctrl+W` | Close active note tab |
 | `Ctrl+\` | Toggle left sidebar (or exit Focus Mode) |
-| `Ctrl+,` | Open Settings dialog (`Editor`, `Copy`, `Appearance`, `Vault`, `System`) |
+| `Ctrl+,` | Open Settings (`Editor`, `Copy`, `Appearance`, `Vault`, `AI`, `System`) |
 | `Ctrl+Alt+J` | Summon hotkey: show or hide Jotter from any app (off by default; set in Settings > System) |
 | `Ctrl+Shift+P` | Print / Export active note to PDF (`Microsoft Print to PDF`) |
 | `Esc` | Close active modal/dialog or exit Focus Mode (`Minimal` / `Zen`) |
@@ -253,7 +253,7 @@ npm run build
 
 After building on Windows, run the isolated desktop checks with `node scripts/verify-desktop.mjs`. The script uses the release executable, a disposable vault, separate app data, and a separate WebView2 profile under `src-tauri/target/desktop-verification/`. It exercises real rendering, Recycle Bin restore, save failures, tray residency, and delayed saves. Screenshots and results stay in that directory. It does not install the app.
 
-See [MANUAL_TESTS.md](MANUAL_TESTS.md) for manual paste verification across Google Chat, Slack, Gmail, Word, and Notepad, and [DECISIONS.md](DECISIONS.md) for architectural and accessibility documentation. See [ROADMAP.md](ROADMAP.md) for planned features.
+See [DECISIONS.md](DECISIONS.md) for architecture and accessibility decisions, [ROADMAP.md](ROADMAP.md) for planned features, and [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## License
 

@@ -24,6 +24,9 @@ Desktop portability foundations are in place. Release validation for additional 
 - [x] **Custom CSS snippets.** Load user `.css` files on top of the theme.
 - [x] **Typo-tolerant search.** Add fuzzy term matching to full-text search.
 - [x] **License.** Pick and publish an open-source license. Jotter is licensed under MIT.
+- [ ] **Single instance.** Launching Jotter while it is already running brings the open window to the front instead of starting a second instance. Restore a minimized or tray-hidden window. Use `tauri-plugin-single-instance`.
+- [ ] **Close button behavior.** A setting chooses what the window's X button does: quit Jotter, or hide it to the tray. Separate tray residency from the summon hotkey, which today turns on both. The tray menu's Quit always exits after saving.
+- [ ] **Narrow windows.** Lower the minimum window width below 640 px. When the window gets too narrow to fit the sidebar and the text column, hide the sidebar. When the user then shows the sidebar, widen the window just enough to fit both.
 
 ## Phase 2: Core features (one to three weeks each)
 
@@ -48,7 +51,7 @@ Desktop portability foundations are in place. Release validation for additional 
 
 ## Review follow-ups: desktop validation and release readiness
 
-These items remain open after the [portability review](docs/PORTABILITY_REVIEW.md). Validation tasks do not imply that the behavior has already failed.
+These items remain open after the desktop portability review. Validation tasks do not imply that the behavior has already failed.
 
 - [ ] **Run native macOS CI.** Confirm the configured Mac build and Rust tests pass. Exercise Unix symlink containment, distinct case-sensitive vault index keys, and rename protection on a case-sensitive filesystem.
 - [ ] **Verify Mac window behavior.** Test native traffic lights, dragging, resizing, full screen, and reopening from the menu and Dock.
@@ -57,13 +60,13 @@ These items remain open after the [portability review](docs/PORTABILITY_REVIEW.m
 - [ ] **Verify WKWebView editing and output.** Test copy, cut, clipboard image paste, bundled and System spelling, Cmd shortcuts, Option-based folding, printing, and PDF output.
 - [ ] **Verify Mac background operation.** Test summon shortcut registration, replacement, conflicts, disable behavior, and menu-bar residency.
 - [ ] **Verify Mac persistence and iCloud Drive.** Restart with recent vaults, personal dictionaries, and CSS snippets; confirm they persist outside the vault. Exercise downloaded iCloud Drive vault files and external changes.
-- [ ] **Complete Mac distribution checks.** Build and install signed, notarized app and DMG packages on supported Intel and Apple Silicon systems. Follow the [manual release gate](MANUAL_TESTS.md#macos-release-gate).
+- [ ] **Complete Mac distribution checks.** Build and install signed, notarized app and DMG packages on supported Intel and Apple Silicon systems. Complete the manual macOS release checks.
 - [ ] **Evaluate in-app Mac Trash restoration.** The trash library cannot list or restore macOS Trash. Keep Finder restoration guidance until a supported implementation can restore notes without overwriting existing files.
 - [ ] **Reduce the frontend entry bundle.** Investigate Vite’s large-chunk advisory and split optional features where useful. Verify startup and editor behavior after changes.
 
 ## Phase 4: Major projects and platforms
 
-- [ ] **Optional hosted AI subscriptions.** Basic at USD $5/month and Pro at USD $10/month, with the same summarize, rewrite, translate, and dictation features and different monthly allowances. BYOK stays free, and notes remain usable without an account. Polar handles checkout, subscription billing, and customer billing management. A separate private backend authenticates users, enforces allowances and spending limits, and calls providers with server-held commercial keys. Start by evaluating prepaid DeepSeek for text and a separately budgeted transcription provider. Confirm provider-side cutoff and possible overspend before launch; prepaid credit and concurrency limits alone do not guarantee a financial ceiling. Depends on Phase 2 AI and dictation. See the [AI implementation plan](docs/AI_IMPLEMENTATION_PLAN.md) for delivery steps, billing rules, cost controls, and acceptance criteria.
+- [ ] **Optional hosted AI subscriptions.** Basic at USD $5/month and Pro at USD $10/month, with the same summarize, rewrite, translate, and dictation features and different monthly allowances. BYOK stays free, and notes remain usable without an account. Depends on Phase 2 AI and dictation.
 - [ ] **User plugins.** A stable public API, sandboxing, and a compatibility commitment.
 - [ ] **Handwriting.** Pen input stored as SVG and embedded in notes.
 - [ ] **Handwriting OCR.** Make handwriting searchable. Depends on handwriting.

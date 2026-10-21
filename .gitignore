@@ -17,3 +17,19 @@ Thumbs.db
 
 # Local agent configuration and isolated checkouts
 .claude/
+
+# Internal documents: plans, reviews, manual test runs, and design work
+/CODE_REVIEW.md
+/MANUAL_TESTS.md
+/docs/
+/design/
+/internal/
+*.plan.md
+
+# Local test data and scratch files
+/test-vault*/
+/sample-vault*/
+/scratch/
+*.local.*
+.env
+.env.*

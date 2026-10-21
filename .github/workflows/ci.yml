@@ -5,14 +5,10 @@ on:
     branches: [main]
     paths-ignore:
       - '**/*.md'
-      - 'design/icon-concepts/**'
-      - 'design/sample-vault/**'
       - 'LICENSE-MIT'
   pull_request:
     paths-ignore:
       - '**/*.md'
-      - 'design/icon-concepts/**'
-      - 'design/sample-vault/**'
       - 'LICENSE-MIT'
 
 # A newer push to the same branch or PR cancels the run in progress.

@@ -4,7 +4,7 @@ import { mkdir, writeFile, readFile, chmod } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
 
-if (process.platform !== 'win32') throw new Error('This verification harness requires Windows WebView2. Use MANUAL_TESTS.md on other platforms.');
+if (process.platform !== 'win32') throw new Error('This verification harness requires Windows WebView2. Test other platforms manually.');
 
 // Run against the built app with isolated WebView storage, app data, and disposable notes.
 const root = resolve(`src-tauri/target/desktop-verification/${Date.now()}`);
