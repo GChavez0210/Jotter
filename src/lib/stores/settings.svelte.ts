@@ -1,4 +1,5 @@
 import { defaultSummonShortcut } from '../platform';
+import { m } from '../i18n.svelte';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { designTokens, isAccentPresetId, type AccentPresetId } from '../designTokens';
 import type {
@@ -9,18 +10,15 @@ import type {
   ThemePreference,
 } from '../types';
 
-export const COPY_MODE_LABELS: Record<CopyMode, { label: string; desc: string }> = {
+export const COPY_MODE_LABELS: Record<CopyMode, { label: string }> = {
   markdown_source: {
-    label: 'Markdown source',
-    desc: 'Default: raw Markdown with <br> & &nbsp; HTML plus plain text',
+    get label() { return m.copy_mode_markdown(); },
   },
   plain: {
-    label: 'Plain',
-    desc: 'Opt-in clean text: text/plain only (arboard set_text, Markdown stripped)',
+    get label() { return m.copy_mode_plain(); },
   },
   rich: {
-    label: 'Rich',
-    desc: 'HTML (<br> newlines, &nbsp; indent, formatting) plus plain text',
+    get label() { return m.copy_mode_rich(); },
   },
 };
 
@@ -62,6 +60,7 @@ class SettingsStore {
 
   // Roadmap phase 1
   spellCheck = $state(true);
+  showLineNumbers = $state(false);
   enabledSnippets = $state<string[]>([]);
   dailyFolder = $state('Daily');
   dailyTemplatePath = $state('Templates/Daily.md');
@@ -229,6 +228,11 @@ class SettingsStore {
   setSpellCheck(enabled: boolean) {
     this.spellCheck = enabled;
     this.persist('jotter.spellCheck', String(enabled));
+  }
+
+  setShowLineNumbers(enabled: boolean) {
+    this.showLineNumbers = enabled;
+    this.persist('jotter.showLineNumbers', String(enabled));
   }
 
   setSnippetEnabled(name: string, enabled: boolean) {
@@ -504,6 +508,7 @@ class SettingsStore {
       if (savedNav === 'folders' || savedNav === 'tags') this.notesNavigation = savedNav;
       const savedHome = localStorage.getItem('jotter.showHomePage');
       if (savedHome === 'true' || savedHome === 'false') this.showHomePage = savedHome === 'true';
+      this.showLineNumbers = localStorage.getItem('jotter.showLineNumbers') === 'true';
       const savedSpell = localStorage.getItem('jotter.spellCheck');
       if (savedSpell === 'true' || savedSpell === 'false') {
         this.spellCheck = savedSpell === 'true';

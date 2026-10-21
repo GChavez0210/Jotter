@@ -6,6 +6,7 @@
   import { tabsStore } from './stores/tabs.svelte';
   import { vaultStore } from './stores/vault.svelte';
   import type { CalendarNoteEntry, TagSummary } from './types';
+  import { m } from './i18n.svelte';
 
   let tags = $state<TagSummary[]>([]);
   let tagNotes = $state<CalendarNoteEntry[]>([]);
@@ -84,15 +85,15 @@
   }
 </script>
 
-<div class="tag-browser" aria-label="Tag browser">
+<div class="tag-browser" aria-label={m.tags_browser()}>
   <div class="tag-filter-bar">
     <div class="filter-input-wrap">
       <span class="filter-icon"><Icon name="tag" /></span>
       <input
         type="search"
         class="filter-input"
-        placeholder="Filter tags"
-        aria-label="Filter tags"
+        placeholder={m.tags_filter()}
+        aria-label={m.tags_filter()}
         bind:value={filterText}
       />
     </div>
@@ -100,28 +101,28 @@
 
   <div class="tags-section">
     <div class="section-header">
-      <span>Tags</span>
+      <span>{m.sidebar_view_tags()}</span>
       {#if settingsStore.selectedTag}
         <button
           type="button"
           class="clear-tag-btn"
           onclick={() => (settingsStore.selectedTag = null)}
         >
-          Clear filter
+          {m.tags_clear_filter()}
         </button>
       {/if}
     </div>
 
     {#if loadingTags && tags.length === 0}
-      <div class="empty-msg">Loading tags…</div>
+      <div class="empty-msg">{m.tags_loading()}</div>
     {:else if filteredTags.length === 0}
       <div class="empty-msg">
         {tags.length === 0
-          ? 'No #tags or YAML frontmatter tags found in this vault yet.'
-          : 'No tags match your filter.'}
+          ? m.tags_none()
+          : m.tags_no_match()}
       </div>
     {:else}
-      <div class="tag-list" role="listbox" aria-label="Vault tags">
+      <div class="tag-list" role="listbox" aria-label={m.tags_vault_tags()}>
         {#each filteredTags as item (item.tag)}
           <button
             type="button"
@@ -148,11 +149,11 @@
 
       <div class="notes-scroll">
         {#if loadingNotes && tagNotes.length === 0}
-          <div class="empty-msg">Loading notes…</div>
+          <div class="empty-msg">{m.home_loading()}</div>
         {:else if tagNotes.length === 0}
-          <div class="empty-msg">No notes found with this tag.</div>
+          <div class="empty-msg">{m.tags_no_notes()}</div>
         {:else}
-          <ul class="tag-note-list" aria-label="Notes with selected tag">
+          <ul class="tag-note-list" aria-label={m.tags_notes_with_tag()}>
             {#each tagNotes as note (note.path)}
               <li>
                 <button

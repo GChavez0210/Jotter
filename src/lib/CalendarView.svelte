@@ -6,27 +6,21 @@
   import { queryCalendarDateNotes, queryCalendarDays } from './ipc';
   import { tabsStore } from './stores/tabs.svelte';
   import { vaultStore } from './stores/vault.svelte';
+  import { i18n, m } from './i18n.svelte';
   import type {
     CalendarDateField,
     CalendarDaySummary,
     CalendarNoteEntry,
   } from './types';
 
-  const WEEKDAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'] as const;
-  const MONTH_NAMES = [
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December',
-  ] as const;
+  // 2023-01-01 was a Sunday, so day i of that week is weekday i.
+  const WEEKDAYS = $derived.by(() => {
+    const format = new Intl.DateTimeFormat(i18n.locale, { weekday: 'short' });
+    return Array.from({ length: 7 }, (_, i) => {
+      const name = format.format(new Date(2023, 0, 1 + i)).slice(0, 2);
+      return name.charAt(0).toLocaleUpperCase(i18n.locale) + name.slice(1);
+    });
+  });
 
   function toIsoDate(d: Date): string {
     const yyyy = d.getFullYear();
@@ -262,25 +256,31 @@
   function formatTimeShort(ms: number): string {
     if (!ms) return '';
     const d = new Date(ms);
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return d.toLocaleTimeString(i18n.locale, { hour: '2-digit', minute: '2-digit' });
   }
+
+  const monthLabel = $derived.by(() => {
+    const label = new Intl.DateTimeFormat(i18n.locale, { month: 'long', year: 'numeric' })
+      .format(new Date(viewYear, viewMonth - 1, 1));
+    return label.charAt(0).toLocaleUpperCase(i18n.locale) + label.slice(1);
+  });
 </script>
 
-<div class="calendar-view" aria-label="Vault calendar view">
+<div class="calendar-view" aria-label={m.calendar_view()}>
   <div class="month-nav">
-    <div class="month-label">{MONTH_NAMES[viewMonth - 1]} {viewYear}</div>
-    <IconButton icon="caret-left" size="sm" label="Previous month" onclick={() => stepMonth(-1)} />
-    <Button variant="subtle" title="Jump to today (T)" onclick={jumpToToday}>Today</Button>
-    <IconButton icon="caret-right" size="sm" label="Next month" onclick={() => stepMonth(1)} />
+    <div class="month-label">{monthLabel}</div>
+    <IconButton icon="caret-left" size="sm" label={m.calendar_prev_month()} onclick={() => stepMonth(-1)} />
+    <Button variant="subtle" title={m.calendar_jump_today()} onclick={jumpToToday}>{m.calendar_today()}</Button>
+    <IconButton icon="caret-right" size="sm" label={m.calendar_next_month()} onclick={() => stepMonth(1)} />
   </div>
 
   <div class="date-source">
     <Segmented
-      label="Calendar date source"
+      label={m.calendar_date_source()}
       value={dateField}
       options={[
-        { value: 'modified', label: 'Modified' },
-        { value: 'created', label: 'Created' },
+        { value: 'modified', label: m.calendar_modified() },
+        { value: 'created', label: m.calendar_created() },
       ]}
       onchange={(field) => (dateField = field)}
     />
@@ -292,7 +292,7 @@
     class="month-grid-wrap"
     role="grid"
     tabindex="0"
-    aria-label="{MONTH_NAMES[viewMonth - 1]} {viewYear} calendar grid (Arrow keys move, Enter selects day, T jumps to today)"
+    aria-label={m.calendar_grid({ month: monthLabel })}
     onkeydown={handleGridKeyDown}
   >
     <div class="weekday-row" role="row">
@@ -312,7 +312,9 @@
           class:is-selected={cell.dateIso === selectedDateIso}
           class:is-focused={cell.dateIso === focusedDateIso}
           aria-pressed={cell.dateIso === selectedDateIso}
-          title="{cell.dateIso}: {cell.count} {cell.count === 1 ? 'note' : 'notes'} {dateField}"
+          title={dateField === 'modified'
+            ? m.calendar_day_modified({ date: cell.dateIso, count: cell.count })
+            : m.calendar_day_created({ date: cell.dateIso, count: cell.count })}
           onclick={() => {
             handleSelectDay(cell.dateIso);
             gridContainerEl?.focus();
@@ -333,20 +335,20 @@
   <div class="day-notes-section">
     <div class="day-notes-header">
       <span>
-        {dateField === 'modified' ? 'Modified' : 'Created'} {selectedDateIso}
+        {dateField === 'modified' ? m.calendar_modified_on({ date: selectedDateIso }) : m.calendar_created_on({ date: selectedDateIso })}
       </span>
       <span class="day-count-label">{dayNotes.length}</span>
     </div>
 
     <div class="day-notes-scroll">
       {#if loadingNotes && dayNotes.length === 0}
-        <div class="empty-day">Loading notes…</div>
+        <div class="empty-day">{m.home_loading()}</div>
       {:else if dayNotes.length === 0}
         <div class="empty-day">
-          No notes {dateField} on {selectedDateIso}.
+          {dateField === 'modified' ? m.calendar_none_modified({ date: selectedDateIso }) : m.calendar_none_created({ date: selectedDateIso })}
         </div>
       {:else}
-        <ul class="day-note-list" aria-label="Notes touched on {selectedDateIso}">
+        <ul class="day-note-list" aria-label={m.calendar_day_notes({ date: selectedDateIso })}>
           {#each dayNotes as note (note.path)}
             <li>
               <button

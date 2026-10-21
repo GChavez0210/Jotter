@@ -4,6 +4,7 @@
   import { noteCardsStore } from './stores/noteCards.svelte';
   import { vaultStore } from './stores/vault.svelte';
   import type { NoteCard } from './types';
+  import { m } from './i18n.svelte';
 
   interface Props {
     activeRelPath: string | null;
@@ -41,7 +42,7 @@
   <li>
     <div class="row" class:active={card.path === activeRelPath} style:padding-left="{depth * 14 + 4}px">
       {#if links.length}
-        <button type="button" class="chevron" aria-label="Links from {card.title}" aria-expanded={!!expanded[key]} onclick={() => toggle(key)}>
+        <button type="button" class="chevron" aria-label={m.tags_links_from({ title: card.title })} aria-expanded={!!expanded[key]} onclick={() => toggle(key)}>
           <Icon name={expanded[key] ? 'caret-down' : 'caret-right'} size={12} />
         </button>
       {:else}
@@ -51,7 +52,7 @@
         <Icon name={depth > 0 && chain.length > 1 ? 'link-simple' : 'file-text'} size={14} />
         <span>{card.title}</span>
       </button>
-      {#if card.linkedFrom > 0}<span class="count" title="Notes linking here">{card.linkedFrom}</span>{/if}
+      {#if card.linkedFrom > 0}<span class="count" title={m.tags_linking_here()}>{card.linkedFrom}</span>{/if}
     </div>
     {#if links.length && expanded[key]}
       <ul>
@@ -84,11 +85,11 @@
   </li>
 {/snippet}
 
-<div class="tags-links" role="region" aria-label="Notes by tag and link">
+<div class="tags-links" role="region" aria-label={m.tags_by_tag_and_link()}>
   {#if noteCardsStore.error}
     <div class="empty" role="alert">{noteCardsStore.error}</div>
   {:else if noteCardsStore.cards.length === 0}
-    <div class="empty">{noteCardsStore.loading ? 'Loading notes…' : 'This vault has no notes yet.'}</div>
+    <div class="empty">{noteCardsStore.loading ? m.home_loading() : m.sidebar_empty_vault()}</div>
   {:else}
     <ul class="tree">
       {#each tree.roots as node (node.tag)}
@@ -98,7 +99,7 @@
         <li>
           <button type="button" class="row tag-row" aria-expanded={!!expanded['untagged']} onclick={() => toggle('untagged')}>
             <span class="chevron"><Icon name={expanded['untagged'] ? 'caret-down' : 'caret-right'} size={12} /></span>
-            <span class="label static muted"><Icon name="file-text" size={14} /><span>No tags</span></span>
+            <span class="label static muted"><Icon name="file-text" size={14} /><span>{m.tags_untagged()}</span></span>
             <span class="count">{tree.untagged.length}</span>
           </button>
           {#if expanded['untagged']}

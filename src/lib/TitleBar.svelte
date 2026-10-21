@@ -9,6 +9,7 @@
   import Icon from './ui/Icon.svelte';
   import IconButton from './ui/IconButton.svelte';
   import Segmented from './ui/Segmented.svelte';
+  import { m } from './i18n.svelte';
 
   interface Props {
     /** True while the sidebar is on screen; the title bar then skips its own sidebar toggle. */
@@ -25,7 +26,7 @@
 
   function createNote() {
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-    void vaultStore.createNoteInVault('', `Note ${stamp}`);
+    void vaultStore.createNoteInVault('', m.note_default_name({ stamp }));
   }
 
   async function windowAction(action: 'minimize' | 'toggleMaximize' | 'close') {
@@ -70,7 +71,7 @@
   class:faded={settingsStore.focusMode === 'minimal' && !settingsStore.topHoverReveal}
   class:floating={settingsStore.focusMode === 'zen'}
   data-tauri-drag-region
-  aria-label="Title bar"
+  aria-label={m.titlebar_label()}
   onmouseleave={() => {
     if (settingsStore.focusMode !== 'off' && !settingsStore.showSettings) {
       settingsStore.topHoverReveal = false;
@@ -81,25 +82,25 @@
     {#if vaultStore.vaultSnapshot && !sidebarVisible && settingsStore.focusMode === 'off'}
       <IconButton
         icon="sidebar-simple"
-        label="Show sidebar"
-        tooltip={shortcutLabel('Show sidebar (Ctrl+\\)')}
+        label={m.titlebar_show_sidebar()}
+        tooltip={m.titlebar_show_sidebar_tooltip({ shortcut: shortcutLabel('Ctrl+\\') })}
         onclick={() => settingsStore.toggleSidebar()}
       />
     {/if}
     {#if !vaultStore.vaultSnapshot}
       <span class="app-name">
-        {tabsStore.scratchpadMode ? 'Scratchpad' : 'Jotter'}
+        {tabsStore.scratchpadMode ? m.scratchpad_title() : 'Jotter'}
       </span>
       {#if tabsStore.scratchpadMode}
         <Button variant="subtle" icon="folder-open" onclick={() => (tabsStore.scratchpadMode = false)}>
-          Open vault
+          {m.first_run_open_vault()}
         </Button>
       {/if}
     {/if}
   </div>
 
   {#if showTabs}
-    <div class="tabs" role="tablist" aria-label="Open notes">
+    <div class="tabs" role="tablist" aria-label={m.titlebar_open_notes()}>
       {#each tabsStore.openTabs as tab (tab.relPath)}
         {@const active = tab.relPath === tabsStore.activeTabPath}
         <div
@@ -123,13 +124,13 @@
           <Icon name="file-text" size={14} />
           <span class="tab-title">{tab.title}</span>
           {#if tab.dirty}
-            <span class="dirty-dot" title="Unsaved changes (autosaving…)" aria-label="Unsaved changes"></span>
+            <span class="dirty-dot" title={m.titlebar_unsaved_autosaving()} aria-label={m.titlebar_unsaved()}></span>
           {/if}
           <button
             type="button"
             class="tab-close"
-            title={shortcutLabel('Close tab (Ctrl+W)')}
-            aria-label="Close {tab.title}"
+            title={m.titlebar_close_tab({ shortcut: shortcutLabel('Ctrl+W') })}
+            aria-label={m.titlebar_close_named({ title: tab.title })}
             onclick={(e) => void tabsStore.closeTab(tab.relPath, e)}
           >
             <Icon name="x" size={12} />
@@ -140,7 +141,7 @@
   {/if}
   {#if vaultStore.vaultSnapshot}
     <div class="new-tab">
-      <IconButton icon="plus" size="sm" label="New note" tooltip={shortcutLabel('New note (Ctrl+N)')} onclick={createNote} />
+      <IconButton icon="plus" size="sm" label={m.common_new_note()} tooltip={m.titlebar_new_note_tooltip({ shortcut: shortcutLabel('Ctrl+N') })} onclick={createNote} />
     </div>
   {/if}
 
@@ -149,16 +150,16 @@
   <div class="tools">
     {#if settingsStore.focusMode !== 'off'}
       <Button variant="subtle" icon="arrows-in-simple" onclick={() => settingsStore.exitFocusMode()}>
-        Exit focus (Esc)
+        {m.titlebar_exit_focus()}
       </Button>
     {/if}
     {#if hasEditor}
       <Segmented
-        label="Editor mode"
+        label={m.titlebar_editor_mode()}
         value={settingsStore.editingMode}
         options={[
-          { value: 'live', label: 'Live', icon: 'eye', title: shortcutLabel('Formatted while you type (Ctrl+/)') },
-          { value: 'source', label: 'Source', icon: 'code', title: shortcutLabel('Plain Markdown (Ctrl+/)') },
+          { value: 'live', label: m.titlebar_live(), icon: 'eye', title: m.titlebar_live_title({ shortcut: shortcutLabel('Ctrl+/') }) },
+          { value: 'source', label: m.editing_mode_source(), icon: 'code', title: m.titlebar_source_title({ shortcut: shortcutLabel('Ctrl+/') }) },
         ]}
         onchange={(mode) => settingsStore.setEditingMode(mode)}
       />
@@ -166,33 +167,33 @@
     {#if vaultStore.vaultSnapshot && settingsStore.focusMode === 'off'}
       <IconButton
         icon="sidebar"
-        label="Backlinks panel"
+        label={m.titlebar_backlinks_panel()}
         pressed={settingsStore.showRightPanel}
         onclick={() => settingsStore.toggleRightPanel()}
       />
     {/if}
     <IconButton
       icon="dots-three"
-      label="Commands"
-      tooltip={shortcutLabel('Commands (Ctrl+P)')}
+      label={m.cmd_list_label()}
+      tooltip={m.titlebar_commands_tooltip({ shortcut: shortcutLabel('Ctrl+P') })}
       onclick={() => (settingsStore.showCommandPalette = true)}
     />
   </div>
 
   {#if !isMac}
     <div class="window-controls">
-      <button type="button" tabindex="-1" aria-label="Minimize" onclick={() => windowAction('minimize')}>
+      <button type="button" tabindex="-1" aria-label={m.window_minimize()} onclick={() => windowAction('minimize')}>
         <Icon name="minus" size={14} />
       </button>
       <button
         type="button"
         tabindex="-1"
-        aria-label={maximized ? 'Restore' : 'Maximize'}
+        aria-label={maximized ? m.window_restore() : m.window_maximize()}
         onclick={() => windowAction('toggleMaximize')}
       >
         <Icon name={maximized ? 'copy-simple' : 'square'} size={14} />
       </button>
-      <button type="button" tabindex="-1" class="close" aria-label="Close" onclick={() => windowAction('close')}>
+      <button type="button" tabindex="-1" class="close" aria-label={m.common_close()} onclick={() => windowAction('close')}>
         <Icon name="x" size={14} />
       </button>
     </div>

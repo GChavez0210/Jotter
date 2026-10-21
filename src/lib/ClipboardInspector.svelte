@@ -2,41 +2,45 @@
   import Icon from './ui/Icon.svelte';
   import { clipboardStore } from './stores/clipboard.svelte';
   import { COPY_MODE_LABELS, settingsStore } from './stores/settings.svelte';
+  import { m, SLOT, splitSlots } from './i18n.svelte';
+
+  const plainLabelParts = $derived(splitSlots(m.inspector_plain_label({ code: SLOT })));
+  const htmlLabelParts = $derived(splitSlots(m.inspector_html_label({ code: SLOT })));
 </script>
 
 {#if settingsStore.showInspector && clipboardStore.lastPayload}
   <aside
     class="inspector-card"
-    aria-label="Clipboard format inspector"
+    aria-label={m.inspector_label()}
   >
     <div class="inspector-header">
       <div class="inspector-title">
         <Icon name="check" />
         <span>
           {clipboardStore.lastPayload.mode === 'plain'
-            ? 'arboard::Clipboard::set_text Plain-Only Output (Plain)'
-            : `arboard::Clipboard::set_html Dual-Format Output (${COPY_MODE_LABELS[clipboardStore.lastPayload.mode].label})`}
+            ? m.inspector_plain_title()
+            : m.inspector_dual_title({ mode: COPY_MODE_LABELS[clipboardStore.lastPayload.mode].label })}
         </span>
       </div>
       <span class="inspector-meta">
-        {clipboardStore.lastPayload.lineCount} lines · {clipboardStore.lastPayload.charCount} chars
+        {m.inspector_meta({ lines: clipboardStore.lastPayload.lineCount, chars: clipboardStore.lastPayload.charCount })}
       </span>
     </div>
 
     <div class="inspector-grid">
       <div class="format-box">
         <div class="format-label">
-          <span>text/plain (real <code>\n</code> line breaks)</span>
+          <span>{plainLabelParts[0]}<code>\n</code>{plainLabelParts[1]}</span>
         </div>
         <pre class="format-code">{clipboardStore.lastPayload.plain}</pre>
       </div>
 
       <div class="format-box">
         <div class="format-label">
-          <span>text/html (every newline becomes <code>&lt;br&gt;</code>)</span>
+          <span>{htmlLabelParts[0]}<code>&lt;br&gt;</code>{htmlLabelParts[1]}</span>
         </div>
         <pre class="format-code">{clipboardStore.lastPayload.mode === 'plain'
-            ? '(none — Plain mode writes text/plain only via set_text)'
+            ? m.inspector_no_html()
             : clipboardStore.lastPayload.html}</pre>
       </div>
     </div>

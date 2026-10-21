@@ -10,7 +10,7 @@
   import Dialog from './ui/Dialog.svelte';
   import ChoiceCards from './ui/ChoiceCards.svelte';
   import { COPY_MODE_LABELS, settingsStore } from './stores/settings.svelte';
-  import { ACCENT_PRESETS } from './designTokens';
+  import { ACCENT_PRESETS, type AccentPresetId } from './designTokens';
   import { systemStore } from './stores/system.svelte';
   import { vaultStore } from './stores/vault.svelte';
   import { PROVIDER_NAMES } from './syncConflicts';
@@ -19,6 +19,7 @@
   import { openDictionariesFolder } from './ipc';
   import { AI_PROVIDER_LABELS, aiStore } from './stores/ai.svelte';
   import type { AiProvider, CopyMode } from './types';
+  import { i18n, LANGUAGE_NAMES, locales, m, splitSlots, SLOT, type LanguagePreference } from './i18n.svelte';
 
   interface Props {
     onClose: () => void;
@@ -36,16 +37,32 @@
   );
   settingsStore.settingsSectionRequest = null;
 
-  const AI_PROVIDER_OPTIONS = (Object.keys(AI_PROVIDER_LABELS) as AiProvider[]).map((value) => ({
-    value,
-    label: AI_PROVIDER_LABELS[value],
-  }));
+  const AI_PROVIDER_OPTIONS = $derived(
+    (Object.keys(AI_PROVIDER_LABELS) as AiProvider[]).map((value) => ({
+      value,
+      label: AI_PROVIDER_LABELS[value],
+    }))
+  );
+  const LANGUAGE_OPTIONS = $derived<{ value: LanguagePreference; label: string }[]>([
+    { value: 'system', label: m.common_system() },
+    ...locales.map((value) => ({ value, label: LANGUAGE_NAMES[value] })),
+  ]);
   const AI_MODEL_EXAMPLES: Record<AiProvider, string> = {
     'openai-compatible': 'gpt-4o-mini',
     anthropic: 'claude-haiku-5-5',
     ollama: 'llama3.2',
   };
   const AI_STYLE_LIMIT = 4000;
+  const ACCENT_NAMES: Record<AccentPresetId, () => string> = {
+    ink: m.accent_ink,
+    moss: m.accent_moss,
+    plum: m.accent_plum,
+    teal: m.accent_teal,
+    rust: m.accent_rust,
+    graphite: m.accent_graphite,
+    amber: m.accent_amber,
+    rose: m.accent_rose,
+  };
   let aiError = $state('');
   let aiNotice = $state('');
   let aiBusy = $state(false);
@@ -79,7 +96,7 @@
     }
   }
 
-  function saveStyle(text: string, success = 'Saved your writing style.') {
+  function saveStyle(text: string, success = m.settings_ai_style_saved()) {
     return aiChange(async () => {
       await aiStore.updateConfig((c) => (c.styleInstructions = text));
       styleDraft = null;
@@ -90,18 +107,12 @@
   let closeBtnRef: HTMLButtonElement | undefined = $state();
 
 
-  const COPY_MODE_DETAILS: Record<CopyMode, { badge?: string; details: string }> = {
-    markdown_source: {
-      badge: 'Default',
-      details: 'Copies the Markdown as written.',
-    },
-    plain: {
-      details: 'Copies text without Markdown symbols.',
-    },
-    rich: {
-      details: 'Copies formatted text with bold, italics, and links.',
-    },
-  };
+  function copyModeDetails(mode: CopyMode): { badge?: string; details: string } {
+    if (mode === 'markdown_source') {
+      return { badge: m.settings_copy_badge_default(), details: m.settings_copy_markdown_details() };
+    }
+    return { details: mode === 'plain' ? m.settings_copy_plain_details() : m.settings_copy_rich_details() };
+  }
 
   function handleSelectCopyMode(mode: CopyMode) {
     settingsStore.setCopyMode(mode, () => {
@@ -112,13 +123,13 @@
   async function handleRebuildIndex() {
     if (!vaultStore.vaultSnapshot || isRebuilding) return;
     isRebuilding = true;
-    rebuildStatus = 'Rebuilding index…';
+    rebuildStatus = m.settings_rebuilding_index();
     const count = await vaultStore.rebuildIndex();
     isRebuilding = false;
     if (count !== null) {
-      rebuildStatus = `Rebuilt index for ${count} notes.`;
+      rebuildStatus = m.settings_rebuilt_index({ count });
     } else {
-      rebuildStatus = 'Failed to rebuild vault index.';
+      rebuildStatus = m.settings_rebuild_failed();
     }
   }
 
@@ -132,12 +143,22 @@
         // Not running inside Tauri (browser preview).
       });
   });
+
+  const settingsVaultLanguagesDescParts = $derived(splitSlots(m.settings_vault_languages_desc({ lang: SLOT, skip: SLOT })));
+  const settingsAddDictionaryParts = $derived(splitSlots(m.settings_add_dictionary({ aff: SLOT, dic: SLOT })));
+  const settingsRebuildDescParts = $derived(splitSlots(m.settings_rebuild_desc({ vault: SLOT, count: vaultStore.vaultSnapshot?.noteCount ?? 0 })));
+  const settingsTaskCalendarDescParts = $derived(splitSlots(m.settings_task_calendar_desc({ example: SLOT, ext: SLOT })));
+  const settingsHiddenFilesDescParts = $derived(splitSlots(m.settings_hidden_files_desc({ folder: SLOT })));
+  const settingsDailyNotesDescParts = $derived(splitSlots(m.settings_daily_notes_desc({ shortcut: SLOT, date: SLOT, time: SLOT })));
+  const settingsAiHttpsParts = $derived(splitSlots(m.settings_ai_https({ scheme: SLOT })));
+  const settingsAiKeySavedParts = $derived(splitSlots(m.settings_ai_key_saved({ store: aiStore.status?.credentialStore ?? '', origin: SLOT })));
+  const settingsSnippetsDescParts = $derived(splitSlots(m.settings_snippets_desc({ ext: SLOT })));
 </script>
 
-<Dialog label="Settings" variant="panel" {onClose}>
+<Dialog label={m.settings_title()} variant="panel" {onClose}>
     <div class="settings-body">
-      <nav class="settings-nav" aria-label="Settings categories">
-        <h2 class="nav-title">Settings</h2>
+      <nav class="settings-nav" aria-label={m.settings_categories()}>
+        <h2 class="nav-title">{m.settings_title()}</h2>
         <button
           type="button"
           class="nav-item"
@@ -146,7 +167,7 @@
           onclick={() => (activeSection = 'editor')}
         >
           <Icon name="pencil-simple" />
-          <span>Editor</span>
+          <span>{m.settings_section_editor()}</span>
         </button>
         <button
           type="button"
@@ -156,7 +177,7 @@
           onclick={() => (activeSection = 'copy')}
         >
           <Icon name="copy" />
-          <span>Copy</span>
+          <span>{m.settings_section_copy()}</span>
         </button>
         <button
           type="button"
@@ -166,7 +187,7 @@
           onclick={() => (activeSection = 'appearance')}
         >
           <Icon name="eye" />
-          <span>Appearance</span>
+          <span>{m.settings_section_appearance()}</span>
         </button>
         <button
           type="button"
@@ -176,7 +197,7 @@
           onclick={() => (activeSection = 'vault')}
         >
           <Icon name="folder-simple" />
-          <span>Vault</span>
+          <span>{m.settings_section_vault()}</span>
         </button>
         <button
           type="button"
@@ -186,7 +207,7 @@
           onclick={() => (activeSection = 'ai')}
         >
           <Icon name="sparkle" />
-          <span>AI</span>
+          <span>{m.settings_section_ai()}</span>
         </button>
         <button
           type="button"
@@ -196,7 +217,7 @@
           onclick={() => (activeSection = 'system')}
         >
           <Icon name="gear-six" />
-          <span>System</span>
+          <span>{m.settings_section_system()}</span>
         </button>
         <button
           type="button"
@@ -206,7 +227,7 @@
           onclick={() => (activeSection = 'about')}
         >
           <Icon name="info" />
-          <span>About</span>
+          <span>{m.settings_section_about()}</span>
         </button>
       </nav>
 
@@ -215,31 +236,29 @@
           <IconButton
             bind:ref={closeBtnRef}
             icon="x"
-            label="Close settings"
-            tooltip="Close settings (Esc)"
+            label={m.settings_close()}
+            tooltip={m.settings_close_tooltip()}
             onclick={onClose}
           />
         </div>
         {#if activeSection === 'editor'}
           <section class="settings-section" aria-labelledby="sec-editor">
-            <h3 id="sec-editor" class="section-title">Editor</h3>
-            <p class="section-subtitle">
-              Editing mode, focus aids, spelling, and font size.
-            </p>
+            <h3 id="sec-editor" class="section-title">{m.settings_section_editor()}</h3>
+            <p class="section-subtitle">{m.settings_editor_subtitle()}</p>
 
             <div class="setting-card">
               <div class="setting-info">
-                <div class="setting-label">Default editing mode</div>
+                <div class="setting-label">{m.settings_editing_mode()}</div>
                 <div class="setting-desc">
-                  Live Preview formats text as you write. Toggle with {shortcutLabel('Ctrl+/')}.
+                  {m.settings_editing_mode_desc({ shortcut: shortcutLabel('Ctrl+/') })}
                 </div>
               </div>
               <Segmented
-                label="Default editing mode"
+                label={m.settings_editing_mode()}
                 value={settingsStore.editingMode}
                 options={[
-                  { value: 'live', label: 'Live Preview' },
-                  { value: 'source', label: 'Source' },
+                  { value: 'live', label: m.editing_mode_live() },
+                  { value: 'source', label: m.editing_mode_source() },
                 ]}
                 onchange={(mode) => settingsStore.setEditingMode(mode)}
               />
@@ -247,12 +266,8 @@
 
             <div class="setting-card">
               <div class="setting-info">
-                <label for="toggle-typewriter" class="setting-label">
-                  Typewriter scrolling
-                </label>
-                <div class="setting-desc">
-                  Keep the current line centered.
-                </div>
+                <label for="toggle-typewriter" class="setting-label">{m.settings_typewriter()}</label>
+                <div class="setting-desc">{m.settings_typewriter_desc()}</div>
               </div>
               <input
                 id="toggle-typewriter"
@@ -268,12 +283,23 @@
 
             <div class="setting-card">
               <div class="setting-info">
-                <label for="toggle-dimming" class="setting-label">
-                  Focus paragraph dimming
-                </label>
-                <div class="setting-desc">
-                  Dim everything except the current paragraph.
-                </div>
+                <label for="toggle-line-numbers" class="setting-label">{m.settings_line_numbers()}</label>
+                <div class="setting-desc">{m.settings_line_numbers_desc()}</div>
+              </div>
+              <input
+                id="toggle-line-numbers"
+                type="checkbox"
+                class="fluent-toggle"
+                checked={settingsStore.showLineNumbers}
+                onchange={(e) =>
+                  settingsStore.setShowLineNumbers((e.currentTarget as HTMLInputElement).checked)}
+              />
+            </div>
+
+            <div class="setting-card">
+              <div class="setting-info">
+                <label for="toggle-dimming" class="setting-label">{m.settings_dimming()}</label>
+                <div class="setting-desc">{m.settings_dimming_desc()}</div>
               </div>
               <input
                 id="toggle-dimming"
@@ -289,12 +315,8 @@
 
             <div class="setting-card">
               <div class="setting-info">
-                <label for="toggle-spellcheck" class="setting-label">
-                  Check spelling
-                </label>
-                <div class="setting-desc">
-                  Underline misspelled words.
-                </div>
+                <label for="toggle-spellcheck" class="setting-label">{m.settings_spellcheck()}</label>
+                <div class="setting-desc">{m.settings_spellcheck_desc()}</div>
               </div>
               <input
                 id="toggle-spellcheck"
@@ -310,17 +332,17 @@
               <div class="setting-card column-card">
                 <div class="setting-row-top">
                   <div class="setting-info">
-                    <div class="setting-label">Spelling dictionaries</div>
+                    <div class="setting-label">{m.settings_dictionaries()}</div>
                     <div class="setting-desc">
-                      Jotter lets each vault and note pick languages. System uses your OS languages.
+                      {m.settings_dictionaries_desc()}
                     </div>
                   </div>
                   <Segmented
-                    label="Spelling dictionaries"
+                    label={m.settings_dictionaries()}
                     value={spellingStore.engine}
                     options={[
                       { value: 'jotter', label: 'Jotter' },
-                      { value: 'system', label: 'System' },
+                      { value: 'system', label: m.common_system() },
                     ]}
                     onchange={(engine) => spellingStore.setEngine(engine)}
                   />
@@ -328,29 +350,29 @@
                 {#if spellingStore.engine === 'jotter'}
                   <div class="setting-row-top">
                     <div class="setting-info">
-                      <div class="setting-label">Languages for this vault</div>
+                      <div class="setting-label">{m.settings_vault_languages()}</div>
                       <div class="setting-desc">
-                        Override per note with <code>lang: es</code>, or skip one with <code>spellcheck: false</code>.
+                        {settingsVaultLanguagesDescParts[0]}<code>lang: es</code>{settingsVaultLanguagesDescParts[1]}<code>spellcheck: false</code>{settingsVaultLanguagesDescParts[2]}
                       </div>
                     </div>
                     <div class="button-row">
                       <Button icon="arrow-clockwise" onclick={() => void spellingStore.reload()}>
-                        Reload
+                        {m.common_reload()}
                       </Button>
                       <Button icon="folder-open" onclick={() => void openDictionariesFolder()}>
-                        Open folder
+                        {m.common_open_folder()}
                       </Button>
                     </div>
                   </div>
                   {#if !vaultStore.vaultSnapshot}
-                    <div class="setting-desc">Open a vault to choose its languages.</div>
+                    <div class="setting-desc">{m.settings_vault_languages_no_vault()}</div>
                   {:else}
                     <ul class="snippet-list dictionary-list">
                       {#each spellingStore.dictionaries as dict (dict.id)}
                         <li>
                           <label for="dict-{dict.id}">
                             {dict.name}
-                            {#if !dict.bundled}<span class="dict-source">added</span>{/if}
+                            {#if !dict.bundled}<span class="dict-source">{m.settings_dictionary_added()}</span>{/if}
                           </label>
                           <input
                             id="dict-{dict.id}"
@@ -368,7 +390,7 @@
                     </ul>
                   {/if}
                   <div class="setting-desc">
-                    Add a language by dropping a Hunspell <code>.aff</code> and <code>.dic</code> pair in the folder, then reload.
+                    {settingsAddDictionaryParts[0]}<code>.aff</code>{settingsAddDictionaryParts[1]}<code>.dic</code>{settingsAddDictionaryParts[2]}
                   </div>
                   {#if spellingStore.loadError}
                     <div class="field-error" role="alert">{spellingStore.loadError}</div>
@@ -379,13 +401,11 @@
 
             <div class="setting-card">
               <div class="setting-info">
-                <div class="setting-label">Editor font size</div>
-                <div class="setting-desc">
-                  Size of note text.
-                </div>
+                <div class="setting-label">{m.settings_font_size()}</div>
+                <div class="setting-desc">{m.settings_font_size_desc()}</div>
               </div>
               <Segmented
-                label="Editor font size"
+                label={m.settings_font_size()}
                 value={settingsStore.editorFontSize}
                 options={[12, 14, 16, 20].map((px) => ({ value: px, label: `${px} px` }))}
                 onchange={(px) => settingsStore.setEditorFontSize(px)}
@@ -394,13 +414,11 @@
 
             <div class="setting-card">
               <div class="setting-info">
-                <div class="setting-label">Pasted image link format</div>
-                <div class="setting-desc">
-                  Link style for pasted images.
-                </div>
+                <div class="setting-label">{m.settings_image_links()}</div>
+                <div class="setting-desc">{m.settings_image_links_desc()}</div>
               </div>
               <Segmented
-                label="Pasted image link format"
+                label={m.settings_image_links()}
                 value={settingsStore.imageLinkFormat}
                 options={[
                   { value: 'wikilink', label: '![[name]]' },
@@ -412,12 +430,10 @@
           </section>
         {:else if activeSection === 'copy'}
           <section class="settings-section" aria-labelledby="sec-copy">
-            <h3 id="sec-copy" class="section-title">Copy</h3>
-            <p class="section-subtitle">
-              What Copy puts on the clipboard. Line breaks always survive pasting.
-            </p>
+            <h3 id="sec-copy" class="section-title">{m.settings_section_copy()}</h3>
+            <p class="section-subtitle">{m.settings_copy_subtitle()}</p>
 
-            <div class="copy-modes-list" role="radiogroup" aria-label="Default copy mode">
+            <div class="copy-modes-list" role="radiogroup" aria-label={m.settings_copy_mode()}>
               {#each ['markdown_source', 'plain', 'rich'] as const as mode}
                 <label
                   class="copy-mode-card"
@@ -434,14 +450,14 @@
                       <span class="copy-mode-title">
                         {COPY_MODE_LABELS[mode].label}
                       </span>
-                      {#if COPY_MODE_DETAILS[mode].badge}
+                      {#if copyModeDetails(mode).badge}
                         <span class="copy-mode-badge">
-                          {COPY_MODE_DETAILS[mode].badge}
+                          {copyModeDetails(mode).badge}
                         </span>
                       {/if}
                     </div>
                     <div class="copy-mode-desc">
-                      {COPY_MODE_DETAILS[mode].details}
+                      {copyModeDetails(mode).details}
                     </div>
                   </div>
                 </label>
@@ -450,24 +466,35 @@
           </section>
         {:else if activeSection === 'appearance'}
           <section class="settings-section" aria-labelledby="sec-appearance">
-            <h3 id="sec-appearance" class="section-title">Appearance</h3>
-            <p class="section-subtitle">
-              Theme, accent and writing font.
-            </p>
+            <h3 id="sec-appearance" class="section-title">{m.settings_section_appearance()}</h3>
+            <p class="section-subtitle">{m.settings_appearance_subtitle()}</p>
+
+            <div class="setting-card">
+              <div class="setting-info">
+                <div class="setting-label">{m.settings_language()}</div>
+                <div class="setting-desc">{m.settings_language_desc()}</div>
+              </div>
+              <Segmented
+                label={m.settings_language()}
+                value={i18n.preference}
+                options={LANGUAGE_OPTIONS}
+                onchange={(pref) => i18n.setPreference(pref)}
+              />
+            </div>
 
             <div class="setting-card column-card">
               <div class="setting-info">
-                <div class="setting-label">Theme</div>
-                <div class="setting-desc">System matches your OS.</div>
+                <div class="setting-label">{m.settings_theme()}</div>
+                <div class="setting-desc">{m.settings_theme_desc()}</div>
               </div>
               <ChoiceCards
-                label="Theme"
+                label={m.settings_theme()}
                 value={settingsStore.themePref}
                 options={[
-                  { value: 'system', label: 'System' },
-                  { value: 'light', label: 'Paper' },
-                  { value: 'dark', label: 'Night' },
-                  { value: 'high-contrast', label: 'High Contrast Dark' },
+                  { value: 'system', label: m.common_system() },
+                  { value: 'light', label: m.theme_paper() },
+                  { value: 'dark', label: m.theme_night() },
+                  { value: 'high-contrast', label: m.theme_high_contrast() },
                 ]}
                 onchange={(pref) => settingsStore.setThemePreference(pref)}
               >
@@ -483,25 +510,23 @@
             <div class="setting-card column-card">
               <div class="setting-row-top">
                 <div class="setting-info">
-                  <div class="setting-label">Accent color</div>
-                  <div class="setting-desc">
-                    Color for links, selection, and buttons.
-                  </div>
+                  <div class="setting-label">{m.settings_accent()}</div>
+                  <div class="setting-desc">{m.settings_accent_desc()}</div>
                 </div>
                 <Segmented
-                  label="Accent color source"
+                  label={m.settings_accent_source()}
                   value={settingsStore.accentColorMode}
                   options={[
                     { value: 'preset', label: 'Jotter' },
-                    { value: 'system', label: 'System' },
-                    { value: 'custom', label: 'Custom' },
+                    { value: 'system', label: m.common_system() },
+                    { value: 'custom', label: m.settings_accent_custom() },
                   ]}
                   onchange={(mode) => settingsStore.setAccentColor(mode)}
                 />
               </div>
 
               {#if settingsStore.accentColorMode === 'preset'}
-                <div class="accent-swatches" role="radiogroup" aria-label="Accent preset">
+                <div class="accent-swatches" role="radiogroup" aria-label={m.settings_accent_preset()}>
                   {#each ACCENT_PRESETS as swatch (swatch.id)}
                     {@const selected = settingsStore.accentPreset === swatch.id}
                     <button
@@ -516,14 +541,14 @@
                         class:active={selected}
                         style:background-color={settingsStore.effectiveDark ? swatch.dark : swatch.light}
                       ></span>
-                      {swatch.label}
+                      {ACCENT_NAMES[swatch.id]()}
                     </button>
                   {/each}
                 </div>
               {:else if settingsStore.accentColorMode === 'custom'}
                 <div class="accent-swatches">
-                  <label class="color-picker-label" title="Custom hex color">
-                    <span>Pick a color</span>
+                  <label class="color-picker-label" title={m.settings_custom_hex()}>
+                    <span>{m.settings_pick_color()}</span>
                     <input
                       type="color"
                       value={settingsStore.customAccentColor}
@@ -540,11 +565,11 @@
 
             <div class="setting-card column-card">
               <div class="setting-info">
-                <div class="setting-label">Writing font</div>
-                <div class="setting-desc">Font for note text.</div>
+                <div class="setting-label">{m.settings_writing_font()}</div>
+                <div class="setting-desc">{m.settings_writing_font_desc()}</div>
               </div>
               <ChoiceCards
-                label="Writing font"
+                label={m.settings_writing_font()}
                 value={settingsStore.writingFont}
                 options={[
                   { value: 'serif', label: 'Serif · Literata' },
@@ -562,19 +587,17 @@
           </section>
         {:else if activeSection === 'vault'}
           <section class="settings-section" aria-labelledby="sec-vault">
-            <h3 id="sec-vault" class="section-title">Vault</h3>
-            <p class="section-subtitle">
-              Index, home page, tasks, and daily notes.
-            </p>
+            <h3 id="sec-vault" class="section-title">{m.settings_section_vault()}</h3>
+            <p class="section-subtitle">{m.settings_vault_subtitle()}</p>
 
             <div class="setting-card">
               <div class="setting-info">
-                <div class="setting-label">Rebuild vault index</div>
+                <div class="setting-label">{m.settings_rebuild()}</div>
                 <div class="setting-desc">
                   {#if vaultStore.vaultSnapshot}
-                    Re-scan <strong>{vaultStore.vaultSnapshot.name}</strong> ({vaultStore.vaultSnapshot.noteCount} notes) if search or links look wrong.
+                    {settingsRebuildDescParts[0]}<strong>{vaultStore.vaultSnapshot.name}</strong>{settingsRebuildDescParts[1]}
                   {:else}
-                    Open a vault to rebuild its index.
+                    {m.settings_rebuild_no_vault()}
                   {/if}
                 </div>
                 {#if rebuildStatus}
@@ -587,21 +610,20 @@
                 disabled={!vaultStore.vaultSnapshot || isRebuilding}
                 onclick={() => void handleRebuildIndex()}
               >
-                {isRebuilding ? 'Rebuilding…' : 'Rebuild index'}
+                {isRebuilding ? m.settings_rebuilding() : m.settings_rebuild_button()}
               </Button>
             </div>
 
             {#if vaultStore.vaultSnapshot && (vaultStore.syncProvider || vaultStore.syncConflicts.length > 0)}
               <div class="setting-card">
                 <div class="setting-info">
-                  <div class="setting-label">Cloud sync</div>
+                  <div class="setting-label">{m.settings_cloud_sync()}</div>
                   <div class="setting-desc">
                     {#if vaultStore.syncProvider}
-                      Synced by {PROVIDER_NAMES[vaultStore.syncProvider]}. Keep the folder available
-                      offline so search sees every note.
+                      {m.settings_synced_by({ provider: PROVIDER_NAMES[vaultStore.syncProvider] })}
                     {/if}
                     {#if vaultStore.syncConflicts.length > 0}
-                      <strong>{vaultStore.syncConflicts.length} conflict {vaultStore.syncConflicts.length === 1 ? 'copy needs' : 'copies need'} review.</strong>
+                      <strong>{m.settings_conflicts_need_review({ count: vaultStore.syncConflicts.length })}</strong>
                     {/if}
                   </div>
                 </div>
@@ -613,7 +635,7 @@
                       onClose();
                     }}
                   >
-                    Review
+                    {m.common_review()}
                   </Button>
                 {/if}
               </div>
@@ -621,10 +643,8 @@
 
             <div class="setting-card">
               <div class="setting-info">
-                <label for="toggle-home-page" class="setting-label">Home page</label>
-                <div class="setting-desc">
-                  Show recent and related notes when no note is open.
-                </div>
+                <label for="toggle-home-page" class="setting-label">{m.settings_home_page()}</label>
+                <div class="setting-desc">{m.settings_home_page_desc()}</div>
               </div>
               <input
                 id="toggle-home-page"
@@ -638,11 +658,11 @@
             {#if vaultStore.vaultSnapshot}
               <div class="setting-card">
                 <div class="setting-info">
-                  <div class="setting-label">Task calendar</div>
+                  <div class="setting-label">{m.settings_task_calendar()}</div>
                   <div class="setting-desc">
-                    Export open tasks with due dates (<code>📅 2026-11-01</code>) to an <code>.ics</code> file your calendar can subscribe to.
+                    {settingsTaskCalendarDescParts[0]}<code>📅 2026-11-01</code>{settingsTaskCalendarDescParts[1]}<code>.ics</code>{settingsTaskCalendarDescParts[2]}
                     {#if taskCalendarStore.path}
-                      <br />Writing to <code>{taskCalendarStore.path}</code>
+                      <br />{m.settings_task_calendar_writing()} <code>{taskCalendarStore.path}</code>
                     {/if}
                     {#if taskCalendarStore.lastError}
                       <div class="rebuild-status" role="alert">{taskCalendarStore.lastError}</div>
@@ -651,10 +671,10 @@
                 </div>
                 <div class="button-row">
                   <Button icon="calendar-blank" onclick={() => void taskCalendarStore.choosePath()}>
-                    {taskCalendarStore.path ? 'Change file' : 'Choose file'}
+                    {taskCalendarStore.path ? m.settings_change_file() : m.settings_choose_file()}
                   </Button>
                   {#if taskCalendarStore.path}
-                    <Button onclick={() => taskCalendarStore.turnOff()}>Turn off</Button>
+                    <Button onclick={() => taskCalendarStore.turnOff()}>{m.common_turn_off()}</Button>
                   {/if}
                 </div>
               </div>
@@ -662,11 +682,9 @@
 
             <div class="setting-card">
               <div class="setting-info">
-                <label for="toggle-hidden-files" class="setting-label">
-                  Show hidden files
-                </label>
+                <label for="toggle-hidden-files" class="setting-label">{m.settings_hidden_files()}</label>
                 <div class="setting-desc">
-                  Show dotfiles in the sidebar. <code>.obsidian</code> stays hidden.
+                  {settingsHiddenFilesDescParts[0]}<code>.obsidian</code>{settingsHiddenFilesDescParts[1]}
                 </div>
               </div>
               <input
@@ -678,34 +696,34 @@
                   settingsStore.setShowHiddenFiles(
                     (e.currentTarget as HTMLInputElement).checked
                   )}
-                aria-label="Show hidden files"
+                aria-label={m.settings_hidden_files()}
               />
             </div>
 
             <div class="setting-card column-card">
               <div class="setting-info">
-                <div class="setting-label">Daily notes</div>
+                <div class="setting-label">{m.settings_daily_notes()}</div>
                 <div class="setting-desc">
-                  <kbd>{shortcutLabel('Ctrl Shift D')}</kbd> opens today's note. Templates can use <code>{'{{date}}'}</code> and <code>{'{{time}}'}</code>.
+                  {settingsDailyNotesDescParts[0]}<kbd>{shortcutLabel('Ctrl Shift D')}</kbd>{settingsDailyNotesDescParts[1]}<code>{'{{date}}'}</code>{settingsDailyNotesDescParts[2]}<code>{'{{time}}'}</code>{settingsDailyNotesDescParts[3]}
                 </div>
               </div>
               <div class="field-row">
                 <label class="text-field">
-                  <span>Folder</span>
+                  <span>{m.settings_daily_folder()}</span>
                   <input
                     type="text"
                     value={settingsStore.dailyFolder}
-                    placeholder="Vault root"
+                    placeholder={m.settings_daily_folder_placeholder()}
                     onchange={(e) =>
                       settingsStore.setDailyFolder((e.currentTarget as HTMLInputElement).value)}
                   />
                 </label>
                 <label class="text-field">
-                  <span>Template note</span>
+                  <span>{m.settings_daily_template()}</span>
                   <input
                     type="text"
                     value={settingsStore.dailyTemplatePath}
-                    placeholder="None"
+                    placeholder={m.common_none()}
                     onchange={(e) =>
                       settingsStore.setDailyTemplatePath(
                         (e.currentTarget as HTMLInputElement).value
@@ -717,22 +735,18 @@
           </section>
         {:else if activeSection === 'ai'}
           <section class="settings-section" aria-labelledby="sec-ai">
-            <h3 id="sec-ai" class="section-title">AI</h3>
-            <p class="section-subtitle">
-              Summarize, rewrite, and translate with your own provider. Requests go straight to it.
-            </p>
+            <h3 id="sec-ai" class="section-title">{m.settings_section_ai()}</h3>
+            <p class="section-subtitle">{m.settings_ai_subtitle()}</p>
 
             {#if !aiStore.status}
               <div class="setting-card">
-                <div class="setting-desc">{aiStore.loadError || 'Loading AI settings…'}</div>
+                <div class="setting-desc">{aiStore.loadError || m.settings_ai_loading()}</div>
               </div>
             {:else}
               <div class="setting-card">
                 <div class="setting-info">
-                  <label for="toggle-ai" class="setting-label">Use AI</label>
-                  <div class="setting-desc">
-                    While off, AI features are disabled and the app remains 100% local.
-                  </div>
+                  <label for="toggle-ai" class="setting-label">{m.settings_ai_use()}</label>
+                  <div class="setting-desc">{m.settings_ai_use_desc()}</div>
                 </div>
                 <input
                   id="toggle-ai"
@@ -749,13 +763,11 @@
 
               <div class="setting-card column-card">
                 <div class="setting-info">
-                  <div class="setting-label">Provider</div>
-                  <div class="setting-desc">
-                    OpenAI-compatible also works with OpenRouter, Groq, Mistral, and LM Studio.
-                  </div>
+                  <div class="setting-label">{m.settings_ai_provider()}</div>
+                  <div class="setting-desc">{m.settings_ai_provider_desc()}</div>
                 </div>
                 <Segmented
-                  label="Provider"
+                  label={m.settings_ai_provider()}
                   options={AI_PROVIDER_OPTIONS}
                   value={aiProvider}
                   onchange={(next) => {
@@ -765,7 +777,7 @@
                 />
                 <div class="field-row">
                   <label class="text-field">
-                    <span>Base URL</span>
+                    <span>{m.settings_ai_base_url()}</span>
                     <input
                       type="url"
                       spellcheck="false"
@@ -777,7 +789,7 @@
                     />
                   </label>
                   <label class="text-field">
-                    <span>Model</span>
+                    <span>{m.settings_ai_model()}</span>
                     <input
                       type="text"
                       spellcheck="false"
@@ -791,25 +803,24 @@
                   </label>
                 </div>
                 <div class="setting-desc">
-                  Use <code>https://</code> for cloud providers.
+                  {settingsAiHttpsParts[0]}<code>https://</code>{settingsAiHttpsParts[1]}
                 </div>
               </div>
 
               {#if aiProvider !== 'ollama'}
                 <div class="setting-card column-card">
                   <div class="setting-info">
-                    <div class="setting-label">API key</div>
+                    <div class="setting-label">{m.settings_ai_api_key()}</div>
                     <div class="setting-desc">
                       {#if aiKey?.state === 'saved'}
-                        Saved in {aiStore.status.credentialStore}. Sent only to
-                        <code>{aiKey.origin}</code>.
+                        {settingsAiKeySavedParts[0]}<code>{aiKey.origin}</code>{settingsAiKeySavedParts[1]}
                       {:else if aiKey?.state === 'endpointChanged'}
                         <span class="field-warning">
-                          Base URL changed. Enter the key again to use it there.
+                          {m.settings_ai_key_endpoint_changed()}
                         </span>
                       {:else}
-                        No key saved.{aiIsLocal ? ' Local servers may not need one.' : ''}
-                        Keys stay in {aiStore.status.credentialStore}.
+                        {m.settings_ai_no_key()}{aiIsLocal ? ` ${m.settings_ai_local_no_key()}` : ''}
+                        {m.settings_ai_keys_stay({ store: aiStore.status.credentialStore })}
                       {/if}
                     </div>
                   </div>
@@ -821,23 +832,23 @@
                       void aiChange(async () => {
                         await aiStore.saveKey(aiProvider, key);
                         keyDraft = '';
-                      }, 'Saved the API key.');
+                      }, m.settings_ai_key_saved_notice());
                     }}
                   >
                     <label class="text-field">
-                      <span>{aiKey?.state === 'saved' ? 'Replace key' : 'Key'}</span>
+                      <span>{aiKey?.state === 'saved' ? m.settings_ai_replace_key() : m.settings_ai_key()}</span>
                       <input type="password" autocomplete="off" spellcheck="false" bind:value={keyDraft} />
                     </label>
                     <div class="button-row">
-                      <Button type="submit" disabled={aiBusy || !keyDraft.trim()}>Save key</Button>
+                      <Button type="submit" disabled={aiBusy || !keyDraft.trim()}>{m.settings_ai_save_key()}</Button>
                       {#if aiKey && aiKey.state !== 'none'}
                         <Button
                           variant="danger"
                           disabled={aiBusy}
                           onclick={() =>
-                            void aiChange(() => aiStore.deleteKey(aiProvider), 'Removed the API key.')}
+                            void aiChange(() => aiStore.deleteKey(aiProvider), m.settings_ai_key_removed())}
                         >
-                          Remove
+                          {m.common_remove()}
                         </Button>
                       {/if}
                     </div>
@@ -848,17 +859,15 @@
               <div class="setting-card column-card">
                 <div class="setting-row-top">
                   <div class="setting-info">
-                    <label for="ai-style" class="setting-label">Writing style</label>
-                    <div class="setting-desc">
-                      How rewrites and summaries should read. Translation and grammar fixes ignore it.
-                    </div>
+                    <label for="ai-style" class="setting-label">{m.settings_ai_style()}</label>
+                    <div class="setting-desc">{m.settings_ai_style_desc()}</div>
                   </div>
                   <Button
                     disabled={aiBusy || styleValue === aiStore.status.defaultStyleInstructions}
                     onclick={() =>
-                      void saveStyle(aiStore.status!.defaultStyleInstructions, 'Restored the default style.')}
+                      void saveStyle(aiStore.status!.defaultStyleInstructions, m.settings_ai_style_restored())}
                   >
-                    Reset to default
+                    {m.settings_ai_style_reset()}
                   </Button>
                 </div>
                 <textarea
@@ -890,18 +899,14 @@
           </section>
         {:else if activeSection === 'system'}
           <section class="settings-section" aria-labelledby="sec-system">
-            <h3 id="sec-system" class="section-title">System</h3>
-            <p class="section-subtitle">
-              Global hotkey and custom CSS.
-            </p>
+            <h3 id="sec-system" class="section-title">{m.settings_section_system()}</h3>
+            <p class="section-subtitle">{m.settings_system_subtitle()}</p>
 
             <div class="setting-card column-card">
               <div class="setting-row-top">
                 <div class="setting-info">
-                  <label for="toggle-summon" class="setting-label">Summon hotkey</label>
-                  <div class="setting-desc">
-                    Show or hide Jotter from anywhere. Closing the window sends it to the tray.
-                  </div>
+                  <label for="toggle-summon" class="setting-label">{m.settings_summon()}</label>
+                  <div class="setting-desc">{m.settings_summon_desc()}</div>
                 </div>
                 <input
                   id="toggle-summon"
@@ -913,7 +918,7 @@
                 />
               </div>
               <label class="text-field">
-                <span>Hotkey</span>
+                <span>{m.settings_hotkey()}</span>
                 <input
                   type="text"
                   value={settingsStore.summonShortcut}
@@ -933,22 +938,22 @@
             <div class="setting-card column-card">
               <div class="setting-row-top">
                 <div class="setting-info">
-                  <div class="setting-label">CSS snippets</div>
+                  <div class="setting-label">{m.settings_snippets()}</div>
                   <div class="setting-desc">
-                    Restyle Jotter with your own <code>.css</code> files. Add one to the folder, reload, then turn it on.
+                    {settingsSnippetsDescParts[0]}<code>.css</code>{settingsSnippetsDescParts[1]}
                   </div>
                 </div>
                 <div class="button-row">
                   <Button icon="arrow-clockwise" onclick={() => void systemStore.reloadSnippets()}>
-                    Reload
+                    {m.common_reload()}
                   </Button>
                   <Button icon="folder-open" onclick={() => void systemStore.openSnippetsFolder()}>
-                    Open folder
+                    {m.common_open_folder()}
                   </Button>
                 </div>
               </div>
               {#if systemStore.snippets.length === 0}
-                <div class="setting-desc">No snippets yet.</div>
+                <div class="setting-desc">{m.settings_no_snippets()}</div>
               {:else}
                 <ul class="snippet-list">
                   {#each systemStore.snippets as snippet (snippet.name)}
@@ -976,14 +981,14 @@
           </section>
         {:else if activeSection === 'about'}
           <section class="settings-section about" aria-labelledby="sec-about">
-            <img class="about-mark" src={aboutLogo} alt="Jack playing card with a J and full crown" width="160" height="160" />
+            <img class="about-mark" src={aboutLogo} alt={m.settings_about_logo_alt()} width="160" height="160" />
             <div class="about-copy">
               <h3 id="sec-about" class="section-title">Jotter</h3>
               {#if appVersion}
-                <p class="about-version">Version {appVersion}</p>
+                <p class="about-version">{m.settings_about_version({ version: appVersion })}</p>
               {/if}
               <p class="about-desc">
-                A Markdown notebook with smart editing and optional AI.
+                {m.settings_about_desc()}
               </p>
             </div>
           </section>

@@ -34,6 +34,9 @@
   import { settingsStore } from './stores/settings.svelte';
   import { spellingStore } from './stores/spelling.svelte';
   import { aiStore } from './stores/ai.svelte';
+  import { createLineNumbersExtension } from './lineNumbers';
+  import { i18n, m } from './i18n.svelte';
+  import { refreshEditorLocale } from './editorLocale';
   import { aiResultChange, aiTargetRange, type AiPlacement, type AiScope, type AiTarget } from './aiText';
   import { createSpellcheckExtension, misspelledWordAt, refreshSpellcheck } from './spellcheck';
   import Icon from './ui/Icon.svelte';
@@ -100,16 +103,16 @@
   // Floating format toolbar shown above a non-empty selection.
   let selectionBar = $state<{ left: number; top: number } | null>(null);
 
-  const SELECTION_ACTIONS: { cmd: MarkdownFormatCommandId; icon: IconName; label: string }[] = [
-    { cmd: 'bold', icon: 'text-b', label: shortcutLabel('Bold (Ctrl+B)') },
-    { cmd: 'italic', icon: 'text-italic', label: shortcutLabel('Italic (Ctrl+I)') },
-    { cmd: 'strikethrough', icon: 'text-strikethrough', label: 'Strikethrough' },
-    { cmd: 'inline_code', icon: 'code', label: 'Inline code' },
-    { cmd: 'link', icon: 'link-simple', label: 'Link' },
-    { cmd: 'wikilink', icon: 'notebook', label: 'Wiki link' },
-    { cmd: 'blockquote', icon: 'quotes', label: 'Quote' },
-    { cmd: 'task_list', icon: 'list-checks', label: 'Task list' },
-  ];
+  const SELECTION_ACTIONS = $derived<{ cmd: MarkdownFormatCommandId; icon: IconName; label: string }[]>([
+    { cmd: 'bold', icon: 'text-b', label: m.editor_bold({ shortcut: shortcutLabel('Ctrl+B') }) },
+    { cmd: 'italic', icon: 'text-italic', label: m.editor_italic({ shortcut: shortcutLabel('Ctrl+I') }) },
+    { cmd: 'strikethrough', icon: 'text-strikethrough', label: m.editor_strikethrough() },
+    { cmd: 'inline_code', icon: 'code', label: m.editor_inline_code() },
+    { cmd: 'link', icon: 'link-simple', label: m.editor_link() },
+    { cmd: 'wikilink', icon: 'notebook', label: m.editor_wikilink() },
+    { cmd: 'blockquote', icon: 'quotes', label: m.editor_quote() },
+    { cmd: 'task_list', icon: 'list-checks', label: m.editor_task_list() },
+  ]);
 
   function updateSelectionBar(target: EditorView) {
     const sel = target.state.selection.main;
@@ -141,6 +144,13 @@
   let totalStats = { lines: 0, words: 0, chars: 0 };
   let statsTimer: ReturnType<typeof setTimeout> | undefined;
   const spellcheckCompartment = new Compartment();
+  const lineNumbersCompartment = new Compartment();
+  const placeholderCompartment = new Compartment();
+
+  function lineNumbersExtension() {
+    if (!settingsStore.showLineNumbers) return [];
+    return createLineNumbersExtension();
+  }
 
   // Jotter's dictionaries, or the WebView's checker, which uses the languages installed in the OS.
   function spellcheckExtension() {
@@ -337,6 +347,29 @@
       margin: '0 auto',
       padding: '0 0 var(--space-12) 0',
       caretColor: 'var(--accent)',
+    },
+    // Room for the numbers on both sides keeps the text column centered under the note header.
+    '&.cm-with-line-numbers .cm-scroller': {
+      paddingInline: 'calc(var(--space-6) + 3em)',
+    },
+    '&.cm-with-line-numbers .cm-line': {
+      position: 'relative',
+    },
+    '.cm-line-number': {
+      position: 'absolute',
+      right: '100%',
+      marginRight: 'var(--space-3)',
+      whiteSpace: 'nowrap',
+      userSelect: 'none',
+      pointerEvents: 'none',
+      color: 'var(--text-muted)',
+    },
+    '.cm-line-number > span': {
+      fontFamily: 'var(--font-mono)',
+      fontSize: 'var(--fs-12)',
+      fontWeight: '400',
+      fontStyle: 'normal',
+      letterSpacing: '0',
     },
     '.cm-content.cm-typewriter-content': {
       paddingTop: '42vh',
@@ -665,7 +698,7 @@
       });
       if (source === 'cut') {
         if (!operation.isCurrent(v, editorGeneration)) {
-          onError?.('Cut cancelled because the note changed. The copied text is on the clipboard.');
+          onError?.(m.editor_cut_cancelled());
           return false;
         }
         v.dispatch({
@@ -686,7 +719,7 @@
       const plainText = await pastePlainFromClipboard();
       if (!plainText) return true;
       if (!operation.isCurrent(v, editorGeneration)) {
-        onError?.('Paste cancelled because the note changed. Paste again in the intended note.');
+        onError?.(m.editor_paste_cancelled());
         return false;
       }
       const sel = operation;
@@ -713,7 +746,7 @@
       if (!operation.isCurrent(v, editorGeneration)) return false;
       const [fileName, relPath] = await savePastedImage(pngBytes);
       if (!operation.isCurrent(v, editorGeneration)) {
-        onError?.('Image paste cancelled because the note changed. The image remains in attachments.');
+        onError?.(m.editor_image_paste_cancelled());
         return false;
       }
       const insertSyntax =
@@ -810,7 +843,7 @@
         drawSelection(),
         highlightActiveLine(),
         EditorView.lineWrapping,
-        placeholder('Write your Markdown note here...'),
+        placeholderCompartment.of(placeholder(m.editor_placeholder())),
         markdown({ base: markdownLanguage }),
         syntaxHighlighting(markdownHighlight),
         createWikiLinkAutocompleteExtension(() => vaultFiles),
@@ -824,6 +857,7 @@
           })
         ),
         spellcheckCompartment.of(spellcheckExtension()),
+        lineNumbersCompartment.of(lineNumbersExtension()),
         createCalcExtension(),
         createOutlinerExtension(),
         editorTheme,
@@ -916,6 +950,20 @@
   $effect(() => {
     const extension = spellcheckExtension();
     untrack(() => view)?.dispatch({ effects: spellcheckCompartment.reconfigure(extension) });
+  });
+
+  $effect(() => {
+    const extension = lineNumbersExtension();
+    untrack(() => view)?.dispatch({ effects: lineNumbersCompartment.reconfigure(extension) });
+  });
+
+  $effect(() => {
+    void i18n.locale;
+    const translatedPlaceholder = placeholder(m.editor_placeholder());
+    untrack(() => view)?.dispatch({ effects: [
+      placeholderCompartment.reconfigure(translatedPlaceholder),
+      refreshEditorLocale.of(),
+    ] });
   });
 
   function normalizeHeadingSlug(text: string): string {
@@ -1055,14 +1103,14 @@
   {#if header}
     <div class="note-header">{@render header()}</div>
   {/if}
-  <div class="editor-surface" bind:this={editorHost} aria-label="Markdown note editor"></div>
+  <div class="editor-surface" bind:this={editorHost} aria-label={m.editor_label()}></div>
 </div>
 
 {#if selectionBar}
   <div
     class="selection-bar"
     role="toolbar"
-    aria-label="Format selection"
+    aria-label={m.editor_format_selection()}
     style:left="{selectionBar.left}px"
     style:top="{selectionBar.top}px"
   >
@@ -1084,8 +1132,8 @@
       <span class="sep" aria-hidden="true"></span>
       <button
         type="button"
-        title="Rewrite with AI"
-        aria-label="Rewrite with AI"
+        title={m.editor_rewrite_ai()}
+        aria-label={m.editor_rewrite_ai()}
         onmousedown={(e) => {
           e.preventDefault();
         }}
@@ -1104,7 +1152,7 @@
   <div
     class="spell-menu"
     role="menu"
-    aria-label="Spelling suggestions for {spellMenu.word}"
+    aria-label={m.editor_spelling_suggestions({ word: spellMenu.word })}
     tabindex="-1"
     bind:this={spellMenuEl}
     style:left="{spellMenu.left}px"
@@ -1112,9 +1160,9 @@
     onkeydown={handleSpellMenuKeydown}
   >
     {#if spellMenu.suggestions === null}
-      <div class="spell-note">Looking for suggestions…</div>
+      <div class="spell-note">{m.editor_looking_suggestions()}</div>
     {:else if spellMenu.suggestions.length === 0}
-      <div class="spell-note">No suggestions</div>
+      <div class="spell-note">{m.editor_no_suggestions()}</div>
     {:else}
       {#each spellMenu.suggestions as suggestion (suggestion)}
         <button type="button" role="menuitem" class="suggestion" onclick={() => replaceMisspelling(suggestion)}>
@@ -1124,7 +1172,7 @@
     {/if}
     <span class="menu-sep" aria-hidden="true"></span>
     <button type="button" role="menuitem" onclick={() => void addMisspellingToDictionary()}>
-      Add “{spellMenu.word}” to dictionary
+      {m.editor_add_to_dictionary({ word: spellMenu.word })}
     </button>
   </div>
 {/if}

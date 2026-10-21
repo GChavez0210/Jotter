@@ -4,6 +4,7 @@
   import { tabsStore } from './stores/tabs.svelte';
   import { vaultStore } from './stores/vault.svelte';
   import Icon from './ui/Icon.svelte';
+  import { m } from './i18n.svelte';
 
   // Vault › folders › note, built from the active tab's vault-relative path.
   let crumbs = $derived.by(() => {
@@ -13,7 +14,7 @@
       const folders = tabsStore.activeTab.relPath.replace(/\\/g, '/').split('/').slice(0, -1);
       parts.push(...folders, tabsStore.activeTab.title.replace(/\.md$/i, ''));
     } else if (tabsStore.scratchpadMode) {
-      parts.push('Scratchpad');
+      parts.push(m.scratchpad_title());
     }
     return parts;
   });
@@ -25,8 +26,8 @@
 </script>
 
 {#if settingsStore.focusMode === 'off'}
-  <footer class="status-bar" aria-label="Status bar">
-    <nav class="crumbs" aria-label="Location">
+  <footer class="status-bar" aria-label={m.status_bar()}>
+    <nav class="crumbs" aria-label={m.status_location()}>
       {#each crumbs as crumb, i}
         {#if i > 0}<Icon name="caret-right" size={10} />{/if}
         <span class:current={i === crumbs.length - 1}>{crumb}</span>
@@ -36,21 +37,21 @@
     {#if vaultStore.syncConflicts.length > 0}
       <button type="button" class="conflicts" onclick={showConflicts}>
         <Icon name="warning" size={12} />
-        {vaultStore.syncConflicts.length} sync {vaultStore.syncConflicts.length === 1 ? 'conflict' : 'conflicts'}
+        {m.status_sync_conflicts({ count: vaultStore.syncConflicts.length })}
       </button>
     {/if}
 
-    <span class="message" role="status" title={clipboardStore.statusBanner}>
-      {clipboardStore.statusBanner}
+    <span class="message" role="status" title={clipboardStore.statusBanner || m.status_ready()}>
+      {clipboardStore.statusBanner || m.status_ready()}
     </span>
 
     {#if tabsStore.activeTab || tabsStore.scratchpadMode}
-      <span class="item">{settingsStore.editingMode === 'live' ? 'Live' : 'Source'}</span>
+      <span class="item">{settingsStore.editingMode === 'live' ? m.titlebar_live() : m.editing_mode_source()}</span>
       <span class="item">
         {#if tabsStore.docStats.selectedChars > 0}
-          {tabsStore.docStats.selectedChars} selected ·
+          {m.status_selected({ count: tabsStore.docStats.selectedChars })} ·
         {/if}
-        {tabsStore.docStats.words} words
+        {m.word_count({ count: tabsStore.docStats.words })}
       </span>
     {/if}
   </footer>

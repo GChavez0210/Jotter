@@ -1,4 +1,6 @@
+import { editorLocaleChanged, LocalizedWidget } from './editorLocale';
 import { syntaxTree } from '@codemirror/language';
+import { m } from './i18n.svelte';
 import { createFrontmatterHideExtension } from './frontmatterPreview';
 import { createDueDateExtension } from './dueDates';
 import {
@@ -70,7 +72,7 @@ class BulletPointWidget extends WidgetType {
   }
 }
 
-class TaskCheckboxWidget extends WidgetType {
+class TaskCheckboxWidget extends LocalizedWidget {
   constructor(
     readonly checked: boolean,
     readonly markerFrom: number,
@@ -80,7 +82,7 @@ class TaskCheckboxWidget extends WidgetType {
   }
 
   eq(other: TaskCheckboxWidget): boolean {
-    return (
+    return this.locale === other.locale && (
       this.checked === other.checked &&
       this.markerFrom === other.markerFrom &&
       this.markerTo === other.markerTo
@@ -97,7 +99,7 @@ class TaskCheckboxWidget extends WidgetType {
     input.checked = this.checked;
     input.setAttribute(
       'aria-label',
-      this.checked ? 'Completed task item' : 'Incomplete task item'
+      this.checked ? m.preview_task_done() : m.preview_task_open()
     );
 
     input.addEventListener('mousedown', (e) => {
@@ -189,7 +191,7 @@ class HorizontalRuleWidget extends WidgetType {
   }
 }
 
-class ImageEmbedWidget extends WidgetType {
+class ImageEmbedWidget extends LocalizedWidget {
   readonly epoch = imagePreviewEpoch;
   constructor(
     readonly target: string,
@@ -200,7 +202,7 @@ class ImageEmbedWidget extends WidgetType {
   }
 
   eq(other: ImageEmbedWidget): boolean {
-    return (
+    return this.locale === other.locale && (
       this.target === other.target &&
       this.epoch === other.epoch &&
       this.altText === other.altText &&
@@ -211,7 +213,7 @@ class ImageEmbedWidget extends WidgetType {
   toDOM(view: EditorView): HTMLElement {
     const container = document.createElement('span');
     container.className = 'cm-live-image-embed';
-    container.title = `${this.altText || this.target} (Click to edit syntax)`;
+    container.title = m.preview_image_title({ name: this.altText || this.target });
 
     const img = document.createElement('img');
     img.className = 'cm-live-image-el';
@@ -260,7 +262,7 @@ class ImageEmbedWidget extends WidgetType {
   }
 }
 
-class WikiLinkWidget extends WidgetType {
+class WikiLinkWidget extends LocalizedWidget {
   constructor(
     readonly displayText: string,
     readonly rawTarget: string,
@@ -273,7 +275,7 @@ class WikiLinkWidget extends WidgetType {
   }
 
   eq(other: WikiLinkWidget): boolean {
-    return (
+    return this.locale === other.locale && (
       this.displayText === other.displayText &&
       this.rawTarget === other.rawTarget &&
       this.noteTarget === other.noteTarget &&
@@ -286,7 +288,7 @@ class WikiLinkWidget extends WidgetType {
     const span = document.createElement('span');
     span.className = 'cm-live-wikilink-widget';
     span.textContent = this.displayText;
-    span.title = `Open [[${this.rawTarget}]] (Alt+Click to edit syntax)`;
+    span.title = m.preview_wikilink_title({ target: this.rawTarget });
     span.addEventListener('mousedown', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -1120,6 +1122,7 @@ export function createLivePreviewExtension(
             syntaxTree(update.startState) !== syntaxTree(update.state);
           if (
             update.docChanged ||
+            update.transactions.some(editorLocaleChanged) ||
             update.selectionSet ||
             update.viewportChanged ||
             treeChanged || update.transactions.some((tr) => tr.effects.some((effect) => effect.is(refreshImages)))

@@ -5,6 +5,7 @@
   import { listDeletedEntries } from './ipc';
   import { vaultStore } from './stores/vault.svelte';
   import type { DeletedEntry } from './types';
+  import { i18n, m } from './i18n.svelte';
 
   let entries = $state<DeletedEntry[]>([]);
   let loading = $state(true);
@@ -12,10 +13,12 @@
   let restoringId = $state<string | null>(null);
   let refreshId = 0;
 
-  const dateFormat = new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  });
+  const dateFormat = $derived(
+    new Intl.DateTimeFormat(i18n.locale, {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    })
+  );
 
   async function refresh() {
     const id = ++refreshId;
@@ -45,7 +48,7 @@
 
   function parentFolder(relPath: string): string {
     const idx = relPath.lastIndexOf('/');
-    return idx > 0 ? relPath.slice(0, idx) : 'Vault root';
+    return idx > 0 ? relPath.slice(0, idx) : m.sidebar_vault_root();
   }
 
   // Reload when the vault changes, including notes this window just deleted.
@@ -56,22 +59,22 @@
   });
 </script>
 
-<div class="deleted-panel" aria-label="Recently deleted">
+<div class="deleted-panel" aria-label={m.sidebar_view_trash()}>
   <div class="section-header">
-    <span>Recently deleted</span>
-    <IconButton icon="arrow-clockwise" size="sm" label="Refresh" onclick={() => void refresh()} />
+    <span>{m.sidebar_view_trash()}</span>
+    <IconButton icon="arrow-clockwise" size="sm" label={m.common_refresh()} onclick={() => void refresh()} />
   </div>
 
   <div class="list-scroll">
     {#if isMac}
-      <div class="empty-msg">Deleted notes go to the system Trash. Open Trash in Finder to restore them to this vault.</div>
+      <div class="empty-msg">{m.trash_mac_hint()}</div>
     {:else if loading && entries.length === 0}
-      <div class="empty-msg">Reading the system trash…</div>
+      <div class="empty-msg">{m.trash_reading()}</div>
     {:else if errorMessage}
       <div class="empty-msg" role="alert">{errorMessage}</div>
     {:else if entries.length === 0}
       <div class="empty-msg">
-        No deleted notes from this vault are in the system trash.
+        {m.trash_empty()}
       </div>
     {:else}
       <ul class="deleted-list">
@@ -91,8 +94,8 @@
             <IconButton
               icon="arrow-bend-up-left"
               size="sm"
-              label="Restore {entry.originalRelPath}"
-              tooltip="Restore to {parentFolder(entry.originalRelPath)}"
+              label={m.trash_restore_named({ path: entry.originalRelPath })}
+              tooltip={m.trash_restore_to({ folder: parentFolder(entry.originalRelPath) })}
               disabled={restoringId !== null}
               onclick={() => void restore(entry)}
             />

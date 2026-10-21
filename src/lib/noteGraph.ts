@@ -1,3 +1,4 @@
+import { m } from './i18n.svelte';
 import type { NoteCard } from './types';
 
 /**
@@ -82,22 +83,38 @@ export interface HomeSection {
   hidden?: boolean;
 }
 
+/** An empty title shows the section's default title in the UI language. */
 export const DEFAULT_HOME_SECTIONS: HomeSection[] = [
-  { id: 'opened', kind: 'recent-opened', title: 'Recently opened', limit: 6, sort: 'default', folder: '', tag: '' },
-  { id: 'modified', kind: 'recent-modified', title: 'Recently edited', limit: 6, sort: 'default', folder: '', tag: '' },
-  { id: 'created', kind: 'recent-created', title: 'New notes', limit: 6, sort: 'default', folder: '', tag: '' },
-  { id: 'linked', kind: 'most-linked', title: 'Most linked', limit: 6, sort: 'default', folder: '', tag: '' },
-  { id: 'rediscover', kind: 'rediscover', title: 'Rediscover', limit: 1, sort: 'default', folder: '', tag: '' },
+  { id: 'opened', kind: 'recent-opened', title: '', limit: 6, sort: 'default', folder: '', tag: '' },
+  { id: 'modified', kind: 'recent-modified', title: '', limit: 6, sort: 'default', folder: '', tag: '' },
+  { id: 'created', kind: 'recent-created', title: '', limit: 6, sort: 'default', folder: '', tag: '' },
+  { id: 'linked', kind: 'most-linked', title: '', limit: 6, sort: 'default', folder: '', tag: '' },
+  { id: 'rediscover', kind: 'rediscover', title: '', limit: 1, sort: 'default', folder: '', tag: '' },
 ];
 
-export const SECTION_KIND_LABELS: Record<HomeSectionKind, string> = {
-  'recent-opened': 'Recently opened',
-  'recent-created': 'Recently created',
-  'recent-modified': 'Recently edited',
-  tag: 'Notes with a tag',
-  'most-linked': 'Most linked',
-  'least-linked': 'Least linked',
+/** Titles that older versions saved for the default sections, before titles were translated. */
+const LEGACY_DEFAULT_TITLES: Record<string, string> = {
+  opened: 'Recently opened',
+  modified: 'Recently edited',
+  created: 'New notes',
+  linked: 'Most linked',
   rediscover: 'Rediscover',
+};
+
+/** The section's own title, or its default title in the UI language when it has none. */
+export function homeSectionTitle(section: HomeSection): string {
+  if (section.title && section.title !== LEGACY_DEFAULT_TITLES[section.id]) return section.title;
+  return section.id === 'created' ? m.home_section_new_notes() : SECTION_KIND_LABELS[section.kind];
+}
+
+export const SECTION_KIND_LABELS: Record<HomeSectionKind, string> = {
+  get 'recent-opened'() { return m.home_kind_recent_opened(); },
+  get 'recent-created'() { return m.home_kind_recent_created(); },
+  get 'recent-modified'() { return m.home_kind_recent_modified(); },
+  get tag() { return m.home_kind_tag(); },
+  get 'most-linked'() { return m.home_kind_most_linked(); },
+  get 'least-linked'() { return m.home_kind_least_linked(); },
+  get rediscover() { return m.home_kind_rediscover(); },
 };
 
 /** Notes untouched for this long qualify for Rediscover. */

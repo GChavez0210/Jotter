@@ -7,6 +7,7 @@
   import { AI_PROVIDER_LABELS, REWRITE_ACTIONS, REWRITE_TONES, REWRITE_STYLE_LABELS, aiStore, type AiOperationKind } from './stores/ai.svelte';
   import type { AiPlacement, AiScope, AiTarget } from './aiText';
   import type { RewriteStyle } from './types';
+  import { i18n, m } from './i18n.svelte';
 
   interface Props {
     hasSelection: boolean;
@@ -18,17 +19,24 @@
 
   let { hasSelection, captureTarget, applyResult, onOpenSettings, onClose }: Props = $props();
 
-  const OPERATIONS = [
-    { value: 'rewrite', label: 'Rewrite' },
-    { value: 'translate', label: 'Translate' },
-    { value: 'summarize', label: 'Summarize' },
-  ] as const satisfies readonly { value: AiOperationKind; label: string }[];
+  const OPERATIONS = $derived<{ value: AiOperationKind; label: string }[]>([
+    { value: 'rewrite', label: m.ai_op_rewrite() },
+    { value: 'translate', label: m.ai_op_translate() },
+    { value: 'summarize', label: m.ai_op_summarize() },
+  ]);
 
-  const LANGUAGES = [
-    'English', 'Spanish', 'French', 'German', 'Italian', 'Portuguese', 'Dutch', 'Polish',
-    'Russian', 'Ukrainian', 'Turkish', 'Arabic', 'Hindi', 'Japanese', 'Korean',
-    'Simplified Chinese', 'Traditional Chinese',
+  const LANGUAGE_CODES = [
+    'en', 'es', 'fr', 'de', 'it', 'pt', 'nl', 'pl', 'ru', 'uk', 'tr', 'ar', 'hi', 'ja', 'ko',
+    'zh-Hans', 'zh-Hant',
   ];
+  // Suggestions use the UI language; the model accepts a language name in any language.
+  const LANGUAGES = $derived.by(() => {
+    const names = new Intl.DisplayNames([i18n.locale], { type: 'language' });
+    return LANGUAGE_CODES.map((code) => {
+      const name = names.of(code) ?? code;
+      return name.charAt(0).toLocaleUpperCase(i18n.locale) + name.slice(1);
+    });
+  });
 
   const screens = $state<Record<AiOperationKind, { scope: AiScope; target: AiTarget | null; notice: string }>>({
     rewrite: { scope: 'note', target: null, notice: '' },
@@ -134,11 +142,11 @@
       return;
     }
     if (!captured) {
-      screen.notice = screen.scope === 'selection' ? 'Select some text first.' : 'The note has no text to send.';
+      screen.notice = screen.scope === 'selection' ? m.ai_select_text_first() : m.ai_note_empty();
       return;
     }
     if (aiStore.panelOperation === 'translate' && !aiStore.targetLanguage.trim()) {
-      screen.notice = 'Choose a language to translate into.';
+      screen.notice = m.ai_choose_language();
       return;
     }
     screen.target = captured;
@@ -150,7 +158,7 @@
     if (applyResult(screen.target, result.text, placement)) {
       onClose();
     } else {
-      screen.notice = 'The note changed after the request started, so Jotter did not apply the result. Run the command again.';
+      screen.notice = m.ai_note_changed();
     }
   }
 
@@ -159,17 +167,18 @@
     const copiedScreen = screen;
     try {
       await copyToClipboard({ text: result.text, mode: 'markdown_source' });
-      copiedScreen.notice = 'Copied the result.';
+      copiedScreen.notice = m.ai_copied();
     } catch (err) {
-      copiedScreen.notice = `Copy failed: ${err}`;
+      copiedScreen.notice = m.ai_copy_failed({ error: String(err) });
     }
   }
 
   function usageLabel() {
     if (!result) return '';
     const { inputTokens, outputTokens } = result.usage;
-    const tokens = inputTokens !== null && outputTokens !== null ? ` · ${inputTokens} in, ${outputTokens} out tokens` : '';
-    return `${result.model} via ${AI_PROVIDER_LABELS[result.provider]}${tokens}`;
+    const via = m.ai_usage_via({ model: result.model, provider: AI_PROVIDER_LABELS[result.provider] });
+    if (inputTokens === null || outputTokens === null) return via;
+    return `${via} · ${m.ai_usage_tokens({ input: inputTokens, output: outputTokens })}`;
   }
 
   function handleKeydown(event: KeyboardEvent) {
@@ -194,7 +203,7 @@
 <div
   class="ai-panel"
   role="dialog"
-  aria-label="AI"
+  aria-label={m.ai_title()}
   tabindex="-1"
   bind:this={menuEl}
   style:left="{position.left}px"
@@ -206,19 +215,19 @@
         type="button"
         class="move-handle"
         class:dragging={drag !== null}
-        aria-label="Move AI menu"
-        title="Drag to move. Arrow keys move; Shift moves faster. Home resets position."
+        aria-label={m.ai_move_menu()}
+        title={m.ai_move_menu_hint()}
         onpointerdown={startDrag}
         onpointermove={moveDrag}
         onpointerup={() => (drag = null)}
         onpointercancel={() => (drag = null)}
         onlostpointercapture={() => (drag = null)}
         onkeydown={moveWithKeyboard}
-      ><span aria-hidden="true">⠿</span> AI</button>
-      <button type="button" class="close" aria-label="Close AI menu" onclick={onClose}>×</button>
+      ><span aria-hidden="true">⠿</span> {m.ai_title()}</button>
+      <button type="button" class="close" aria-label={m.ai_close_menu()} onclick={onClose}>×</button>
     </header>
       <Segmented
-        label="Command"
+        label={m.ai_command()}
         fill
         options={OPERATIONS}
         value={aiStore.panelOperation}
@@ -226,30 +235,30 @@
       />
 
     {#if !aiStore.status}
-      <p class="muted">{aiStore.loadError || 'Loading AI settings…'}</p>
+      <p class="muted">{aiStore.loadError || m.settings_ai_loading()}</p>
     {:else if !ready}
       <div class="setup">
         <p>
           {aiStore.enabled
-            ? `Set a base URL and model for ${AI_PROVIDER_LABELS[provider]}.`
-            : 'AI is off.'}
+            ? m.ai_setup_endpoint({ provider: AI_PROVIDER_LABELS[provider] })
+            : m.ai_off()}
         </p>
-        <Button variant="primary" icon="gear-six" onclick={onOpenSettings}>Open AI settings</Button>
+        <Button variant="primary" icon="gear-six" onclick={onOpenSettings}>{m.ai_open_settings()}</Button>
       </div>
     {:else}
       <div class="options">
         <Segmented
-          label="Text to send"
+          label={m.ai_text_to_send()}
           options={[
-            { value: 'selection', label: 'Selection' },
-            { value: 'note', label: 'Whole note' },
+            { value: 'selection', label: m.ai_scope_selection() },
+            { value: 'note', label: m.ai_scope_note() },
           ]}
           value={screen.scope}
           onchange={(next) => (screen.scope = next)}
         />
         {#if aiStore.panelOperation === 'rewrite'}
           <label class="field">
-            <span>Action</span>
+            <span>{m.ai_action()}</span>
             <select
               value={aiStore.rewriteStyle}
               onchange={(e) => aiStore.setRewriteStyle((e.currentTarget as HTMLSelectElement).value as RewriteStyle)}
@@ -257,7 +266,7 @@
               {#each REWRITE_ACTIONS as value (value)}
                 <option {value}>{REWRITE_STYLE_LABELS[value]}</option>
               {/each}
-              <optgroup label="Tone">
+              <optgroup label={m.ai_tone()}>
                 {#each REWRITE_TONES as value (value)}
                   <option {value}>{REWRITE_STYLE_LABELS[value]}</option>
                 {/each}
@@ -266,7 +275,7 @@
           </label>
         {:else if aiStore.panelOperation === 'translate'}
           <label class="field">
-            <span>Into</span>
+            <span>{m.ai_into()}</span>
             <input
               type="text"
               list="ai-languages"
@@ -283,7 +292,7 @@
 
       {#if aiStore.panelOperation === 'rewrite' && aiStore.rewriteStyle === 'polish'}
         <p class="muted">
-          <button type="button" class="link" onclick={onOpenSettings}>Edit writing style</button>
+          <button type="button" class="link" onclick={onOpenSettings}>{m.ai_edit_style()}</button>
         </p>
       {/if}
 
@@ -291,22 +300,22 @@
 
       <div class="result-area">
         {#if aiStore.run.phase === 'running'}
-          <div class="status" role="status">Waiting for {AI_PROVIDER_LABELS[provider]}…</div>
+          <div class="status" role="status">{m.ai_waiting({ provider: AI_PROVIDER_LABELS[provider] })}</div>
         {:else if aiStore.run.phase === 'error'}
           <div class="error" role="alert">{aiStore.run.message}</div>
         {:else if result}
-          <label class="muted" for="ai-result-preview">Markdown preview</label>
+          <label class="muted" for="ai-result-preview">{m.ai_markdown_preview()}</label>
           <textarea
             id="ai-result-preview"
             bind:this={resultEl}
             class="result"
             readonly
-            aria-label="Result preview"
+            aria-label={m.ai_result_preview()}
             value={result.text}
           ></textarea>
           <div class="muted small">{usageLabel()}</div>
         {:else}
-          <div class="status muted">The result appears here.</div>
+          <div class="status muted">{m.ai_result_placeholder()}</div>
         {/if}
       </div>
     {/if}
@@ -315,22 +324,22 @@
 
     <footer class="actions">
       {#if result}
-        <Button onclick={() => void copyResult()} icon="copy">Copy</Button>
-        <Button onclick={() => aiStore.run = { phase: 'idle' }}>Discard</Button>
+        <Button onclick={() => void copyResult()} icon="copy">{m.common_copy()}</Button>
+        <Button onclick={() => aiStore.run = { phase: 'idle' }}>{m.ai_discard()}</Button>
         <Button
           variant={preferredPlacement === 'below' ? 'primary' : 'default'}
           onclick={() => apply('below')}
-        >Insert below</Button>
+        >{m.ai_insert_below()}</Button>
         <Button
           variant={preferredPlacement === 'replace' ? 'primary' : 'default'}
           onclick={() => apply('replace')}
-        >Replace</Button>
+        >{m.ai_replace()}</Button>
       {:else if running}
-        <Button onclick={() => aiStore.cancel()} icon="stop">Cancel</Button>
+        <Button onclick={() => aiStore.cancel()} icon="stop">{m.common_cancel()}</Button>
       {:else}
-        <Button onclick={onClose}>Close</Button>
+        <Button onclick={onClose}>{m.common_close()}</Button>
         {#if ready}
-          <Button variant="primary" icon="sparkle" onclick={run}>Run</Button>
+          <Button variant="primary" icon="sparkle" onclick={run}>{m.ai_run()}</Button>
         {/if}
       {/if}
     </footer>

@@ -21,6 +21,7 @@
     listenVaultFsEvents,
     quitApp,
     keepAppOpen,
+    setTrayLabels,
     renderNoteHtmlPreview,
   } from './lib/ipc';
   import { enhanceRenderedHtml } from './lib/richBlocks';
@@ -34,6 +35,7 @@
   import { taskCalendarStore } from './lib/stores/taskCalendar.svelte';
   import { noteCardsStore } from './lib/stores/noteCards.svelte';
   import HomePage from './lib/HomePage.svelte';
+  import { i18n, m, SLOT, splitSlots } from './lib/i18n.svelte';
 
   let editorRef: Editor | undefined = $state();
   let unlistenFsEvents: UnlistenFn | null = null;
@@ -75,12 +77,12 @@
     if (tabsStore.activeTab) {
       const name = tabsStore.activeTab.title.replace(/\.md$/i, '');
       return {
-        title: name || 'Untitled',
+        title: name || m.note_untitled(),
         markdown: tabsStore.activeTab.content,
       };
     }
     return {
-      title: 'Scratchpad',
+      title: m.scratchpad_title(),
       markdown: tabsStore.scratchpadContent,
     };
   }
@@ -91,12 +93,15 @@
       const dark = settingsStore.effectiveDark;
       const rendered = await renderNoteHtmlPreview(title, markdown, dark);
       const html = await enhanceRenderedHtml(rendered, 'file', dark);
-      const savedPath = await exportActiveNoteHtml(title, html);
+      const savedPath = await exportActiveNoteHtml(title, html, {
+        title: m.dialog_export_html_title(),
+        filter: m.dialog_export_html_filter(),
+      });
       if (savedPath) {
-        clipboardStore.setStatus(`Exported HTML to ${savedPath}`);
+        clipboardStore.setStatus(m.status_exported_html({ path: savedPath }));
       }
     } catch (e) {
-      clipboardStore.setStatus(`HTML export failed: ${String(e)}`);
+      clipboardStore.setStatus(m.status_export_html_failed({ error: String(e) }));
     }
   }
 
@@ -118,10 +123,10 @@
       printArticleHtml = printDoc.querySelector('main, article')?.innerHTML ?? printDoc.body.innerHTML;
       await tick();
       await document.fonts.ready;
-      clipboardStore.setStatus('Opening print / Save as PDF dialog...');
+      clipboardStore.setStatus(m.status_opening_print());
       window.print();
     } catch (e) {
-      clipboardStore.setStatus(`Print to PDF failed: ${String(e)}`);
+      clipboardStore.setStatus(m.status_print_failed({ error: String(e) }));
     }
   }
 
@@ -148,9 +153,7 @@
       if (heading) {
         editorRef?.scrollToHeading(heading);
       } else {
-        clipboardStore.setStatus(
-          `Open a vault to navigate to [[${cleanNote}]]`
-        );
+        clipboardStore.setStatus(m.status_open_vault_to_navigate({ note: cleanNote }));
       }
       return;
     }
@@ -318,7 +321,7 @@
       if (vaultStore.vaultSnapshot) {
         e.preventDefault();
         const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-        void vaultStore.createNoteInVault('', `Note ${stamp}`);
+        void vaultStore.createNoteInVault('', m.note_default_name({ stamp }));
       }
     } else if (isMod && e.key === '\\') {
       if (vaultStore.vaultSnapshot) {
@@ -331,6 +334,13 @@
       }
     }
   }
+
+  $effect(() => {
+    document.documentElement.lang = i18n.locale;
+    void setTrayLabels(m.tray_show(), m.tray_quit()).catch(() => {
+      // ignore in browser preview
+    });
+  });
 
   // Re-apply snippets when the user toggles one in Settings.
   $effect(() => {
@@ -346,7 +356,7 @@
 
   function createUntitledNote() {
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
-    void vaultStore.createNoteInVault('', `Note ${stamp}`);
+    void vaultStore.createNoteInVault('', m.note_default_name({ stamp }));
   }
 
   // Feeds the Home page's "Recently opened" section.
@@ -375,7 +385,7 @@
         if (await tabsStore.flushAllAutosaves()) await quitApp(quit);
         else await keepAppOpen();
       } catch (err) {
-        clipboardStore.setStatus(`Could not save before closing: ${String(err)}`);
+        clipboardStore.setStatus(m.status_save_before_close_failed({ error: String(err) }));
         await keepAppOpen();
       } finally {
         closing = false;
@@ -421,6 +431,10 @@
     unlistenQuit?.();
     tabsStore.clearAllTimers();
   });
+
+  const appMissingLinkPromptParts = $derived(splitSlots(m.app_missing_link_prompt({ note: SLOT })));
+  const appExternalChangeParts = $derived(splitSlots(m.app_external_change({ path: SLOT })));
+  const appNothingOpenHintParts = $derived(splitSlots(m.app_nothing_open_hint({ shortcut: SLOT })));
 </script>
 
 <svelte:window
@@ -470,21 +484,21 @@
       />
     {:else}
       {#if missingWikiLinkPrompt}
-        <div class="external-reload-banner" role="alertdialog" aria-label="Create missing wiki link note">
+        <div class="external-reload-banner" role="alertdialog" aria-label={m.app_missing_link_label()}>
           <span>
-            Note <strong>[[{missingWikiLinkPrompt.noteTarget}]]</strong> does not exist in this vault yet. Would you like to create it?
+            {appMissingLinkPromptParts[0]}<strong>[[{missingWikiLinkPrompt.noteTarget}]]</strong>{appMissingLinkPromptParts[1]}
           </span>
           <div class="external-reload-actions">
             <Button
               variant="primary"
               onclick={() => void confirmCreateMissingWikiNote()}
             >
-              Create & Open
+              {m.app_create_and_open()}
             </Button>
             <Button
               onclick={() => (missingWikiLinkPrompt = null)}
             >
-              Cancel
+              {m.common_cancel()}
             </Button>
           </div>
         </div>
@@ -493,7 +507,7 @@
       {#if tabsStore.activeTab?.externalChangePending}
         <div class="external-reload-banner" role="alert">
           <span>
-            <strong>{tabsStore.activeTab.relPath}</strong> was modified outside Jotter while you have unsaved edits.
+            {appExternalChangeParts[0]}<strong>{tabsStore.activeTab.relPath}</strong>{appExternalChangeParts[1]}
           </span>
           <div class="external-reload-actions">
             <Button
@@ -504,7 +518,7 @@
                   (newContent) => editorRef?.replaceContentFromDisk(newContent)
                 )}
             >
-              Reload from disk
+              {m.app_reload_from_disk()}
             </Button>
             <Button
               onclick={() =>
@@ -512,14 +526,14 @@
                   tabsStore.activeTab!.relPath
                 )}
             >
-              Keep my edits
+              {m.app_keep_my_edits()}
             </Button>
           </div>
         </div>
       {/if}
 
       <div class="work-row">
-        <section class="editor-column" aria-label="Editor">
+        <section class="editor-column" aria-label={m.app_editor_label()}>
           <div class="editor-card">
 
             {#if tabsStore.scratchpadMode}
@@ -534,7 +548,7 @@
                 vaultFiles={vaultStore.allFiles}
                 onWikiLinkClick={handleWikiLinkClick}
                 onImagePasted={(_fileName, relPath) =>
-                  clipboardStore.setStatus(`Saved pasted image to ${relPath}`)}
+                  clipboardStore.setStatus(m.status_saved_pasted_image({ path: relPath }))}
                 onDocChange={(docId, content) =>
                   tabsStore.handleEditorDocChange(docId, content, () => {
                     if (settingsStore.showInspector) void refreshInspectorPreview();
@@ -544,7 +558,7 @@
                 onPastePlainComplete={(chars, lines) =>
                   clipboardStore.handlePastePlainComplete(chars, lines)}
                 onStatsChange={(s) => (tabsStore.docStats = s)}
-                onError={(err) => clipboardStore.setStatus(`Clipboard error: ${err}`)}
+                onError={(err) => clipboardStore.setStatus(m.status_clipboard_error({ error: String(err) }))}
               >
                 {#snippet header()}<NoteHeader onEdit={(change) => editorRef?.applyChange(change)} />{/snippet}
               </Editor>
@@ -560,7 +574,7 @@
                 vaultFiles={vaultStore.allFiles}
                 onWikiLinkClick={handleWikiLinkClick}
                 onImagePasted={(_fileName, relPath) =>
-                  clipboardStore.setStatus(`Saved pasted image to ${relPath}`)}
+                  clipboardStore.setStatus(m.status_saved_pasted_image({ path: relPath }))}
                 onDocChange={(docId, content) =>
                   tabsStore.handleEditorDocChange(docId, content)}
                 onCopyComplete={(payload, source) =>
@@ -568,7 +582,7 @@
                 onPastePlainComplete={(chars, lines) =>
                   clipboardStore.handlePastePlainComplete(chars, lines)}
                 onStatsChange={(s) => (tabsStore.docStats = s)}
-                onError={(err) => clipboardStore.setStatus(`Clipboard error: ${err}`)}
+                onError={(err) => clipboardStore.setStatus(m.status_clipboard_error({ error: String(err) }))}
               >
                 {#snippet header()}<NoteHeader onEdit={(change) => editorRef?.applyChange(change)} />{/snippet}
               </Editor>
@@ -579,12 +593,12 @@
                 </div>
               {:else}
               <div class="no-open-note">
-                <div class="no-note-title">Nothing open</div>
+                <div class="no-note-title">{m.app_nothing_open()}</div>
                 <div class="no-note-desc">
-                  Pick a note in the sidebar, press <kbd>{shortcutLabel('Ctrl O')}</kbd> to find one by name, or start a new one.
+                  {appNothingOpenHintParts[0]}<kbd>{shortcutLabel('Ctrl O')}</kbd>{appNothingOpenHintParts[1]}
                 </div>
                 <Button variant="primary" icon="file-plus" onclick={createUntitledNote}>
-                  New note
+                  {m.common_new_note()}
                 </Button>
               </div>
               {/if}

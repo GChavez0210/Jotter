@@ -131,6 +131,11 @@ Tags such as `es-MX` match the closest dictionary, here `es`. A note in a langua
 
 To add a language, put a Hunspell `.aff` and `.dic` pair with the same name, such as `nl.aff` and `nl.dic`, in the app data dictionaries folder (**Settings → Editor → Open folder**), then select **Reload**. Words you add from the editor go to `personal.txt` in the same folder. Choose **System** instead of **Jotter** to use the WebView's checker and the native checker for every note (language coverage depends on the OS and WebView).
 
+### Interface Language
+Jotter's interface is available in English and Spanish. **Settings → Appearance → Language** switches it immediately. **System** follows the OS language and uses English when the OS language has no translation. The language setting is separate from the spelling dictionaries.
+
+To add a language, add its code to `locales` in `project.inlang/settings.json` and copy `messages/en.json` to `messages/<code>.json`, then translate the values. Keep every `{placeholder}`, in the same order as English. `npm test` fails when a translation is missing a key or reorders placeholders.
+
 ### Summon Hotkey
 Turn on **Settings → System → Summon hotkey** to show or hide Jotter from any app with `Ctrl+Alt+J`, or a hotkey you choose. While it is on, Jotter keeps an icon in the tray, and closing the window hides it instead of quitting. Quit from the tray icon's menu; Jotter saves open notes before it exits.
 

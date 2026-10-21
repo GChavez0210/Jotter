@@ -20,6 +20,7 @@ import { settingsStore } from './settings.svelte';
 import { tabsStore } from './tabs.svelte';
 import { invalidateImagePreviews } from '../imagePreviewCache';
 import { noteMoveDestination } from '../noteMove';
+import { m, trashName } from '../i18n.svelte';
 
 function findFirstFileNode(nodes: VaultNode[]): VaultNode | null {
   for (const node of nodes) {
@@ -207,14 +208,12 @@ class VaultStore {
       if (firstFile) {
         await tabsStore.openNoteInTab(firstFile.relPath);
       }
-      clipboardStore.setStatus(
-        `Opened vault "${snap.name}" (${snap.noteCount} notes)`
-      );
+      clipboardStore.setStatus(m.status_opened_vault({ vault: snap.name, count: snap.noteCount }));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       this.onboardingError = message;
       if (this.vaultSnapshot) {
-        clipboardStore.setStatus(`Could not open vault: ${message}`);
+        clipboardStore.setStatus(m.status_open_vault_failed({ error: message }));
       }
     }
   }
@@ -240,7 +239,7 @@ class VaultStore {
       if (firstFile) {
         await tabsStore.openNoteInTab(firstFile.relPath);
       }
-      clipboardStore.setStatus(`Created vault "${snap.name}"`);
+      clipboardStore.setStatus(m.status_created_vault({ vault: snap.name }));
     } catch (err) {
       this.onboardingError = err instanceof Error ? err.message : String(err);
     }
@@ -251,7 +250,7 @@ class VaultStore {
     try {
       await closeVault();
     } catch (err) {
-      clipboardStore.setStatus(`Could not close vault: ${String(err)}`);
+      clipboardStore.setStatus(m.status_close_vault_failed({ error: String(err) }));
       return;
     }
     invalidateImagePreviews('');
@@ -285,11 +284,11 @@ class VaultStore {
       this.vaultSnapshot = snap;
       this.bumpIndexVersion();
       tabsStore.addOrActivateCreatedDoc(doc.relPath, doc.title, doc.content);
-      clipboardStore.setStatus(`Created ${doc.relPath}`);
+      clipboardStore.setStatus(m.status_created({ path: doc.relPath }));
       return doc.relPath;
     } catch (err) {
       clipboardStore.setStatus(
-        `Failed to create note: ${err instanceof Error ? err.message : String(err)}`
+        m.status_create_note_failed({ error: err instanceof Error ? err.message : String(err) })
       );
       return null;
     }
@@ -302,10 +301,10 @@ class VaultStore {
     try {
       this.vaultSnapshot = await createFolder(targetRel);
       this.bumpIndexVersion();
-      clipboardStore.setStatus(`Created folder ${targetRel}`);
+      clipboardStore.setStatus(m.status_created_folder({ path: targetRel }));
     } catch (err) {
       clipboardStore.setStatus(
-        `Failed to create folder: ${err instanceof Error ? err.message : String(err)}`
+        m.status_create_folder_failed({ error: err instanceof Error ? err.message : String(err) })
       );
     }
   }
@@ -321,12 +320,12 @@ class VaultStore {
       this.bumpIndexVersion();
       tabsStore.updatePathsAfterRename(res.oldRelPath, res.newRelPath);
       clipboardStore.setStatus(
-        `${action === 'move' ? 'Moved' : 'Renamed'} ${res.oldRelPath} → ${res.newRelPath}`
+        (action === 'move' ? m.status_moved : m.status_renamed)({ from: res.oldRelPath, to: res.newRelPath })
       );
       return true;
     } catch (err) {
       clipboardStore.setStatus(
-        `${action === 'move' ? 'Move' : 'Rename'} failed: ${err instanceof Error ? err.message : String(err)}`
+        (action === 'move' ? m.status_move_failed : m.status_rename_failed)({ error: err instanceof Error ? err.message : String(err) })
       );
       return false;
     }
@@ -340,7 +339,7 @@ class VaultStore {
       if (!destination) return false;
       return await this.renameEntryInVault(source, destination, 'move');
     } catch (err) {
-      clipboardStore.setStatus(`Move failed: ${err instanceof Error ? err.message : String(err)}`);
+      clipboardStore.setStatus(m.status_move_failed({ error: err instanceof Error ? err.message : String(err) }));
       return false;
     }
   }
@@ -353,10 +352,10 @@ class VaultStore {
       invalidateImagePreviews();
       this.bumpIndexVersion();
       tabsStore.removeTabsUnderPath(relPath);
-      clipboardStore.setStatus(`Moved ${relPath} to Recycle Bin`);
+      clipboardStore.setStatus(m.status_moved_to_trash({ path: relPath, trash: trashName() }));
     } catch (err) {
       clipboardStore.setStatus(
-        `Delete failed: ${err instanceof Error ? err.message : String(err)}`
+        m.status_delete_failed({ error: err instanceof Error ? err.message : String(err) })
       );
     }
   }
@@ -372,7 +371,7 @@ class VaultStore {
       if (relPath.toLowerCase().endsWith('.md')) {
         await tabsStore.openNoteInTab(relPath);
       }
-      clipboardStore.setStatus(`Restored ${relPath}`);
+      clipboardStore.setStatus(m.status_restored({ path: relPath }));
       return true;
     } catch (err) {
       clipboardStore.setStatus(err instanceof Error ? err.message : String(err));
@@ -386,7 +385,7 @@ class VaultStore {
    */
   async openDailyNote(now = new Date()) {
     if (!this.vaultSnapshot) {
-      clipboardStore.setStatus('Open a vault to use daily notes');
+      clipboardStore.setStatus(m.status_daily_no_vault());
       return;
     }
     const title = formatIsoDate(now);
@@ -415,10 +414,10 @@ class VaultStore {
       this.vaultSnapshot = snap;
       this.bumpIndexVersion();
       tabsStore.addOrActivateCreatedDoc(doc.relPath, doc.title, doc.content);
-      clipboardStore.setStatus(`Created ${doc.relPath}`);
+      clipboardStore.setStatus(m.status_created({ path: doc.relPath }));
     } catch (err) {
       clipboardStore.setStatus(
-        `Failed to create daily note: ${err instanceof Error ? err.message : String(err)}`
+        m.status_daily_failed({ error: err instanceof Error ? err.message : String(err) })
       );
     }
   }
@@ -448,13 +447,11 @@ class VaultStore {
       const snap = await getVaultSnapshot();
       if (snap) this.vaultSnapshot = snap;
       this.bumpIndexVersion();
-      clipboardStore.setStatus(
-        `Rebuilt SQLite & Tantivy indexes (${count} notes)`
-      );
+      clipboardStore.setStatus(m.status_rebuilt({ count }));
       return count;
     } catch (err) {
       clipboardStore.setStatus(
-        `Index rebuild failed: ${err instanceof Error ? err.message : String(err)}`
+        m.status_rebuild_failed({ error: err instanceof Error ? err.message : String(err) })
       );
       return null;
     }

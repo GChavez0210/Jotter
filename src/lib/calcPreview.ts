@@ -1,4 +1,6 @@
+import { editorLocaleChanged, LocalizedWidget } from './editorLocale';
 import { syntaxTree } from '@codemirror/language';
+import { m } from './i18n.svelte';
 import { type EditorState, type Extension, type Range } from '@codemirror/state';
 import {
   Decoration,
@@ -6,7 +8,6 @@ import {
   EditorView,
   ViewPlugin,
   type ViewUpdate,
-  WidgetType,
 } from '@codemirror/view';
 import { evaluateCalcBlock, inlineCalculation } from './calc';
 
@@ -16,7 +17,7 @@ import { evaluateCalcBlock, inlineCalculation } from './calc';
  * `Tab` or a click. Work is bounded to the visible ranges, like Live Preview.
  */
 
-class InlineResultWidget extends WidgetType {
+class InlineResultWidget extends LocalizedWidget {
   constructor(
     readonly result: string,
     readonly insertAt: number
@@ -25,14 +26,14 @@ class InlineResultWidget extends WidgetType {
   }
 
   eq(other: InlineResultWidget): boolean {
-    return other.result === this.result && other.insertAt === this.insertAt;
+    return this.locale === other.locale && other.result === this.result && other.insertAt === this.insertAt;
   }
 
   toDOM(view: EditorView): HTMLElement {
     const span = document.createElement('span');
     span.className = 'cm-calc-inline';
     span.textContent = this.result;
-    span.title = 'Press Tab or click to insert the result';
+    span.title = m.calc_insert_hint();
     span.addEventListener('mousedown', (e) => {
       e.preventDefault();
       acceptAt(view, this.insertAt, this.result);
@@ -45,7 +46,7 @@ class InlineResultWidget extends WidgetType {
   }
 }
 
-class BlockResultWidget extends WidgetType {
+class BlockResultWidget extends LocalizedWidget {
   constructor(
     readonly text: string,
     readonly error: boolean
@@ -54,7 +55,7 @@ class BlockResultWidget extends WidgetType {
   }
 
   eq(other: BlockResultWidget): boolean {
-    return other.text === this.text && other.error === this.error;
+    return this.locale === other.locale && other.text === this.text && other.error === this.error;
   }
 
   toDOM(): HTMLElement {
@@ -165,6 +166,7 @@ export function createCalcExtension(): Extension {
         update(update: ViewUpdate) {
           if (
             update.docChanged ||
+            update.transactions.some(editorLocaleChanged) ||
             update.viewportChanged ||
             syntaxTree(update.startState) !== syntaxTree(update.state)
           ) {

@@ -1,6 +1,7 @@
 import { shortcutLabel } from '../platform';
 import { readNote, saveNote } from '../ipc';
 import { clipboardStore } from './clipboard.svelte';
+import { m } from '../i18n.svelte';
 
 export interface OpenTab {
   relPath: string;
@@ -140,10 +141,10 @@ class TabsStore {
           seq: ++this.scrollSeq,
         };
       }
-      clipboardStore.setStatus(`Opened ${doc.relPath}`);
+      clipboardStore.setStatus(m.status_opened({ path: doc.relPath }));
     } catch (err) {
       clipboardStore.setStatus(
-        `Error opening note: ${err instanceof Error ? err.message : String(err)}`
+        m.status_open_failed({ error: err instanceof Error ? err.message : String(err) })
       );
     }
   }
@@ -255,10 +256,10 @@ class TabsStore {
             : t
         );
         this.onNoteSaved?.();
-        clipboardStore.setStatus(`Saved ${savedDoc.relPath}`);
+        clipboardStore.setStatus(m.status_saved({ path: savedDoc.relPath }));
       } catch (err) {
         clipboardStore.setStatus(
-          `Autosave failed: ${err instanceof Error ? err.message : String(err)}`
+          m.status_autosave_failed({ error: err instanceof Error ? err.message : String(err) })
         );
         return false;
       }
@@ -348,7 +349,7 @@ class TabsStore {
       if (this.activeTabPath === relPath) {
         onReplaceActiveEditor?.(doc.content);
       }
-      clipboardStore.setStatus(`Reloaded external changes: ${relPath}`);
+      clipboardStore.setStatus(m.status_reloaded({ path: relPath }));
     } catch {
       this.openTabs = this.openTabs.filter((t) => t.relPath !== relPath);
       if (this.activeTabPath === relPath) {
@@ -376,7 +377,7 @@ class TabsStore {
         this.openTabs = this.openTabs.map((t) =>
           t.relPath === tab.relPath ? { ...t, externalChangePending: true } : t
         );
-        clipboardStore.setStatus(`External edit detected on ${tab.relPath}`);
+        clipboardStore.setStatus(m.status_external_edit({ path: tab.relPath }));
       }
     }
   }

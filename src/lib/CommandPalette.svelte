@@ -7,6 +7,7 @@
   import { settingsStore } from './stores/settings.svelte';
   import { tabsStore } from './stores/tabs.svelte';
   import { vaultStore } from './stores/vault.svelte';
+  import { m } from './i18n.svelte';
 
   interface Props {
     onFormat: (cmd: MarkdownFormatCommandId) => void;
@@ -44,21 +45,21 @@
     // Focus & View Modes
     {
       id: 'focus-minimal',
-      category: 'Focus & View',
+      category: m.cmd_cat_focus(),
       label:
         settingsStore.focusMode === 'minimal'
-          ? 'Exit Minimal Focus Mode'
-          : 'Toggle Minimal Focus Mode (hide sidebar, tabs, toolbar, status bar)',
+          ? m.cmd_focus_minimal_exit()
+          : m.cmd_focus_minimal(),
       shortcut: shortcutLabel('Ctrl+Shift+M'),
       action: () => settingsStore.toggleMinimalFocus(),
     },
     {
       id: 'focus-zen',
-      category: 'Focus & View',
+      category: m.cmd_cat_focus(),
       label:
         settingsStore.focusMode === 'zen'
-          ? 'Exit Zen Full Screen Mode'
-          : 'Toggle Zen Full Screen Mode (text canvas only)',
+          ? m.cmd_focus_zen_exit()
+          : m.cmd_focus_zen(),
       shortcut: 'F11',
       action: () => settingsStore.toggleZenFocus(),
     },
@@ -66,8 +67,8 @@
       ? [
           {
             id: 'focus-exit',
-            category: 'Focus & View',
-            label: 'Exit Focus Mode to Previous Layout',
+            category: m.cmd_cat_focus(),
+            label: m.cmd_focus_exit(),
             shortcut: 'Esc',
             action: () => settingsStore.exitFocusMode(),
           },
@@ -75,38 +76,40 @@
       : []),
     {
       id: 'mode-toggle',
-      category: 'Focus & View',
+      category: m.cmd_cat_focus(),
       label:
         settingsStore.editingMode === 'live'
-          ? 'Switch to Source Mode (show all raw Markdown syntax)'
-          : 'Switch to Live Mode (inline rendered formatting)',
+          ? m.cmd_mode_source()
+          : m.cmd_mode_live(),
       shortcut: shortcutLabel('Ctrl+/'),
       action: () => settingsStore.toggleEditingMode(),
     },
     {
       id: 'opt-typewriter',
-      category: 'Focus & View',
-      label: `${
-        settingsStore.typewriterScrolling ? 'Disable' : 'Enable'
-      } Typewriter Scrolling (keep active line centered)`,
+      category: m.cmd_cat_focus(),
+      label: settingsStore.typewriterScrolling ? m.cmd_typewriter_off() : m.cmd_typewriter_on(),
       action: () =>
         settingsStore.setTypewriterScrolling(!settingsStore.typewriterScrolling),
     },
     {
       id: 'opt-dim-paragraphs',
-      category: 'Focus & View',
-      label: `${
-        settingsStore.dimInactiveParagraphs ? 'Disable' : 'Enable'
-      } Dim Inactive Paragraphs (focus active paragraph)`,
+      category: m.cmd_cat_focus(),
+      label: settingsStore.dimInactiveParagraphs ? m.cmd_dim_off() : m.cmd_dim_on(),
       action: () =>
         settingsStore.setDimInactiveParagraphs(
           !settingsStore.dimInactiveParagraphs
         ),
     },
     {
+      id: 'opt-line-numbers',
+      category: m.cmd_cat_focus(),
+      label: settingsStore.showLineNumbers ? m.cmd_line_numbers_hide() : m.cmd_line_numbers_show(),
+      action: () => settingsStore.setShowLineNumbers(!settingsStore.showLineNumbers),
+    },
+    {
       id: 'toggle-sidebar',
-      category: 'Focus & View',
-      label: 'Toggle Left Sidebar',
+      category: m.cmd_cat_focus(),
+      label: m.cmd_toggle_sidebar(),
       shortcut: shortcutLabel('Ctrl+\\'),
       action: () => settingsStore.toggleSidebar(),
     },
@@ -114,55 +117,53 @@
       ? [
           {
             id: 'quick-switcher',
-            category: 'Navigation',
-            label: 'Quick Switcher: Fuzzy Open Note by Name',
+            category: m.cmd_cat_navigation(),
+            label: m.cmd_quick_switcher(),
             shortcut: shortcutLabel('Ctrl+O'),
             action: () => (settingsStore.showQuickSwitcher = true),
           },
           {
             id: 'view-search',
-            category: 'Navigation',
-            label: 'Open Full-Text Vault Search Panel',
+            category: m.cmd_cat_navigation(),
+            label: m.cmd_view_search(),
             shortcut: shortcutLabel('Ctrl+Shift+F'),
             action: () => settingsStore.setLeftSidebarView('search'),
           },
           {
             id: 'view-tags',
-            category: 'Navigation',
-            label: 'Open Tag Browser Panel',
+            category: m.cmd_cat_navigation(),
+            label: m.cmd_view_tags(),
             action: () => settingsStore.setLeftSidebarView('tags'),
           },
           {
             id: 'view-calendar',
-            category: 'Navigation',
-            label: 'Open Calendar View',
+            category: m.cmd_cat_navigation(),
+            label: m.cmd_view_calendar(),
             action: () => settingsStore.setLeftSidebarView('calendar'),
           },
           {
             id: 'daily-note',
-            category: 'Navigation',
-            label: "Open Today's Daily Note",
+            category: m.cmd_cat_navigation(),
+            label: m.cmd_daily_note(),
             shortcut: shortcutLabel('Ctrl+Shift+D'),
             action: () => void vaultStore.openDailyNote(),
           },
           {
             id: 'view-trash',
-            category: 'Navigation',
-            label: 'Open Recently Deleted Notes',
+            category: m.cmd_cat_navigation(),
+            label: m.cmd_view_trash(),
             action: () => settingsStore.setLeftSidebarView('trash'),
           },
           {
             id: 'view-files',
-            category: 'Navigation',
-            label: 'Open File Tree View',
+            category: m.cmd_cat_navigation(),
+            label: m.cmd_view_files(),
             action: () => settingsStore.setLeftSidebarView('files'),
           },
           {
             id: 'toggle-backlinks',
-            category: 'Focus & View',
-            label: `${
-              settingsStore.showRightPanel ? 'Hide' : 'Show'
-            } Right Backlinks Panel`,
+            category: m.cmd_cat_focus(),
+            label: settingsStore.showRightPanel ? m.cmd_backlinks_hide() : m.cmd_backlinks_show(),
             action: () => settingsStore.toggleRightPanel(),
           },
         ]
@@ -170,184 +171,184 @@
     // Markdown Formatting
     {
       id: 'fmt-bold',
-      category: 'Format',
-      label: 'Toggle Bold',
+      category: m.cmd_cat_format(),
+      label: m.cmd_fmt_bold(),
       shortcut: shortcutLabel('Ctrl+B'),
       action: () => onFormat('bold'),
     },
     {
       id: 'fmt-italic',
-      category: 'Format',
-      label: 'Toggle Italic',
+      category: m.cmd_cat_format(),
+      label: m.cmd_fmt_italic(),
       shortcut: shortcutLabel('Ctrl+I'),
       action: () => onFormat('italic'),
     },
     {
       id: 'fmt-strike',
-      category: 'Format',
-      label: 'Toggle Strikethrough',
+      category: m.cmd_cat_format(),
+      label: m.cmd_fmt_strike(),
       shortcut: shortcutLabel('Ctrl+Shift+S'),
       action: () => onFormat('strikethrough'),
     },
     {
       id: 'fmt-code',
-      category: 'Format',
-      label: 'Toggle Inline Code',
+      category: m.cmd_cat_format(),
+      label: m.cmd_fmt_code(),
       shortcut: shortcutLabel('Ctrl+E'),
       action: () => onFormat('inline_code'),
     },
     {
       id: 'fmt-h1',
-      category: 'Format',
-      label: 'Heading 1',
+      category: m.cmd_cat_format(),
+      label: m.cmd_fmt_heading({ level: 1 }),
       shortcut: shortcutLabel('Ctrl+1'),
       action: () => onFormat('h1'),
     },
     {
       id: 'fmt-h2',
-      category: 'Format',
-      label: 'Heading 2',
+      category: m.cmd_cat_format(),
+      label: m.cmd_fmt_heading({ level: 2 }),
       shortcut: shortcutLabel('Ctrl+2'),
       action: () => onFormat('h2'),
     },
     {
       id: 'fmt-h3',
-      category: 'Format',
-      label: 'Heading 3',
+      category: m.cmd_cat_format(),
+      label: m.cmd_fmt_heading({ level: 3 }),
       shortcut: shortcutLabel('Ctrl+3'),
       action: () => onFormat('h3'),
     },
     {
       id: 'fmt-h4',
-      category: 'Format',
-      label: 'Heading 4',
+      category: m.cmd_cat_format(),
+      label: m.cmd_fmt_heading({ level: 4 }),
       shortcut: shortcutLabel('Ctrl+4'),
       action: () => onFormat('h4'),
     },
     {
       id: 'fmt-bullet',
-      category: 'Format',
-      label: 'Toggle Bullet List',
+      category: m.cmd_cat_format(),
+      label: m.cmd_fmt_bullet(),
       shortcut: shortcutLabel('Ctrl+Shift+8'),
       action: () => onFormat('bullet_list'),
     },
     {
       id: 'fmt-ordered',
-      category: 'Format',
-      label: 'Toggle Numbered List',
+      category: m.cmd_cat_format(),
+      label: m.cmd_fmt_ordered(),
       shortcut: shortcutLabel('Ctrl+Shift+7'),
       action: () => onFormat('ordered_list'),
     },
     {
       id: 'fmt-task',
-      category: 'Format',
-      label: 'Toggle Task List',
+      category: m.cmd_cat_format(),
+      label: m.cmd_fmt_task(),
       shortcut: shortcutLabel('Ctrl+Shift+9'),
       action: () => onFormat('task_list'),
     },
     {
       id: 'fmt-quote',
-      category: 'Format',
-      label: 'Toggle Blockquote',
+      category: m.cmd_cat_format(),
+      label: m.cmd_fmt_quote(),
       shortcut: shortcutLabel('Ctrl+Shift+.'),
       action: () => onFormat('blockquote'),
     },
     {
       id: 'fmt-codeblock',
-      category: 'Format',
-      label: 'Insert Fenced Code Block',
+      category: m.cmd_cat_format(),
+      label: m.cmd_fmt_codeblock(),
       shortcut: shortcutLabel('Ctrl+Shift+K'),
       action: () => onFormat('code_block'),
     },
     {
       id: 'fmt-table',
-      category: 'Format',
-      label: 'Insert Markdown Table',
+      category: m.cmd_cat_format(),
+      label: m.cmd_fmt_table(),
       action: () => onFormat('table'),
     },
     {
       id: 'fmt-link',
-      category: 'Format',
-      label: 'Insert Markdown Link',
+      category: m.cmd_cat_format(),
+      label: m.cmd_fmt_link(),
       shortcut: shortcutLabel('Ctrl+K'),
       action: () => onFormat('link'),
     },
     {
       id: 'fmt-wikilink',
-      category: 'Format',
-      label: 'Insert Obsidian [[Wiki Link]]',
+      category: m.cmd_cat_format(),
+      label: m.cmd_fmt_wikilink(),
       action: () => onFormat('wikilink'),
     },
     {
       id: 'fmt-hr',
-      category: 'Format',
-      label: 'Insert Horizontal Rule (---)',
+      category: m.cmd_cat_format(),
+      label: m.cmd_fmt_hr(),
       action: () => onFormat('hr'),
     },
     {
       id: 'fmt-due-date',
-      category: 'Format',
-      label: 'Add Due Date to Task',
+      category: m.cmd_cat_format(),
+      label: m.cmd_fmt_due_date(),
       action: () => onFormat('due_date'),
     },
     // Outliner
     {
       id: 'outline-zoom',
-      category: 'Outline',
-      label: 'Zoom Into List Item (or Out of It)',
+      category: m.cmd_cat_outline(),
+      label: m.cmd_outline_zoom(),
       shortcut: shortcutLabel('Ctrl+.'),
       action: () => onFormat('zoom_toggle'),
     },
     {
       id: 'outline-fold-all',
-      category: 'Outline',
-      label: 'Fold All List Items and Sections',
+      category: m.cmd_cat_outline(),
+      label: m.cmd_outline_fold_all(),
       action: () => onFormat('fold_all'),
     },
     {
       id: 'outline-unfold-all',
-      category: 'Outline',
-      label: 'Unfold All',
+      category: m.cmd_cat_outline(),
+      label: m.cmd_outline_unfold_all(),
       action: () => onFormat('unfold_all'),
     },
     // Clipboard & Vault
     {
       id: 'clip-copy',
-      category: 'Clipboard',
-      label: 'Copy Selection or Note with Line Breaks Preserved',
+      category: m.cmd_cat_clipboard(),
+      label: m.cmd_clip_copy(),
       shortcut: shortcutLabel('Ctrl+C'),
       action: () => onCopyTrigger(),
     },
     {
       id: 'clip-paste-plain',
-      category: 'Clipboard',
-      label: 'Paste as Plain Text',
+      category: m.cmd_cat_clipboard(),
+      label: m.cmd_clip_paste_plain(),
       shortcut: shortcutLabel('Ctrl+Shift+V'),
       action: () => onPastePlainTrigger(),
     },
     {
       id: 'clip-mode-md',
-      category: 'Clipboard',
-      label: 'Set Copy Mode: Markdown source (default)',
+      category: m.cmd_cat_clipboard(),
+      label: m.cmd_clip_mode_md(),
       action: () =>
         settingsStore.setCopyMode('markdown_source', onRefreshInspector),
     },
     {
       id: 'clip-mode-plain',
-      category: 'Clipboard',
-      label: 'Set Copy Mode: Plain (text/plain only, Markdown stripped)',
+      category: m.cmd_cat_clipboard(),
+      label: m.cmd_clip_mode_plain(),
       action: () => settingsStore.setCopyMode('plain', onRefreshInspector),
     },
     {
       id: 'clip-mode-rich',
-      category: 'Clipboard',
-      label: 'Set Copy Mode: Rich (HTML + plain)',
+      category: m.cmd_cat_clipboard(),
+      label: m.cmd_clip_mode_rich(),
       action: () => settingsStore.setCopyMode('rich', onRefreshInspector),
     },
     {
       id: 'clip-inspector',
-      category: 'Clipboard',
-      label: 'Toggle Clipboard Payload Inspector',
+      category: m.cmd_cat_clipboard(),
+      label: m.cmd_clip_inspector(),
       action: () => {
         settingsStore.showInspector = !settingsStore.showInspector;
         if (settingsStore.showInspector) onRefreshInspector();
@@ -358,21 +359,21 @@
       ? [
           {
             id: 'note-new',
-            category: 'Vault',
-            label: 'Create New Note',
+            category: m.cmd_cat_vault(),
+            label: m.cmd_note_new(),
             shortcut: shortcutLabel('Ctrl+N'),
             action: () => {
               const stamp = new Date()
                 .toISOString()
                 .slice(0, 19)
                 .replace(/[:T]/g, '-');
-              void vaultStore.createNoteInVault('', `Note ${stamp}`);
+              void vaultStore.createNoteInVault('', m.note_default_name({ stamp }));
             },
           },
           {
             id: 'note-save',
-            category: 'Vault',
-            label: 'Save Active Note Now',
+            category: m.cmd_cat_vault(),
+            label: m.cmd_note_save(),
             shortcut: shortcutLabel('Ctrl+S'),
             action: () => {
               if (tabsStore.activeTabPath) {
@@ -382,8 +383,8 @@
           },
           {
             id: 'note-close',
-            category: 'Vault',
-            label: 'Close Active Tab',
+            category: m.cmd_cat_vault(),
+            label: m.cmd_note_close(),
             shortcut: shortcutLabel('Ctrl+W'),
             action: () => {
               if (tabsStore.activeTabPath) {
@@ -393,14 +394,14 @@
           },
           {
             id: 'vault-rebuild-index',
-            category: 'Vault',
-            label: 'Rebuild SQLite & Tantivy Vault Index',
+            category: m.cmd_cat_vault(),
+            label: m.cmd_vault_rebuild(),
             action: () => void vaultStore.rebuildIndex(),
           },
           {
             id: 'vault-switch',
-            category: 'Vault',
-            label: 'Switch or Close Vault',
+            category: m.cmd_cat_vault(),
+            label: m.cmd_vault_switch(),
             action: () => void vaultStore.switchVault(),
           },
         ]
@@ -410,74 +411,74 @@
       ? [
           {
             id: 'ai-rewrite',
-            category: 'AI',
-            label: 'AI: Polish or Rewrite Text',
+            category: m.cmd_cat_ai(),
+            label: m.cmd_ai_rewrite(),
             action: () => aiStore.openPanel('rewrite'),
           },
           {
             id: 'ai-translate',
-            category: 'AI',
-            label: 'AI: Translate Text',
+            category: m.cmd_cat_ai(),
+            label: m.cmd_ai_translate(),
             action: () => aiStore.openPanel('translate'),
           },
           {
             id: 'ai-summarize',
-            category: 'AI',
-            label: 'AI: Summarize Text',
+            category: m.cmd_cat_ai(),
+            label: m.cmd_ai_summarize(),
             action: () => aiStore.openPanel('summarize'),
           },
         ]
       : []),
     {
       id: 'ai-settings',
-      category: 'AI',
-      label: 'AI: Open AI Settings (Provider, Key, Writing Style)',
+      category: m.cmd_cat_ai(),
+      label: m.cmd_ai_settings(),
       action: () => settingsStore.openSettings('ai'),
     },
     // Export & Settings
     {
       id: 'export-html',
-      category: 'Export',
-      label: 'Export Active Note to Self-Contained HTML',
+      category: m.cmd_cat_export(),
+      label: m.cmd_export_html(),
       action: () => onExportHtml(),
     },
     {
       id: 'export-pdf',
-      category: 'Export',
-      label: 'Export Active Note to PDF (Print to PDF)',
+      category: m.cmd_cat_export(),
+      label: m.cmd_export_pdf(),
       shortcut: shortcutLabel('Ctrl+Shift+P'),
       action: () => onExportPdf(),
     },
     {
       id: 'open-settings',
-      category: 'Settings',
-      label: 'Open Settings (Editor, Copy, Appearance, Vault)',
+      category: m.cmd_cat_settings(),
+      label: m.cmd_open_settings(),
       shortcut: shortcutLabel('Ctrl+,'),
       action: () => (settingsStore.showSettings = true),
     },
     // Theme
     {
       id: 'theme-system',
-      category: 'Appearance',
-      label: 'Theme: Follow System Theme',
+      category: m.cmd_cat_appearance(),
+      label: m.cmd_theme_system(),
       action: () => settingsStore.setThemePreference('system'),
     },
     {
       id: 'theme-light',
-      category: 'Appearance',
-      label: 'Theme: Light',
+      category: m.cmd_cat_appearance(),
+      label: m.cmd_theme_light(),
       action: () => settingsStore.setThemePreference('light'),
     },
     {
       id: 'theme-dark',
-      category: 'Appearance',
-      label: 'Theme: Dark',
+      category: m.cmd_cat_appearance(),
+      label: m.cmd_theme_dark(),
       action: () => settingsStore.setThemePreference('dark'),
     },
     {
       id: 'theme-high-contrast',
-      category: 'Appearance',
-      label: 'Theme: High Contrast Dark',
+      category: m.cmd_cat_appearance(),
+      label: m.cmd_theme_high_contrast(),
       action: () => settingsStore.setThemePreference('high-contrast'),
     },
   ]);
@@ -549,23 +550,23 @@
   });
 </script>
 
-<Dialog label="Command palette" {onClose} onkeydown={handleKeyDown}>
+<Dialog label={m.cmd_palette()} {onClose} onkeydown={handleKeyDown}>
   <div class="picker-search">
     <Icon name="magnifying-glass" />
     <input
       bind:this={searchInputEl}
       type="text"
       class="picker-input"
-      placeholder="Type a command"
-      aria-label="Search commands"
+      placeholder={m.cmd_placeholder()}
+      aria-label={m.cmd_search_label()}
       bind:value={query}
     />
     <kbd>Esc</kbd>
   </div>
 
-  <div class="picker-list" bind:this={listEl} role="listbox" aria-label="Commands">
+  <div class="picker-list" bind:this={listEl} role="listbox" aria-label={m.cmd_list_label()}>
     {#if filteredCommands.length === 0}
-      <div class="picker-empty">No command matches “{query.trim()}”.</div>
+      <div class="picker-empty">{m.cmd_no_match({ query: query.trim() })}</div>
     {:else}
       {#each filteredCommands as item, idx (item.id)}
         {#if idx === 0 || filteredCommands[idx - 1].category !== item.category}
@@ -590,8 +591,8 @@
   </div>
 
   <div class="picker-footer">
-    <span><kbd>↑</kbd> <kbd>↓</kbd> to move</span>
-    <span><kbd>Enter</kbd> to run</span>
-    <span><kbd>Esc</kbd> to close</span>
+    <span><kbd>↑</kbd> <kbd>↓</kbd> {m.picker_hint_move()}</span>
+    <span><kbd>Enter</kbd> {m.picker_hint_run()}</span>
+    <span><kbd>Esc</kbd> {m.picker_hint_close()}</span>
   </div>
 </Dialog>

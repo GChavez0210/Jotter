@@ -4,8 +4,10 @@
   import { tabsStore } from './stores/tabs.svelte';
   import { vaultStore } from './stores/vault.svelte';
   import type { SearchHit } from './types';
+  import { m, SLOT, splitSlots } from './i18n.svelte';
 
   let query = $state('');
+  const noMatchParts = $derived(splitSlots(m.search_no_match({ query: SLOT })));
   let results = $state<SearchHit[]>([]);
   let searching = $state(false);
   let searchInputEl: HTMLInputElement | undefined = $state();
@@ -100,7 +102,7 @@
   }
 </script>
 
-<div class="search-panel" aria-label="Full-text vault search">
+<div class="search-panel" aria-label={m.search_panel()}>
   <div class="search-box-wrap">
     <div class="search-input-container">
       <span class="search-icon"><Icon name="magnifying-glass" /></span>
@@ -108,15 +110,15 @@
         bind:this={searchInputEl}
         type="search"
         class="search-input"
-        placeholder="Search inside notes"
-        aria-label="Search vault notes"
+        placeholder={m.search_placeholder()}
+        aria-label={m.search_label()}
         bind:value={query}
       />
       {#if query}
         <button
           type="button"
           class="clear-btn"
-          aria-label="Clear search query"
+          aria-label={m.search_clear()}
           onclick={() => {
             query = '';
             searchInputEl?.focus();
@@ -129,9 +131,9 @@
     {#if query.trim()}
       <div class="search-summary">
         {#if searching}
-          Searching…
+          {m.search_searching()}
         {:else}
-          {results.length} {results.length === 1 ? 'note' : 'notes'} matched
+          {m.search_count({ count: results.length })}
         {/if}
       </div>
     {/if}
@@ -140,14 +142,14 @@
   <div class="results-scroll">
     {#if !query.trim()}
       <div class="empty-hint">
-        Search the text of every note in this vault.
+        {m.search_empty_hint()}
       </div>
     {:else if !searching && results.length === 0}
       <div class="empty-hint">
-        No notes matched <strong>"{query.trim()}"</strong>.
+        {noMatchParts[0]}<strong>"{query.trim()}"</strong>{noMatchParts[1]}
       </div>
     {:else}
-      <ul class="results-list" aria-label="Search results">
+      <ul class="results-list" aria-label={m.search_results()}>
         {#each results as hit (hit.path)}
           <li>
             <button
@@ -158,7 +160,7 @@
               <div class="hit-header">
                 <span class="hit-icon"><Icon name="file-text" /></span>
                 <span class="hit-title">{hit.title}</span>
-                <span class="hit-meta" title="First match on line {hit.lineNumber}">
+                <span class="hit-meta" title={m.search_first_match({ line: hit.lineNumber })}>
                   {hit.matchCount}
                 </span>
               </div>

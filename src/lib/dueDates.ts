@@ -1,11 +1,12 @@
+import { editorLocaleChanged, LocalizedWidget } from './editorLocale';
 import { type Extension, type Range } from '@codemirror/state';
+import { i18n, m } from './i18n.svelte';
 import {
   Decoration,
   type DecorationSet,
   EditorView,
   ViewPlugin,
   type ViewUpdate,
-  WidgetType,
 } from '@codemirror/view';
 
 /**
@@ -74,14 +75,14 @@ export function describeDueDate(date: string, now = new Date()): { label: string
   tomorrow.setDate(now.getDate() + 1);
   const yesterday = new Date(now);
   yesterday.setDate(now.getDate() - 1);
-  const [y, m, d] = date.split('-').map(Number);
-  const when = new Date(y, m - 1, d);
+  const [y, month, d] = date.split('-').map(Number);
+  const when = new Date(y, month - 1, d);
   let label: string;
-  if (date === today) label = 'Today';
-  else if (date === localDate(tomorrow)) label = 'Tomorrow';
-  else if (date === localDate(yesterday)) label = 'Yesterday';
+  if (date === today) label = m.due_today();
+  else if (date === localDate(tomorrow)) label = m.due_tomorrow();
+  else if (date === localDate(yesterday)) label = m.due_yesterday();
   else {
-    label = when.toLocaleDateString(undefined, {
+    label = when.toLocaleDateString(i18n.locale, {
       month: 'short',
       day: 'numeric',
       ...(y !== now.getFullYear() ? { year: 'numeric' } : {}),
@@ -90,7 +91,7 @@ export function describeDueDate(date: string, now = new Date()): { label: string
   return { label, overdue: date < today };
 }
 
-class DueChipWidget extends WidgetType {
+class DueChipWidget extends LocalizedWidget {
   constructor(
     readonly date: string,
     readonly time: string | null,
@@ -101,7 +102,7 @@ class DueChipWidget extends WidgetType {
   }
 
   eq(other: DueChipWidget): boolean {
-    return (
+    return this.locale === other.locale && (
       other.date === this.date &&
       other.time === this.time &&
       other.done === this.done &&
@@ -116,7 +117,7 @@ class DueChipWidget extends WidgetType {
     if (overdue && !this.done) chip.classList.add('cm-due-overdue');
     if (this.done) chip.classList.add('cm-due-done');
     chip.textContent = `📅 ${label}${this.time ? ` ${this.time}` : ''}`;
-    chip.title = `Due ${this.date}${this.time ? ` ${this.time}` : ''}. Click to edit.`;
+    chip.title = m.due_title({ when: this.time ? `${this.date} ${this.time}` : this.date });
     chip.addEventListener('mousedown', (e) => {
       e.preventDefault();
       view.dispatch({ selection: { anchor: this.editAt } });
@@ -161,7 +162,7 @@ export function createDueDateExtension(): Extension {
           this.decorations = buildChips(view);
         }
         update(update: ViewUpdate) {
-          if (update.docChanged || update.selectionSet || update.viewportChanged) {
+          if (update.docChanged || update.selectionSet || update.viewportChanged || update.transactions.some(editorLocaleChanged)) {
             this.decorations = buildChips(update.view);
           }
         }

@@ -10,7 +10,9 @@
     type HomeSection,
     type HomeSectionKind,
     type HomeSort,
+    homeSectionTitle,
   } from './noteGraph';
+  import { i18n, m } from './i18n.svelte';
   import { noteCardsStore } from './stores/noteCards.svelte';
   import { tabsStore } from './stores/tabs.svelte';
   import { vaultStore } from './stores/vault.svelte';
@@ -76,7 +78,7 @@
 
   function addSection() {
     const id = `s${Date.now().toString(36)}`;
-    save([...sections, { id, kind: 'tag', title: 'Tagged notes', limit: 6, sort: 'default', folder: '', tag: '' }]);
+    save([...sections, { id, kind: 'tag', title: '', limit: 6, sort: 'default', folder: '', tag: '' }]);
   }
 
   function resetSections() {
@@ -94,7 +96,7 @@
     return i > 0 ? path.slice(0, i) : '';
   }
 
-  const dateFormat = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
+  const dateFormat = $derived(new Intl.DateTimeFormat(i18n.locale, { month: 'short', day: 'numeric' }));
 
   function cardDate(card: NoteCard, kind: HomeSectionKind): string {
     const ms = kind === 'recent-created' ? card.createdMs : card.modifiedMs;
@@ -102,27 +104,29 @@
     const date = new Date(ms);
     const label = date.getFullYear() === new Date().getFullYear()
       ? dateFormat.format(date)
-      : date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-    return kind === 'recent-created' ? `Created ${label}` : `Edited ${label}`;
+      : date.toLocaleDateString(i18n.locale, { month: 'short', day: 'numeric', year: 'numeric' });
+    return kind === 'recent-created' ? m.home_created_on({ date: label }) : m.home_edited_on({ date: label });
   }
 
-  const KINDS = Object.entries(SECTION_KIND_LABELS) as Array<[HomeSectionKind, string]>;
-  const SORTS: Array<[HomeSort, string]> = [
-    ['default', 'Section order'],
-    ['title', 'Title'],
-    ['modified', 'Last edited'],
-    ['created', 'Created'],
-  ];
+  const KINDS = $derived(
+    (Object.keys(SECTION_KIND_LABELS) as HomeSectionKind[]).map((kind) => [kind, SECTION_KIND_LABELS[kind]] as const)
+  );
+  const SORTS = $derived<Array<[HomeSort, string]>>([
+    ['default', m.home_sort_default()],
+    ['title', m.home_sort_title()],
+    ['modified', m.home_sort_modified()],
+    ['created', m.home_sort_created()],
+  ]);
 </script>
 
-<div class="home" role="region" aria-label="Home">
+<div class="home" role="region" aria-label={m.home_title()}>
   <header class="home-header">
-    <h1>{vaultStore.vaultSnapshot?.name ?? 'Home'}</h1>
+    <h1>{vaultStore.vaultSnapshot?.name ?? m.home_title()}</h1>
     <div class="header-actions">
-      <Button variant="primary" icon="file-plus" onclick={onNewNote}>New note</Button>
+      <Button variant="primary" icon="file-plus" onclick={onNewNote}>{m.common_new_note()}</Button>
       <IconButton
         icon={editing ? 'check' : 'gear-six'}
-        label={editing ? 'Done customizing' : 'Customize Home'}
+        label={editing ? m.home_done_customizing() : m.home_customize()}
         pressed={editing}
         onclick={() => (editing = !editing)}
       />
@@ -133,38 +137,38 @@
     <p class="empty" role="alert">{noteCardsStore.error}</p>
   {:else if visible.length === 0 && !editing}
     <p class="empty">
-      {noteCardsStore.loading ? 'Loading notes…' : shortcutLabel('Notes you open and edit show up here. Press Ctrl O to find a note by name.')}
+      {noteCardsStore.loading ? m.home_loading() : m.home_empty({ shortcut: shortcutLabel('Ctrl O') })}
     </p>
   {/if}
 
   {#each visible as { section, cards } (section.id)}
-    <section class="home-section" class:hidden-section={section.hidden} aria-label={section.title}>
+    <section class="home-section" class:hidden-section={section.hidden} aria-label={homeSectionTitle(section)}>
       <div class="section-head">
-        <h2>{section.title}</h2>
-        {#if section.kind === 'rediscover' && cards.length}<span class="hint">Untouched for 3 months or more</span>{/if}
+        <h2>{homeSectionTitle(section)}</h2>
+        {#if section.kind === 'rediscover' && cards.length}<span class="hint">{m.home_rediscover_hint()}</span>{/if}
       </div>
 
       {#if editing}
         <div class="editor-row">
-          <label>Title <input value={section.title} onchange={(e) => update(section.id, { title: (e.currentTarget as HTMLInputElement).value })} /></label>
-          <label>Shows
+          <label>{m.home_field_title()} <input value={section.title} placeholder={homeSectionTitle({ ...section, title: '' })} onchange={(e) => update(section.id, { title: (e.currentTarget as HTMLInputElement).value })} /></label>
+          <label>{m.home_field_shows()}
             <select value={section.kind} onchange={(e) => update(section.id, { kind: (e.currentTarget as HTMLSelectElement).value as HomeSectionKind })}>
               {#each KINDS as [kind, label] (kind)}<option value={kind}>{label}</option>{/each}
             </select>
           </label>
-          <label>Cards <input type="number" min="1" max="48" value={section.limit} onchange={(e) => update(section.id, { limit: Math.max(1, Math.min(48, Number((e.currentTarget as HTMLInputElement).value) || 1)) })} /></label>
-          <label>Sort
+          <label>{m.home_field_cards()} <input type="number" min="1" max="48" value={section.limit} onchange={(e) => update(section.id, { limit: Math.max(1, Math.min(48, Number((e.currentTarget as HTMLInputElement).value) || 1)) })} /></label>
+          <label>{m.home_field_sort()}
             <select value={section.sort} onchange={(e) => update(section.id, { sort: (e.currentTarget as HTMLSelectElement).value as HomeSort })}>
               {#each SORTS as [sort, label] (sort)}<option value={sort}>{label}</option>{/each}
             </select>
           </label>
-          <label>Folder <input value={section.folder} placeholder="All folders" onchange={(e) => update(section.id, { folder: (e.currentTarget as HTMLInputElement).value.trim() })} /></label>
-          <label>Tag <input value={section.tag} placeholder={section.kind === 'tag' ? 'Required' : 'Any tag'} onchange={(e) => update(section.id, { tag: (e.currentTarget as HTMLInputElement).value.trim().replace(/^#/, '') })} /></label>
+          <label>{m.home_field_folder()} <input value={section.folder} placeholder={m.home_all_folders()} onchange={(e) => update(section.id, { folder: (e.currentTarget as HTMLInputElement).value.trim() })} /></label>
+          <label>{m.home_field_tag()} <input value={section.tag} placeholder={section.kind === 'tag' ? m.home_tag_required() : m.home_any_tag()} onchange={(e) => update(section.id, { tag: (e.currentTarget as HTMLInputElement).value.trim().replace(/^#/, '') })} /></label>
           <div class="row-actions">
-            <IconButton icon="caret-left" size="sm" label="Move up" class="rot" onclick={() => move(section.id, -1)} />
-            <IconButton icon="caret-right" size="sm" label="Move down" class="rot" onclick={() => move(section.id, 1)} />
-            <IconButton icon={section.hidden ? 'eye' : 'minus'} size="sm" label={section.hidden ? 'Show section' : 'Hide section'} onclick={() => update(section.id, { hidden: !section.hidden })} />
-            <IconButton icon="trash" size="sm" label="Remove section" onclick={() => save(sections.filter((s) => s.id !== section.id))} />
+            <IconButton icon="caret-left" size="sm" label={m.common_move_up()} class="rot" onclick={() => move(section.id, -1)} />
+            <IconButton icon="caret-right" size="sm" label={m.common_move_down()} class="rot" onclick={() => move(section.id, 1)} />
+            <IconButton icon={section.hidden ? 'eye' : 'minus'} size="sm" label={section.hidden ? m.home_show_section() : m.home_hide_section()} onclick={() => update(section.id, { hidden: !section.hidden })} />
+            <IconButton icon="trash" size="sm" label={m.home_remove_section()} onclick={() => save(sections.filter((s) => s.id !== section.id))} />
           </div>
         </div>
       {/if}
@@ -193,7 +197,7 @@
           {/each}
         </ul>
       {:else if editing}
-        <p class="empty small">No notes match this section yet.</p>
+        <p class="empty small">{m.home_section_empty()}</p>
       {/if}
     </section>
   {/each}
@@ -201,13 +205,13 @@
   {#if editing}
     {#each sections.filter((s) => s.hidden && !visible.some((v) => v.section.id === s.id)) as section (section.id)}
       <div class="hidden-row">
-        <span>{section.title} (hidden)</span>
-        <Button onclick={() => update(section.id, { hidden: false })}>Show</Button>
+        <span>{m.home_hidden_section({ title: homeSectionTitle(section) })}</span>
+        <Button onclick={() => update(section.id, { hidden: false })}>{m.common_show()}</Button>
       </div>
     {/each}
     <div class="customize-footer">
-      <Button icon="plus" onclick={addSection}>Add section</Button>
-      <Button onclick={resetSections}>Restore default sections</Button>
+      <Button icon="plus" onclick={addSection}>{m.home_add_section()}</Button>
+      <Button onclick={resetSections}>{m.home_restore_sections()}</Button>
     </div>
   {/if}
 </div>

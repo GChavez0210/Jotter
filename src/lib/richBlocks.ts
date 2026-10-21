@@ -4,6 +4,7 @@
  */
 
 import { evaluateCalcBlock } from './calc';
+import { i18n, m } from './i18n.svelte';
 
 type KatexModule = typeof import('katex');
 type PeleModule = typeof import('pele/lazy');
@@ -53,7 +54,7 @@ export function cachedMath(tex: string, displayMode: boolean, output: MathOutput
 }
 
 export function cachedDiagram(source: string) {
-  return diagramCache.get(source);
+  return diagramCache.get(`${i18n.locale}:${source}`);
 }
 
 /** Renders TeX to HTML. Invalid TeX renders as a red error message rather than throwing. */
@@ -78,7 +79,9 @@ export async function renderMath(
 
 /** Renders Mermaid source to SVG. Invalid source renders as an error message with the line. */
 export async function renderDiagram(source: string): Promise<string> {
-  const hit = diagramCache.get(source);
+  const locale = i18n.locale;
+  const key = `${locale}:${source}`;
+  const hit = diagramCache.get(key);
   if (hit !== undefined) return hit;
   let html: string;
   try {
@@ -87,12 +90,13 @@ export async function renderDiagram(source: string): Promise<string> {
   } catch (err) {
     const where =
       err && typeof err === 'object' && 'line' in err && Number(err.line) > 0
-        ? ` (line ${Number(err.line)})`
-        : '';
-    const message = err instanceof Error ? err.message : String(err);
-    html = `<div class="jotter-render-error">Diagram error${where}: ${escapeHtml(message)}</div>`;
+        ? Number(err.line)
+        : 0;
+    const message = escapeHtml(err instanceof Error ? err.message : String(err));
+    const text = where ? m.diagram_error_at({ line: where, message }, { locale }) : m.diagram_error({ message }, { locale });
+    html = `<div class="jotter-render-error">${text}</div>`;
   }
-  return remember(diagramCache, source, html);
+  return remember(diagramCache, key, html);
 }
 
 /** Pele colors for exported files, which do not have Jotter's theme variables. */

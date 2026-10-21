@@ -53,11 +53,23 @@ pub fn request_close(app: &AppHandle, quit: bool) {
     }
 }
 
+fn tray_menu<R: tauri::Runtime, M: Manager<R>>(app: &M, show: &str, quit: &str) -> tauri::Result<Menu<R>> {
+    let show = MenuItem::with_id(app, "show", show, true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", quit, true, None::<&str>)?;
+    Menu::with_items(app, &[&show, &quit])
+}
+
+/// Replaces the tray menu labels. The menu item ids, and so their handlers, stay the same.
+pub fn set_labels(app: &AppHandle, show: &str, quit: &str) -> tauri::Result<()> {
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        tray.set_menu(Some(tray_menu(app, show, quit)?))?;
+    }
+    Ok(())
+}
+
 /// Builds the tray icon, hidden until the summon hotkey is turned on.
 pub fn create_tray(app: &tauri::App) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "show", "Show Jotter", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Jotter", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &quit])?;
+    let menu = tray_menu(app, "Show Jotter", "Quit Jotter")?;
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip("Jotter")

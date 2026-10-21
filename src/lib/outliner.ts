@@ -1,4 +1,6 @@
+import { editorLocaleChanged, LocalizedWidget } from './editorLocale';
 import { isMac, shortcutLabel } from './platform';
+import { m } from './i18n.svelte';
 import {
   codeFolding,
   foldEffect,
@@ -31,7 +33,6 @@ import {
   keymap,
   ViewPlugin,
   type ViewUpdate,
-  WidgetType,
 } from '@codemirror/view';
 import { moveLineDown, moveLineUp } from '@codemirror/commands';
 import { parseFrontmatter } from './frontmatter';
@@ -391,13 +392,13 @@ interface ZoomRange {
 
 const setZoom = StateEffect.define<ZoomRange | null>();
 
-class ZoomBarWidget extends WidgetType {
+class ZoomBarWidget extends LocalizedWidget {
   constructor(readonly label: string) {
     super();
   }
 
   eq(other: ZoomBarWidget): boolean {
-    return other.label === this.label;
+    return this.locale === other.locale && other.label === this.label;
   }
 
   toDOM(view: EditorView): HTMLElement {
@@ -405,8 +406,8 @@ class ZoomBarWidget extends WidgetType {
     bar.className = 'cm-zoom-bar';
     const button = document.createElement('button');
     button.type = 'button';
-    button.textContent = '← Show whole note';
-    button.title = 'Show the whole note';
+    button.textContent = `← ${m.outline_show_whole()}`;
+    button.title = m.outline_show_whole_title();
     button.addEventListener('mousedown', (e) => {
       e.preventDefault();
       view.dispatch({ effects: setZoom.of(null) });
@@ -450,7 +451,7 @@ const zoomField = StateField.define<{ zoom: ZoomRange | null; decorations: Decor
       zoom = { from: tr.changes.mapPos(zoom.from, -1), to: tr.changes.mapPos(zoom.to, 1) };
     }
     for (const effect of tr.effects) if (effect.is(setZoom)) zoom = effect.value;
-    if (zoom === value.zoom) return value;
+    if (zoom === value.zoom && !editorLocaleChanged(tr)) return value;
     // Recompute against the item at the zoom start, so new children typed at the end show.
     // Never shrink below the mapped range: an edit can turn a child into a sibling (an outdent,
     // or Enter on the zoomed line), and hiding it would hide text the user is working on.
@@ -559,11 +560,15 @@ function isFolded(state: EditorState, from: number, to: number): boolean {
 }
 
 export function foldCaretAttributes(folded: boolean): Record<string, string> {
+  const action = folded ? m.outline_unfold() : m.outline_fold();
+  const shortcut = isMac
+    ? (folded ? 'Cmd+Option+]' : 'Cmd+Option+[')
+    : shortcutLabel(folded ? 'Ctrl+Shift+]' : 'Ctrl+Shift+[');
   return {
     type: 'button',
-    'aria-label': folded ? 'Unfold list item' : 'Fold list item',
+    'aria-label': action,
     'aria-expanded': String(!folded),
-    title: isMac ? (folded ? 'Unfold (Cmd+Option+])' : 'Fold (Cmd+Option+[)') : shortcutLabel(folded ? 'Unfold (Ctrl+Shift+])' : 'Fold (Ctrl+Shift+[)'),
+    title: m.outline_action_shortcut({ action, shortcut }),
   };
 }
 
@@ -571,7 +576,7 @@ export function foldCaretAttributes(folded: boolean): Record<string, string> {
  * A caret in the left margin of each foldable list item. It sits outside the text column, so
  * the note keeps its alignment with the header, which a fold gutter would shift.
  */
-export class FoldCaretWidget extends WidgetType {
+export class FoldCaretWidget extends LocalizedWidget {
   constructor(
     readonly from: number,
     readonly to: number,
@@ -581,7 +586,7 @@ export class FoldCaretWidget extends WidgetType {
   }
 
   eq(other: FoldCaretWidget): boolean {
-    return other.from === this.from && other.to === this.to && other.folded === this.folded;
+    return this.locale === other.locale && other.from === this.from && other.to === this.to && other.folded === this.folded;
   }
 
   toDOM(view: EditorView): HTMLElement {
@@ -640,7 +645,7 @@ const foldCaretPlugin = ViewPlugin.fromClass(
       const foldsChanged = update.transactions.some((tr) =>
         tr.effects.some((e) => e.is(foldEffect) || e.is(unfoldEffect))
       );
-      if (update.docChanged || update.viewportChanged || foldsChanged) {
+      if (update.docChanged || update.viewportChanged || foldsChanged || update.transactions.some(editorLocaleChanged)) {
         this.decorations = foldCarets(update.view);
       }
     }

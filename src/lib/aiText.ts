@@ -2,6 +2,7 @@ import type { EditorState, TransactionSpec } from '@codemirror/state';
 import { isolateHistory } from '@codemirror/commands';
 import type { captureEditorOperation } from './editorOperations';
 import { positionAfterFrontmatter } from './frontmatterPreview';
+import { m } from './i18n.svelte';
 import { markdownLanguage } from '@codemirror/lang-markdown';
 import { findInlineMath, findRichBlocks } from './livePreviewBlocks';
 
@@ -38,11 +39,11 @@ export function aiTargetRange(state: EditorState, scope: AiScope): AiRange | nul
 function validateSelection(state: EditorState, from: number, to: number) {
   const doc = state.doc.toString();
   if (from < positionAfterFrontmatter(doc)) {
-    throw new Error('The selection includes note properties. Select text below the properties first.');
+    throw new Error(m.ai_selection_properties());
   }
   const check = (start: number, end: number) => {
     if (from < end && to > start && !(from <= start && to >= end)) {
-      throw new Error('The selection cuts through protected Markdown. Include the complete code block, link, math, or tag, or select prose outside it.');
+      throw new Error(m.ai_selection_protected());
     }
   };
   const blocks = new Set(['FencedCode', 'CodeBlock', 'LinkReference', 'HTMLBlock']);

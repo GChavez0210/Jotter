@@ -1,9 +1,12 @@
 import { systemStore } from '../src/lib/stores/system.svelte';
 import { settingsStore } from '../src/lib/stores/settings.svelte';
 import { systemControl } from './ipc.mock';
-import { isMacPlatform, shortcutLabel } from '../src/lib/platform';
+import { isMac, isMacPlatform, shortcutLabel } from '../src/lib/platform';
 import { validateEntryName } from '../src/lib/validation';
 import { mock, test } from 'node:test';
+import { i18n, m, matchSystemLocale, SLOT, splitSlots } from '../src/lib/i18n.svelte';
+import enMessages from '../messages/en.json';
+import esMessages from '../messages/es.json';
 import assert from 'node:assert/strict';
 import { EditorState } from '@codemirror/state';
 import { tabsStore } from '../src/lib/stores/tabs.svelte';
@@ -46,7 +49,13 @@ import { aiPopoverPosition, clampAiPopoverPosition } from '../src/lib/aiPopover'
 import { noteMoveDestination } from '../src/lib/noteMove';
 import { aiStore, normalizeRewriteStyle } from '../src/lib/stores/ai.svelte';
 import { aiControl } from './ipc.mock';
-import { history, undo } from '@codemirror/commands';
+import { history, undo, undoDepth } from '@codemirror/commands';
+import { EditorView, ViewPlugin } from '@codemirror/view';
+import { refreshEditorLocale } from '../src/lib/editorLocale';
+import { createLivePreviewExtension } from '../src/lib/livePreview';
+import { createCalcExtension } from '../src/lib/calcPreview';
+import { cachedDiagram, renderDiagram } from '../src/lib/richBlocks';
+import { foldedRanges } from '@codemirror/language';
 import type { AiConfig, AiResult, AiStatus, VaultNode, VaultSnapshot } from '../src/lib/types';
 
 function dirtyTab() {
@@ -1029,4 +1038,172 @@ test('AI requests finish in their own tabs and closing cancels all hidden reques
     aiStore.closePanel();
     aiControl.run = originalRun;
   }
+});
+
+test('UI language follows the first supported OS language and falls back to English', () => {
+  assert.equal(matchSystemLocale(['es-MX', 'en-US']), 'es');
+  assert.equal(matchSystemLocale(['fr-FR', 'en-GB']), 'en');
+  assert.equal(matchSystemLocale(['pt-BR']), 'en');
+  assert.equal(matchSystemLocale([]), 'en');
+});
+
+test('changing the UI language switches messages without a reload', () => {
+  try {
+    i18n.setPreference('es');
+    assert.equal(m.common_cancel(), 'Cancelar');
+    assert.equal(m.word_count({ count: 1 }), '1 palabra');
+    assert.equal(m.word_count({ count: 3 }), '3 palabras');
+    i18n.setPreference('en');
+    assert.equal(m.common_cancel(), 'Cancel');
+    assert.equal(m.word_count({ count: 1 }), '1 word');
+  } finally {
+    i18n.setPreference('system');
+  }
+});
+
+test('markup slots split messages around their placeholders', () => {
+  assert.deepEqual(splitSlots(m.search_no_match({ query: SLOT }, { locale: 'en' })), ['No notes matched ', '.']);
+  assert.deepEqual(
+    splitSlots(m.settings_vault_languages_desc({ lang: SLOT, skip: SLOT }, { locale: 'es' })),
+    ['Cámbialos por nota con ', ' u omite una nota con ', '.']
+  );
+});
+
+test('every English message has a Spanish translation with the same placeholders in the same order', () => {
+  const placeholders = (value: unknown) => [...JSON.stringify(value).matchAll(/\{(\w+)\}/g)].map((match) => match[1]);
+  const { $schema: _en, ...english } = enMessages as Record<string, unknown>;
+  const { $schema: _es, ...spanish } = esMessages as Record<string, unknown>;
+  assert.deepEqual(Object.keys(spanish).sort(), Object.keys(english).sort());
+  for (const [key, value] of Object.entries(english)) {
+    // Templates place markup slots in English order, so the order must match too.
+    assert.deepEqual(placeholders(spanish[key]), placeholders(value), key);
+  }
+});
+
+test('locale refresh rebuilds existing preview widgets without an edit or cursor move', () => {
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, 'window');
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: new EventTarget() });
+  const constructors: any[] = [];
+  const original = ViewPlugin.fromClass;
+  const capture = mock.method(ViewPlugin, 'fromClass', (cls: any, spec: any) => {
+    if (spec?.decorations) constructors.push(cls);
+    return original.call(ViewPlugin, cls, spec);
+  });
+  const plugins: any[] = [];
+  const widgets = (set: any) => {
+    const result: any[] = [];
+    set.between(0, 10000, (_from: number, _to: number, value: any) => {
+      if (value.spec.widget?.locale) result.push(value.spec.widget);
+    });
+    return result;
+  };
+  try {
+    i18n.setPreference('en');
+    const extensions = [
+      markdown({ base: markdownLanguage }),
+      createLivePreviewExtension({ editingMode: 'live', dimInactiveParagraphs: false, typewriterScrolling: false }),
+      createCalcExtension(),
+    ];
+    const state = EditorState.create({
+      doc: 'Cursor\n\n- [ ] Task 📅 2026-12-25\n\n[[Target]]\n\n![Image](test.png)\n\n2+2=\n\n```calc\n1/0\n```\n\n$$\nx^2\n$$',
+      extensions,
+    });
+    const view = { state, visibleRanges: [{ from: 0, to: state.doc.length }] };
+    plugins.push(...constructors.map((cls) => new cls(view)));
+    const before = plugins.flatMap((plugin) => widgets(plugin.decorations));
+    const blockWidgets = (s: EditorState) => s.facet(EditorView.decorations)
+      .filter((value) => typeof value !== 'function').flatMap(widgets);
+    const blocksBefore = blockWidgets(state);
+    for (const name of ['TaskCheckboxWidget', 'WikiLinkWidget', 'ImageEmbedWidget', 'DueChipWidget', 'InlineResultWidget', 'BlockResultWidget']) {
+      assert.ok(before.some((widget) => widget.constructor.name === name), name);
+    }
+    assert.ok(blocksBefore.some((widget) => widget.constructor.name === 'RichBlockWidget'));
+    i18n.setPreference('es');
+    const transaction = state.update({ effects: refreshEditorLocale.of() });
+    view.state = transaction.state;
+    for (const plugin of plugins) plugin.update({
+      view, state: transaction.state, startState: state, transactions: [transaction],
+      docChanged: false, selectionSet: false, viewportChanged: false,
+    });
+    const after = plugins.flatMap((plugin) => widgets(plugin.decorations));
+    assert.equal(after.length, before.length);
+    for (let index = 0; index < after.length; index++) {
+      assert.equal(after[index].locale, 'es');
+      assert.equal(before[index].eq(after[index]), false, before[index].constructor.name);
+    }
+    const blocksAfter = blockWidgets(transaction.state);
+    assert.equal(blocksAfter.length, blocksBefore.length);
+    assert.equal(blocksBefore[0].eq(blocksAfter[0]), false);
+    assert.strictEqual(transaction.state.doc, state.doc);
+    assert.strictEqual(transaction.state.selection, state.selection);
+  } finally {
+    for (const plugin of plugins) plugin.destroy?.();
+    capture.mock.restore();
+    if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow);
+    else Reflect.deleteProperty(globalThis, 'window');
+    i18n.setPreference('system');
+  }
+});
+
+test('locale refresh preserves unsaved text, undo history, folds, and outline zoom', () => {
+  try {
+    i18n.setPreference('en');
+    let state = EditorState.create({ doc: '- Parent\n  - Child\n\nEnd', extensions: [markdown(), history(), createOutlinerExtension()] });
+    state = state.update({ changes: { from: state.doc.length, insert: ' unsaved' } }).state;
+    state = state.update(zoomIntoItem(state)!).state;
+    const range = foldable(state, 0, state.doc.line(1).to)!;
+    state = state.update({ effects: foldEffect.of(range) }).state;
+    const before = state;
+    i18n.setPreference('es');
+    state = state.update({ effects: refreshEditorLocale.of() }).state;
+    assert.strictEqual(state.doc, before.doc);
+    assert.deepEqual(zoomedRange(state), zoomedRange(before));
+    assert.equal(foldedRanges(state).size, 1);
+    assert.equal(undoDepth(state), 1);
+    const zoomWidgets = state.facet(EditorView.decorations).filter((value) => typeof value !== 'function');
+    let translated = false;
+    for (const decorations of zoomWidgets) decorations.between(0, state.doc.length, (_from, _to, value) => {
+      if (value.spec.widget?.constructor.name === 'ZoomBarWidget') translated = value.spec.widget.locale === 'es';
+    });
+    assert.equal(translated, true);
+  } finally { i18n.setPreference('system'); }
+});
+
+test('fold tooltips translate their action and retain the keyboard shortcut', () => {
+  try {
+    i18n.setPreference('es');
+    assert.equal(foldCaretAttributes(false).title, `Plegar el elemento (${isMac ? 'Cmd+Option+[' : 'Ctrl+Shift+['})`);
+    assert.equal(foldCaretAttributes(true).title, `Desplegar el elemento (${isMac ? 'Cmd+Option+]' : 'Ctrl+Shift+]'})`);
+    const spanish = new FoldCaretWidget(0, 10, false);
+    i18n.setPreference('en');
+    assert.equal(spanish.eq(new FoldCaretWidget(0, 10, false)), false);
+  } finally { i18n.setPreference('system'); }
+});
+
+test('Spanish clipboard and selection messages handle one line and one character', () => {
+  const locale = { locale: 'es' as const };
+  const details = { lines: m.line_count({ count: 1 }, locale), chars: m.character_count({ count: 1 }, locale), mode: 'sin formato' };
+  assert.equal(m.status_copied(details, locale), 'Texto copiado: 1 línea (1 carácter) en modo sin formato');
+  assert.equal(m.status_cut(details, locale), 'Texto cortado: 1 línea (1 carácter) en modo sin formato');
+  assert.equal(m.status_pasted_plain({ ...details, shortcut: 'Ctrl+Shift+V' }, locale), 'Texto pegado: 1 línea (1 carácter) como texto sin formato (Ctrl+Shift+V)');
+  assert.equal(m.status_selected({ count: 1 }, locale), '1 seleccionado');
+  assert.equal(m.status_selected({ count: 2 }, locale), '2 seleccionados');
+  assert.equal(m.character_count({ count: 2 }, locale), '2 caracteres');
+  assert.equal(m.line_count({ count: 2 }, locale), '2 líneas');
+});
+
+test('diagram error caches keep the language they were rendered in', async () => {
+  const source = 'invalid diagram for locale cache regression';
+  try {
+    i18n.setPreference('en');
+    const english = await renderDiagram(source);
+    assert.match(english, /Diagram error/);
+    i18n.setPreference('es');
+    assert.equal(cachedDiagram(source), undefined);
+    const spanish = await renderDiagram(source);
+    assert.match(spanish, /Error en el diagrama/);
+    assert.equal(cachedDiagram(source), spanish);
+    i18n.setPreference('en');
+    assert.equal(cachedDiagram(source), english);
+  } finally { i18n.setPreference('system'); }
 });

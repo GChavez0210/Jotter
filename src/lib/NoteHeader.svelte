@@ -6,6 +6,7 @@
   import { tagColor } from './tagColor';
   import PropertiesPanel from './PropertiesPanel.svelte';
   import type { TextChange } from './frontmatter';
+  import { i18n, m } from './i18n.svelte';
 
   interface Props {
     /** Applies a frontmatter edit through the editor, so it joins the undo history. */
@@ -20,7 +21,7 @@
   const INLINE_TAG_RE = /(?<=^|\s)#([\p{L}\p{N}_/-]+)/gu;
 
   let tab = $derived(tabsStore.activeTab);
-  let title = $derived(tab ? tab.title.replace(/\.md$/i, '') : 'Scratchpad');
+  let title = $derived(tab ? tab.title.replace(/\.md$/i, '') : m.scratchpad_title());
   let folder = $derived(
     tab ? tab.relPath.replace(/\\/g, '/').split('/').slice(0, -1).join(' / ') : ''
   );
@@ -39,10 +40,10 @@
     const yesterday = new Date(today);
     yesterday.setDate(today.getDate() - 1);
     if (date.toDateString() === today.toDateString()) {
-      return `Edited ${date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`;
+      return m.note_edited_at({ time: date.toLocaleTimeString(i18n.locale, { hour: '2-digit', minute: '2-digit' }) });
     }
-    if (date.toDateString() === yesterday.toDateString()) return 'Edited yesterday';
-    return `Edited ${date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+    if (date.toDateString() === yesterday.toDateString()) return m.note_edited_yesterday();
+    return m.home_edited_on({ date: date.toLocaleDateString(i18n.locale, { month: 'short', day: 'numeric' }) });
   });
 
   let content = $derived(tab?.content ?? tabsStore.scratchpadContent);
@@ -87,15 +88,15 @@
   {#if edited}
     <span class="meta-item">{edited}</span>
   {/if}
-  <span class="meta-item">{tabsStore.docStats.words} words</span>
+  <span class="meta-item">{m.word_count({ count: tabsStore.docStats.words })}</span>
   {#each tags as tag (tag)}
-    <button type="button" class="chip" title="Show notes tagged #{tag}" onclick={() => showTag(tag)}>
+    <button type="button" class="chip" title={m.note_show_tagged({ tag })} onclick={() => showTag(tag)}>
       <span class="dot" style:background={tagColor(tag)}></span>{tag}
     </button>
   {/each}
   {#if onEdit && !hasFrontmatter && !addingProperty}
     <button type="button" class="meta-action" onclick={() => (addingProperty = true)}>
-      <Icon name="plus" size={12} />Add property
+      <Icon name="plus" size={12} />{m.prop_add_property()}
     </button>
   {/if}
 </div>

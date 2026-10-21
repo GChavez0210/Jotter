@@ -6,6 +6,7 @@
   import { pickVaultFolder } from './ipc';
   import type { RecentVault } from './types';
   import { validateEntryName } from './validation';
+  import { m, SLOT, splitSlots } from './i18n.svelte';
 
   interface Props {
     recentVaults: RecentVault[];
@@ -27,7 +28,7 @@
 
   let mode = $state<'welcome' | 'create' | 'open_manual'>('welcome');
   let createParentPath = $state('');
-  let createVaultName = $state('My Notes');
+  let createVaultName = $state(m.first_run_default_vault_name());
   let manualOpenPath = $state('');
 
   let vaultNameError = $derived(
@@ -36,7 +37,7 @@
 
   async function handleOpenVaultClick() {
     try {
-      const picked = await pickVaultFolder('Select a folder to open as a Jotter vault');
+      const picked = await pickVaultFolder(m.first_run_pick_vault());
       if (picked) {
         onOpenVaultPath(picked);
         return;
@@ -48,7 +49,7 @@
 
   async function handleBrowseParentClick() {
     try {
-      const picked = await pickVaultFolder('Select parent folder for new vault');
+      const picked = await pickVaultFolder(m.first_run_pick_parent());
       if (picked) {
         createParentPath = picked;
       }
@@ -68,16 +69,18 @@
     if (!manualOpenPath.trim()) return;
     onOpenVaultPath(manualOpenPath.trim());
   }
+
+  const openDescParts = $derived(splitSlots(m.first_run_open_desc({ ext: SLOT })));
 </script>
 
 <div class="onboarding-container">
-  <div class="onboarding-card" role="region" aria-label="Welcome to Jotter">
+  <div class="onboarding-card" role="region" aria-label={m.first_run_welcome()}>
     <div class="hero-header">
       <img class="hero-logo" src={appIcon} alt="" width="48" height="48" />
       <div class="hero-titles">
         <h1 class="hero-title">Jotter</h1>
         <p class="hero-subtitle">
-          Plain Markdown notes in a folder you own. Opens Obsidian vaults as they are.
+          {m.first_run_tagline()}
         </p>
       </div>
     </div>
@@ -89,9 +92,9 @@
     <div class="primary-actions">
       <div class="action-row">
         <div class="action-info">
-          <div class="action-title">Open existing vault</div>
+          <div class="action-title">{m.first_run_open_title()}</div>
           <div class="action-desc">
-            Pick a folder of Markdown (<code>.md</code>) files.
+            {openDescParts[0]}<code>.md</code>{openDescParts[1]}
           </div>
         </div>
         <div class="action-buttons">
@@ -100,14 +103,14 @@
             icon="folder-open"
             onclick={handleOpenVaultClick}
           >
-            Open vault
+            {m.first_run_open_vault()}
           </Button>
           <Button
-            title="Enter folder path manually"
+            title={m.first_run_enter_path_title()}
             onclick={() =>
               (mode = mode === 'open_manual' ? 'welcome' : 'open_manual')}
           >
-            Enter path…
+            {m.first_run_enter_path()}
           </Button>
         </div>
       </div>
@@ -115,7 +118,7 @@
       {#if mode === 'open_manual'}
         <form class="inline-form" onsubmit={submitManualOpen}>
           <label class="form-field">
-            <span class="field-label">Vault folder path</span>
+            <span class="field-label">{m.first_run_vault_path()}</span>
             <input
               type="text"
               class="fluent-input"
@@ -128,13 +131,13 @@
             <Button
               onclick={() => (mode = 'welcome')}
             >
-              Cancel
+              {m.common_cancel()}
             </Button>
             <Button
               variant="primary"
               type="submit"
             >
-              Open folder
+              {m.common_open_folder()}
             </Button>
           </div>
         </form>
@@ -142,28 +145,28 @@
 
       <div class="action-row">
         <div class="action-info">
-          <div class="action-title">Create new vault</div>
+          <div class="action-title">{m.first_run_create_title()}</div>
           <div class="action-desc">
-            Start an empty folder for new notes.
+            {m.first_run_create_desc()}
           </div>
         </div>
         <Button
           icon="plus"
           onclick={() => (mode = mode === 'create' ? 'welcome' : 'create')}
         >
-          Create vault
+          {m.first_run_create_vault()}
         </Button>
       </div>
 
       {#if mode === 'create'}
         <form class="inline-form" onsubmit={submitCreateVault}>
           <label class="form-field">
-            <span class="field-label">Vault name</span>
+            <span class="field-label">{m.first_run_vault_name()}</span>
             <input
               type="text"
               class="fluent-input"
               aria-invalid={Boolean(vaultNameError)}
-              placeholder="Work Notes"
+              placeholder={m.first_run_vault_name_placeholder()}
               bind:value={createVaultName}
               required
             />
@@ -172,7 +175,7 @@
             {/if}
           </label>
           <div class="form-field">
-            <span class="field-label">Parent folder</span>
+            <span class="field-label">{m.first_run_parent_folder()}</span>
             <div class="input-with-btn">
               <input
                 type="text"
@@ -184,7 +187,7 @@
               <Button
                 onclick={handleBrowseParentClick}
               >
-                Browse…
+                {m.common_browse()}
               </Button>
             </div>
           </div>
@@ -192,14 +195,14 @@
             <Button
               onclick={() => (mode = 'welcome')}
             >
-              Cancel
+              {m.common_cancel()}
             </Button>
             <Button
               variant="primary"
               type="submit"
               disabled={Boolean(vaultNameError)}
             >
-              Create &amp; Open
+              {m.app_create_and_open()}
             </Button>
           </div>
         </form>
@@ -208,7 +211,7 @@
 
     {#if recentVaults.length > 0}
       <div class="recent-section">
-        <h2 class="section-heading">Recent vaults</h2>
+        <h2 class="section-heading">{m.first_run_recent()}</h2>
         <ul class="recent-list">
           {#each recentVaults as vault (vault.path)}
             <li class="recent-item">
@@ -225,8 +228,8 @@
               </button>
               <IconButton
                 icon="x"
-                label="Remove {vault.name} from recent vaults"
-                tooltip="Remove from recent vaults"
+                label={m.first_run_remove_recent_label({ vault: vault.name })}
+                tooltip={m.first_run_remove_recent()}
                 onclick={() => onRemoveRecentVault(vault.path)}
               />
             </li>
@@ -237,7 +240,7 @@
 
     <div class="scratchpad-footer">
       <button type="button" class="link-btn" onclick={onOpenScratchpad}>
-        Try a scratchpad without a vault
+        {m.first_run_scratchpad()}
       </button>
     </div>
   </div>

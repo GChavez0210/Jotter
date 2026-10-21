@@ -5,6 +5,8 @@
  * parentheses, unary minus, `x% of y`, constants, a fixed set of functions, and variables.
  */
 
+import { m } from './i18n.svelte';
+
 const FUNCTIONS: Record<string, (...args: number[]) => number> = {
   sqrt: Math.sqrt,
   abs: Math.abs,
@@ -61,7 +63,7 @@ function tokenize(src: string): Token[] {
       continue;
     }
     const op = /^(\*\*|[-+*/^%(),×÷])/.exec(src.slice(i));
-    if (!op) throw new CalcError(`Unexpected "${ch}"`);
+    if (!op) throw new CalcError(m.calc_unexpected({ token: ch }));
     const normalized = op[0] === '**' ? '^' : op[0] === '×' ? '*' : op[0] === '÷' ? '/' : op[0];
     tokens.push({ kind: 'op', op: normalized });
     i += op[0].length;
@@ -81,7 +83,7 @@ class Parser {
 
   parse(): number {
     const value = this.additive();
-    if (this.pos < this.tokens.length) throw new CalcError('Unexpected input');
+    if (this.pos < this.tokens.length) throw new CalcError(m.calc_unexpected_input());
     return value;
   }
 
@@ -100,7 +102,7 @@ class Parser {
   }
 
   private expect(op: string) {
-    if (!this.isOp(op)) throw new CalcError(`Expected "${op}"`);
+    if (!this.isOp(op)) throw new CalcError(m.calc_expected({ token: op }));
     this.pos++;
   }
 
@@ -134,7 +136,7 @@ class Parser {
         break;
       }
       const right = this.factor(() => {});
-      if (op === '/' && right === 0) throw new CalcError('Division by zero');
+      if (op === '/' && right === 0) throw new CalcError(m.calc_division_by_zero());
       left = op === '*' ? left * right : left / right;
       factors++;
     }
@@ -171,11 +173,11 @@ class Parser {
 
   private primary(): number {
     const t = this.peek();
-    if (!t) throw new CalcError('Unexpected end');
+    if (!t) throw new CalcError(m.calc_unexpected_end());
     this.pos++;
     if (t.kind === 'num') return t.value;
     if (t.kind === 'op') {
-      if (t.op !== '(') throw new CalcError(`Unexpected "${t.op}"`);
+      if (t.op !== '(') throw new CalcError(m.calc_unexpected({ token: t.op }));
       const value = this.additive();
       this.expect(')');
       return value;
@@ -197,17 +199,17 @@ class Parser {
       return fn(...args);
     }
     if (lower in CONSTANTS) return CONSTANTS[lower];
-    throw new CalcError(`Unknown name "${t.name}"`);
+    throw new CalcError(m.calc_unknown_name({ name: t.name }));
   }
 }
 
 /** Evaluates an expression. Throws `CalcError` on bad input or a non-finite result. */
 export function evaluate(src: string, scope: Scope = new Map()): number {
   const tokens = tokenize(src);
-  if (tokens.length === 0) throw new CalcError('Empty expression');
+  if (tokens.length === 0) throw new CalcError(m.calc_empty());
   const parser = new Parser(tokens, scope);
   const value = parser.parse();
-  if (!Number.isFinite(value)) throw new CalcError('Result is not a finite number');
+  if (!Number.isFinite(value)) throw new CalcError(m.calc_not_finite());
   return value;
 }
 

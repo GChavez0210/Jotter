@@ -5,6 +5,7 @@
   import { stripMdExt, vaultStore } from './stores/vault.svelte';
   import type { VaultNode } from './types';
   import { validateEntryName } from './validation';
+  import { m } from './i18n.svelte';
 
   interface Props {
     onClose: () => void;
@@ -188,23 +189,23 @@
   });
 </script>
 
-<Dialog label="Quick switcher" {onClose} onkeydown={handleKeyDown}>
+<Dialog label={m.quick_switcher()} {onClose} onkeydown={handleKeyDown}>
   <div class="picker-search">
     <Icon name="magnifying-glass" />
     <input
       bind:this={inputEl}
       type="text"
       class="picker-input"
-      placeholder="Find a note by name"
-      aria-label="Find a note by name"
+      placeholder={m.quick_find()}
+      aria-label={m.quick_find()}
       bind:value={query}
     />
     <kbd>Esc</kbd>
   </div>
 
-  <div class="picker-list" bind:this={listEl} role="listbox" aria-label="Matching notes">
+  <div class="picker-list" bind:this={listEl} role="listbox" aria-label={m.quick_matches()}>
     {#if matchedNotes.length === 0 && !canCreateFromQuery}
-      <div class="picker-empty">No notes in this vault match “{query.trim()}”.</div>
+      <div class="picker-empty">{m.quick_no_match({ query: query.trim() })}</div>
     {:else}
       {#each matchedNotes as item, idx (item.node.relPath)}
         <button
@@ -232,7 +233,7 @@
           onclick={() => void createFromQuery()}
         >
           <Icon name="file-plus" />
-          <span class="picker-label">Create “{query.trim()}”</span>
+          <span class="picker-label">{m.quick_create({ name: query.trim() })}</span>
           <kbd>{matchedNotes.length === 0 ? 'Enter' : 'Shift+Enter'}</kbd>
         </button>
       {/if}
@@ -240,8 +241,8 @@
   </div>
 
   <div class="picker-footer">
-    <span><kbd>↑</kbd> <kbd>↓</kbd> to move</span>
-    <span><kbd>Enter</kbd> to open</span>
-    <span><kbd>Shift+Enter</kbd> to create</span>
+    <span><kbd>↑</kbd> <kbd>↓</kbd> {m.picker_hint_move()}</span>
+    <span><kbd>Enter</kbd> {m.picker_hint_open()}</span>
+    <span><kbd>Shift+Enter</kbd> {m.picker_hint_create()}</span>
   </div>
 </Dialog>

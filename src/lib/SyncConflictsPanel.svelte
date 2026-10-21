@@ -4,6 +4,7 @@
   import { tabsStore } from './stores/tabs.svelte';
   import { vaultStore } from './stores/vault.svelte';
   import { PROVIDER_NAMES, type ConflictCopy } from './syncConflicts';
+  import { m, trashName } from './i18n.svelte';
 
   let confirmingPath = $state<string | null>(null);
 
@@ -12,10 +13,10 @@
   );
 
   function clientName(copy: ConflictCopy): string {
-    if (copy.provider === 'unknown') return 'Sync client';
+    if (copy.provider === 'unknown') return m.conflicts_sync_client();
     // Dropbox's naming is shared by Nextcloud and ownCloud; name the folder's client instead.
     if (copy.provider === 'dropbox' && vaultStore.syncProvider && vaultStore.syncProvider !== 'dropbox') {
-      return 'Sync client';
+      return m.conflicts_sync_client();
     }
     return PROVIDER_NAMES[copy.provider];
   }
@@ -35,18 +36,16 @@
   }
 </script>
 
-<div class="conflicts-panel" role="region" aria-label="Sync conflicts">
-  <div class="section-header"><span>Sync conflicts</span></div>
+<div class="conflicts-panel" role="region" aria-label={m.sidebar_view_conflicts()}>
+  <div class="section-header"><span>{m.sidebar_view_conflicts()}</span></div>
 
   <div class="list-scroll">
     <p class="intro">
-      {providerName ?? 'Your sync client'} saved these copies when two devices changed the
-      same note before syncing. Open both, move the changes you want into the original, then
-      move the copy to the Recycle Bin.
+      {m.conflicts_intro({ client: providerName ?? m.conflicts_your_client(), trash: trashName() })}
     </p>
 
     {#if vaultStore.syncConflicts.length === 0}
-      <div class="empty-msg">No conflict copies in this vault.</div>
+      <div class="empty-msg">{m.conflicts_none()}</div>
     {:else}
       <ul class="conflict-list">
         {#each vaultStore.syncConflicts as copy (copy.copyPath)}
@@ -56,7 +55,7 @@
               <button
                 type="button"
                 class="item-name"
-                title="Open {copy.copyPath}"
+                title={m.conflicts_open_path({ path: copy.copyPath })}
                 onclick={() => void tabsStore.openNoteInTab(copy.copyPath)}
               >
                 {stem(copy.copyPath)}
@@ -64,21 +63,21 @@
               <div class="item-meta">
                 {clientName(copy)} ·
                 {#if copy.originalPath}
-                  copy of
+                  {m.conflicts_copy_of()}
                   <button
                     type="button"
                     class="link"
                     onclick={() => void tabsStore.openNoteInTab(copy.originalPath!)}
                   >{stem(copy.originalPath)}</button>
                 {:else}
-                  original not found
+                  {m.conflicts_original_missing()}
                 {/if}
               </div>
               {#if confirmingPath === copy.copyPath}
                 <div class="confirm">
-                  Move this copy to the Recycle Bin?
-                  <button type="button" class="danger" onclick={() => void discard(copy)}>Move</button>
-                  <button type="button" onclick={() => (confirmingPath = null)}>Cancel</button>
+                  {m.conflicts_confirm_move({ trash: trashName() })}
+                  <button type="button" class="danger" onclick={() => void discard(copy)}>{m.conflicts_move()}</button>
+                  <button type="button" onclick={() => (confirmingPath = null)}>{m.common_cancel()}</button>
                 </div>
               {/if}
             </div>
@@ -86,7 +85,7 @@
               <IconButton
                 icon="check"
                 size="sm"
-                label="Mark {stem(copy.copyPath)} as not a conflict"
+                label={m.conflicts_dismiss({ name: stem(copy.copyPath) })}
                 onclick={() => vaultStore.dismissConflict(copy.copyPath)}
               />
             {/if}
@@ -94,14 +93,14 @@
               <IconButton
                 icon="copy-simple"
                 size="sm"
-                label="Open the copy and the original"
+                label={m.conflicts_open_both()}
                 onclick={() => void openBoth(copy)}
               />
             {/if}
             <IconButton
               icon="trash"
               size="sm"
-              label="Move {stem(copy.copyPath)} to the Recycle Bin"
+              label={m.conflicts_move_named({ name: stem(copy.copyPath), trash: trashName() })}
               onclick={() => (confirmingPath = copy.copyPath)}
             />
           </li>

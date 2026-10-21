@@ -26,6 +26,12 @@ import type {
   VaultSnapshot,
 } from './types';
 
+/** Native save-dialog title and file-type filter name, in the UI language. */
+export interface DialogLabels {
+  title: string;
+  filter: string;
+}
+
 export async function copyToClipboard(req: CopyRequest): Promise<ClipboardPayload> {
   return invoke<ClipboardPayload>('copy_to_clipboard', { req });
 }
@@ -157,9 +163,10 @@ export async function readVaultImageDataUrl(target: string): Promise<string> {
 /** Asks where to save, then writes `html`. Resolves to `null` when the user cancels. */
 export async function exportActiveNoteHtml(
   title: string,
-  html: string
+  html: string,
+  labels?: DialogLabels
 ): Promise<string | null> {
-  return invoke<string | null>('export_active_note_html', { title, html });
+  return invoke<string | null>('export_active_note_html', { title, html, labels: labels ?? null });
 }
 
 export async function listDeletedEntries(): Promise<DeletedEntry[]> {
@@ -210,6 +217,10 @@ export async function keepAppOpen(): Promise<void> {
   return invoke<void>('keep_app_open');
 }
 
+export async function setTrayLabels(show: string, quit: string): Promise<void> {
+  return invoke<void>('set_tray_labels', { show, quit });
+}
+
 export async function listenQuitRequested(handler: (quit: boolean) => void): Promise<UnlistenFn> {
   return listen<boolean>('quit-requested', (event) => handler(event.payload));
 }
@@ -244,8 +255,11 @@ export async function getNoteCards(): Promise<NoteCard[]> {
   return invoke<NoteCard[]>('get_note_cards');
 }
 
-export async function pickTaskCalendarPath(defaultName: string): Promise<string | null> {
-  return invoke<string | null>('pick_task_calendar_path', { defaultName });
+export async function pickTaskCalendarPath(
+  defaultName: string,
+  labels?: DialogLabels
+): Promise<string | null> {
+  return invoke<string | null>('pick_task_calendar_path', { defaultName, labels: labels ?? null });
 }
 
 /** Rewrites the task calendar file. Resolves to whether the file changed. */

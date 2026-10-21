@@ -1,4 +1,6 @@
+import { editorLocaleChanged, LocalizedWidget } from './editorLocale';
 import { markdownLanguage } from '@codemirror/lang-markdown';
+import { m } from './i18n.svelte';
 import { StateEffect, StateField, type EditorState, type Range, type Extension } from '@codemirror/state';
 import { Decoration, type DecorationSet, EditorView, ViewPlugin, WidgetType } from '@codemirror/view';
 import {
@@ -70,7 +72,7 @@ export function findRichBlocks(state: EditorState): RichBlock[] {
   return blocks;
 }
 
-class RichBlockWidget extends WidgetType {
+class RichBlockWidget extends LocalizedWidget {
   constructor(
     readonly kind: RichBlock['kind'],
     readonly source: string,
@@ -80,7 +82,7 @@ class RichBlockWidget extends WidgetType {
   }
 
   eq(other: RichBlockWidget): boolean {
-    return (
+    return this.locale === other.locale && (
       other.kind === this.kind &&
       other.source === this.source &&
       other.editFrom === this.editFrom
@@ -96,7 +98,7 @@ class RichBlockWidget extends WidgetType {
     el.className =
       this.kind === 'math' ? 'cm-rich-block cm-math-block' : 'cm-rich-block cm-diagram-block';
     if (this.editFrom !== null) {
-      el.title = 'Click to edit';
+      el.title = m.preview_click_to_edit();
       const editAt = this.editFrom;
       el.addEventListener('mousedown', (e) => {
         e.preventDefault();
@@ -185,7 +187,7 @@ export function createRichBlockExtension(): Extension {
         }).map((block) => ({...block, from:tr.changes.mapPos(block.from, 1), to:tr.changes.mapPos(block.to, -1)}));
       }
       for (const effect of tr.effects) if (effect.is(updateBlocks)) blocks = effect.value;
-      if (!tr.docChanged && !tr.selection && blocks === value.blocks) return value;
+      if (!tr.docChanged && !tr.selection && blocks === value.blocks && !editorLocaleChanged(tr)) return value;
       return { blocks, decorations: buildDecorations(tr.state, blocks) };
     },
     provide: (field) => EditorView.decorations.from(field, (value) => value.decorations),

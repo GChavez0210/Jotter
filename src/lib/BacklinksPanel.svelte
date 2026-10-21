@@ -6,9 +6,12 @@
   import { tabsStore } from './stores/tabs.svelte';
   import { vaultStore } from './stores/vault.svelte';
   import type { BacklinkEntry } from './types';
+  import { m, SLOT, splitSlots } from './i18n.svelte';
 
   let backlinks = $state<BacklinkEntry[]>([]);
   let loading = $state(false);
+  const noBacklinksParts = $derived(splitSlots(m.backlinks_none({ title: SLOT })));
+  const linkHintParts = $derived(splitSlots(m.backlinks_hint({ link: SLOT })));
 
   $effect(() => {
     const activeRel = tabsStore.activeTabPath;
@@ -48,16 +51,16 @@
 </script>
 
 {#if settingsStore.showRightPanel}
-  <aside class="right-panel" aria-label="Backlinks panel">
+  <aside class="right-panel" aria-label={m.titlebar_backlinks_panel()}>
     <div class="panel-header">
       <div class="panel-title-wrap">
         <span class="panel-icon"><Icon name="arrow-bend-up-left" /></span>
-        <span class="panel-title">Backlinks</span>
+        <span class="panel-title">{m.backlinks_title()}</span>
         <span class="count-badge">{backlinks.length}</span>
       </div>
       <IconButton
         icon="x"
-        label="Close Backlinks panel"
+        label={m.backlinks_close()}
         onclick={() => settingsStore.toggleRightPanel()}
       />
     </div>
@@ -65,31 +68,31 @@
     <div class="panel-body">
       {#if !tabsStore.activeTab}
         <div class="empty-state">
-          Open a note to see other vault notes that link to it.
+          {m.backlinks_no_note()}
         </div>
       {:else if loading && backlinks.length === 0}
-        <div class="empty-state">Loading backlinks…</div>
+        <div class="empty-state">{m.backlinks_loading()}</div>
       {:else if backlinks.length === 0}
         <div class="empty-state">
-          <div>No backlinks to <strong>{tabsStore.activeTab.title}</strong> yet.</div>
+          <div>{noBacklinksParts[0]}<strong>{tabsStore.activeTab.title}</strong>{noBacklinksParts[1]}</div>
           <div class="empty-hint">
-            Link to this note from another file using <code>[[{tabsStore.activeTab.title}]]</code>.
+            {linkHintParts[0]}<code>[[{tabsStore.activeTab.title}]]</code>{linkHintParts[1]}
           </div>
         </div>
       {:else}
-        <ul class="backlink-list" aria-label="Incoming links to active note">
+        <ul class="backlink-list" aria-label={m.backlinks_list()}>
           {#each backlinks as item (`${item.sourcePath}:${item.lineNumber}:${item.target}`)}
             <li>
               <button
                 type="button"
                 class="backlink-card"
-                title="Open {item.sourcePath} at line {item.lineNumber}"
+                title={m.backlinks_open_at({ path: item.sourcePath, line: item.lineNumber })}
                 onclick={() => handleOpenBacklink(item)}
               >
                 <div class="backlink-top">
                   <span class="source-icon"><Icon name="file-text" /></span>
                   <span class="source-title">{item.sourceTitle}</span>
-                  <span class="line-pill">L{item.lineNumber}</span>
+                  <span class="line-pill">{m.backlinks_line_pill({ line: item.lineNumber })}</span>
                 </div>
                 {#if item.sourcePath !== `${item.sourceTitle}.md`}
                   <div class="source-path">{item.sourcePath}</div>

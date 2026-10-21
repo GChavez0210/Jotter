@@ -12,6 +12,8 @@ Roadmap Phase 2.
 
 ### Added
 
+- **Line numbers.** **Settings → Editor → Line numbers**, or the command palette, shows a number beside each line. Numbers line up with the first row of headings, code blocks, and tables, and the text column stays centered.
+- **Spanish interface.** **Settings → Appearance → Language** switches menus, dialogs, and messages between English and Spanish without restarting. **System**, the default, follows the OS language and falls back to English. Dates, month names, the tray menu, and native save dialogs follow the chosen language. Error text from the Rust backend stays in English.
 - **Bring-your-own AI.** Settings → AI connects an OpenAI-compatible endpoint, Anthropic, or a local Ollama model. It is off by default and needs no Jotter account. The command palette and the selection toolbar open an AI panel that summarizes, rewrites, or translates the selection or the whole note. The panel previews the result, then replaces the text or inserts the result below it as one undo step. API keys stay in the OS credential store and go only to the address they were saved for. Code, links, math, tags, and frontmatter pass through unchanged. A **Writing style** box holds your own style instructions, prefilled with an example, and the **Polish** rewrite applies them.
 
 - Track pending desktop verification and Mac release work in the roadmap. Expand Settings → System → CSS snippets with setup steps, a working CSS example, scope, and undo instructions.

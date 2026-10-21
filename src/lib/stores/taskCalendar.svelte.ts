@@ -1,3 +1,4 @@
+import { m } from '../i18n.svelte';
 import { pickTaskCalendarPath, writeTaskCalendar } from '../ipc';
 import { clipboardStore } from './clipboard.svelte';
 import { vaultStore } from './vault.svelte';
@@ -43,7 +44,10 @@ class TaskCalendarStore {
     if (!snapshot) return;
     let picked: string | null;
     try {
-      picked = await pickTaskCalendarPath(`${snapshot.name} tasks`);
+      picked = await pickTaskCalendarPath(m.task_calendar_file_name({ vault: snapshot.name }), {
+        title: m.dialog_task_calendar_title(),
+        filter: m.dialog_task_calendar_filter(),
+      });
     } catch (err) {
       // Show picker errors separately from user cancellation.
       this.lastError = err instanceof Error ? err.message : String(err);
@@ -73,7 +77,7 @@ class TaskCalendarStore {
       this.lastError = '';
     } catch (err) {
       this.lastError = err instanceof Error ? err.message : String(err);
-      clipboardStore.setStatus(`Task calendar not updated: ${this.lastError}`);
+      clipboardStore.setStatus(m.status_task_calendar_failed({ error: this.lastError }));
     }
   }
 

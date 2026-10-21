@@ -315,6 +315,19 @@ fn paste_plain_from_clipboard() -> Result<String, String> {
     read_plain_from_system_clipboard()
 }
 
+/// Save-dialog text in the UI language. The frontend translates it; Rust keeps English fallbacks.
+#[derive(serde::Deserialize)]
+struct DialogLabels {
+    title: String,
+    filter: String,
+}
+
+impl DialogLabels {
+    fn new(title: &str, filter: &str) -> Self {
+        Self { title: title.into(), filter: filter.into() }
+    }
+}
+
 #[tauri::command]
 async fn pick_vault_folder(app: AppHandle, title: Option<String>) -> Result<Option<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -727,11 +740,17 @@ fn read_vault_image_data_url(state: State<'_, AppState>, target: String) -> Resu
 /// Asks where to save and writes `html`, the export built by `render_note_html_preview` with
 /// math and diagrams rendered by the frontend. Returns `None` when the user cancels.
 #[tauri::command]
-async fn export_active_note_html(app: AppHandle, title: String, html: String) -> Result<Option<String>, String> {
+async fn export_active_note_html(
+    app: AppHandle,
+    title: String,
+    html: String,
+    labels: Option<DialogLabels>,
+) -> Result<Option<String>, String> {
+    let labels = labels.unwrap_or_else(|| DialogLabels::new("Export note to HTML", "HTML document"));
     tauri::async_runtime::spawn_blocking(move || {
         let name = crate::platform::export_file_name(&title, "html");
-        let Some(path) = app.dialog().file().set_title("Export note to HTML")
-            .set_file_name(name).add_filter("HTML document", &["html"])
+        let Some(path) = app.dialog().file().set_title(labels.title)
+            .set_file_name(name).add_filter(labels.filter, &["html"])
             .blocking_save_file() else { return Ok(None); };
         let path = path.into_path().map_err(|e| e.to_string())?;
         crate::media_export::export_html_to_path(&path, &html).map(Some)
@@ -758,11 +777,16 @@ fn get_note_cards(state: State<'_, AppState>) -> Result<Vec<NoteCard>, String> {
 
 /// Asks where to keep the task calendar file. Returns `None` when the user cancels.
 #[tauri::command]
-async fn pick_task_calendar_path(app: AppHandle, default_name: String) -> Result<Option<String>, String> {
+async fn pick_task_calendar_path(
+    app: AppHandle,
+    default_name: String,
+    labels: Option<DialogLabels>,
+) -> Result<Option<String>, String> {
+    let labels = labels.unwrap_or_else(|| DialogLabels::new("Save task calendar", "iCalendar file"));
     tauri::async_runtime::spawn_blocking(move || {
-        app.dialog().file().set_title("Save task calendar")
+        app.dialog().file().set_title(labels.title)
             .set_file_name(crate::platform::export_file_name(&default_name, "ics"))
-            .add_filter("iCalendar file", &["ics"]).blocking_save_file()
+            .add_filter(labels.filter, &["ics"]).blocking_save_file()
             .map(|p| p.into_path().map(|p| p.to_string_lossy().into_owned()).map_err(|e| e.to_string()))
             .transpose()
     }).await.map_err(|e| e.to_string())?
@@ -973,6 +997,12 @@ fn keep_app_open(app_handle: AppHandle) {
     crate::tray::show_main_window(&app_handle);
 }
 
+/// Relabels the tray menu in the UI language the frontend chose.
+#[tauri::command]
+fn set_tray_labels(app_handle: AppHandle, show: String, quit: String) -> Result<(), String> {
+    crate::tray::set_labels(&app_handle, &show, &quit).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn ai_get_status(ai: State<'_, Arc<crate::ai::AiState>>) -> Result<crate::ai::AiStatus, String> {
     ai.status()
@@ -1112,6 +1142,7 @@ pub fn run() {
             configure_summon,
             quit_app,
             keep_app_open,
+            set_tray_labels,
             ai_get_status,
             ai_save_config,
             ai_save_key,

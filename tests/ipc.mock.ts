@@ -44,3 +44,6 @@ export const aiGetStatus = async () => {throw Error('no AI in tests');};
 export const aiSaveConfig = (config: AiConfig) => aiControl.saveConfig(config);
 export const aiSaveKey = aiGetStatus;
 export const aiDeleteKey = aiGetStatus;
+export async function readVaultImageDataUrl(_target: string): Promise<string> {
+  throw new Error('Image loading is unavailable in store tests.');
+}

@@ -13,6 +13,7 @@
   } from './frontmatter';
   import Icon from './ui/Icon.svelte';
   import type { IconName } from './ui/icons';
+  import { m } from './i18n.svelte';
 
   interface Props {
     content: string;
@@ -23,14 +24,14 @@
 
   let { content, onEdit, adding = $bindable(false) }: Props = $props();
 
-  const TYPES: Array<{ value: PropertyType; label: string; icon: IconName }> = [
-    { value: 'text', label: 'Text', icon: 'pencil-simple-line' },
-    { value: 'list', label: 'List', icon: 'list-bullets' },
-    { value: 'number', label: 'Number', icon: 'list-numbers' },
-    { value: 'checkbox', label: 'Checkbox', icon: 'check' },
-    { value: 'date', label: 'Date', icon: 'calendar-blank' },
-    { value: 'datetime', label: 'Date and time', icon: 'calendar-blank' },
-  ];
+  const TYPES = $derived<Array<{ value: PropertyType; label: string; icon: IconName }>>([
+    { value: 'text', label: m.prop_type_text(), icon: 'pencil-simple-line' },
+    { value: 'list', label: m.prop_type_list(), icon: 'list-bullets' },
+    { value: 'number', label: m.prop_type_number(), icon: 'list-numbers' },
+    { value: 'checkbox', label: m.prop_type_checkbox(), icon: 'check' },
+    { value: 'date', label: m.prop_type_date(), icon: 'calendar-blank' },
+    { value: 'datetime', label: m.prop_type_datetime(), icon: 'calendar-blank' },
+  ]);
 
   // The form only needs the top of the note; frontmatter past 64 KB is left to Source mode.
   let fm = $derived(parseFrontmatter(content.slice(0, 64 * 1024)));
@@ -83,12 +84,12 @@
     if (next === prop.key) return;
     if (!isValidPropertyKey(next)) {
       input.value = prop.key;
-      error = 'Property names cannot be empty or start with # or -.';
+      error = m.prop_invalid_name();
       return;
     }
     const change = renameProperty(content, prop.key, next);
     if (!change) input.value = prop.key;
-    edit(change, `A property named "${next}" already exists.`);
+    edit(change, m.prop_exists({ name: next }));
   }
 
   function addListItem(prop: Property, input: HTMLInputElement) {
@@ -109,11 +110,11 @@
     adding = false;
     if (!key) return;
     if (!isValidPropertyKey(key)) {
-      error = 'Property names cannot start with # or -.';
+      error = m.prop_invalid_start();
       return;
     }
     if (properties.some((p) => p.key === key)) {
-      error = `A property named "${key}" already exists.`;
+      error = m.prop_exists({ name: key });
       return;
     }
     const type: PropertyType = key === 'tags' || key === 'aliases' ? 'list' : 'text';
@@ -126,7 +127,7 @@
 </script>
 
 {#if properties.length > 0 || adding}
-  <div class="properties" role="group" aria-label="Note properties">
+  <div class="properties" role="group" aria-label={m.prop_group()}>
     {#each properties as prop (prop.key)}
       <div class="row">
         <label class="key">
@@ -135,7 +136,7 @@
             {#if prop.editable}
               <select
                 class="type-select"
-                aria-label="Type of {prop.key}"
+                aria-label={m.prop_type_of({ name: prop.key })}
                 value={prop.type}
                 onchange={(e) => {
                   const to = (e.currentTarget as HTMLSelectElement).value as PropertyType;
@@ -150,7 +151,7 @@
           <input
             class="key-input"
             value={prop.key}
-            aria-label="Property name"
+            aria-label={m.prop_name()}
             spellcheck="false"
             onchange={(e) => rename(prop, e.currentTarget as HTMLInputElement)}
             onkeydown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()}
@@ -159,7 +160,7 @@
 
         <div class="value">
           {#if !prop.editable}
-            <code class="raw" title="Switch to Source mode to edit this value">{prop.raw.split('\n').slice(1).join(' ').trim() || prop.raw}</code>
+            <code class="raw" title={m.prop_raw_hint()}>{prop.raw.split('\n').slice(1).join(' ').trim() || prop.raw}</code>
           {:else if prop.type === 'checkbox'}
             <input
               type="checkbox"
@@ -172,15 +173,15 @@
               {#each Array.isArray(prop.value) ? prop.value : [] as item (item)}
                 <span class="item">
                   {item}
-                  <button type="button" aria-label="Remove {item}" onclick={() => removeListItem(prop, item)}>
+                  <button type="button" aria-label={m.prop_remove_item({ item })} onclick={() => removeListItem(prop, item)}>
                     <Icon name="x" size={10} />
                   </button>
                 </span>
               {/each}
               <input
                 class="list-input"
-                placeholder="Add"
-                aria-label="Add to {prop.key}"
+                placeholder={m.prop_add()}
+                aria-label={m.prop_add_to({ name: prop.key })}
                 onkeydown={(e) => {
                   if (e.key === 'Enter' || e.key === ',') {
                     e.preventDefault();
@@ -195,7 +196,7 @@
               class="value-input"
               type={prop.type === 'number' ? 'number' : prop.type === 'date' ? 'date' : prop.type === 'datetime' ? 'datetime-local' : 'text'}
               aria-label={prop.key}
-              placeholder="Empty"
+              placeholder={m.prop_empty()}
               value={prop.value === null ? '' : String(prop.value)}
               onchange={(e) => {
                 const raw = (e.currentTarget as HTMLInputElement).value;
@@ -209,8 +210,8 @@
         <button
           type="button"
           class="remove"
-          aria-label="Remove property {prop.key}"
-          title="Remove property"
+          aria-label={m.prop_remove_named({ name: prop.key })}
+          title={m.prop_remove()}
           onclick={() => edit(removeProperty(content, prop.key))}
         >
           <Icon name="trash" size={13} />
@@ -225,8 +226,8 @@
           <input
             bind:this={newKeyInput}
             class="key-input"
-            placeholder="Property name"
-            aria-label="New property name"
+            placeholder={m.prop_name()}
+            aria-label={m.prop_new_name()}
             spellcheck="false"
             onblur={(e) => commitNewKey(e.currentTarget as HTMLInputElement)}
             onkeydown={(e) => {
@@ -241,7 +242,7 @@
       </div>
     {:else}
       <button type="button" class="add" onclick={() => (adding = true)}>
-        <Icon name="plus" size={13} />Add property
+        <Icon name="plus" size={13} />{m.prop_add_property()}
       </button>
     {/if}
 

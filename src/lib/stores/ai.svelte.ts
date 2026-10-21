@@ -1,18 +1,19 @@
 import { aiCancel, aiDeleteKey, aiGetStatus, aiRun, aiSaveConfig, aiSaveKey } from '../ipc';
+import { m } from '../i18n.svelte';
 import type { AiConfig, AiOperation, AiProvider, AiResult, AiStatus, RewriteStyle } from '../types';
 
 export const AI_PROVIDER_LABELS: Record<AiProvider, string> = {
-  'openai-compatible': 'OpenAI-compatible',
+  get 'openai-compatible'() { return m.ai_provider_openai_compatible(); },
   anthropic: 'Anthropic',
   ollama: 'Ollama',
 };
 
 export const REWRITE_STYLE_LABELS: Record<RewriteStyle, string> = {
-  polish: 'Polish',
-  shorter: 'Shorten',
-  formal: 'More formal',
-  casual: 'More casual',
-  grammar: 'Fix grammar',
+  get polish() { return m.ai_style_polish(); },
+  get shorter() { return m.ai_style_shorter(); },
+  get formal() { return m.ai_style_formal(); },
+  get casual() { return m.ai_style_casual(); },
+  get grammar() { return m.ai_style_grammar(); },
 };
 
 export const REWRITE_ACTIONS = ['polish', 'shorter', 'grammar'] as const;
@@ -110,7 +111,7 @@ class AiStore {
   async updateConfig(change: (config: AiConfig) => void) {
     if (!this.status) await this.ensureLoaded();
     return this.queueSettings(async () => {
-      if (!this.status) throw new Error(this.loadError || 'AI settings are unavailable.');
+      if (!this.status) throw new Error(this.loadError || m.ai_settings_unavailable());
       const next: AiConfig = $state.snapshot(this.status.config);
       change(next);
       this.status = await aiSaveConfig(next);

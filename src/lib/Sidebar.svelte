@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { isWindows, shortcutLabel } from './platform';
+  import { shortcutLabel } from './platform';
   import CalendarView from './CalendarView.svelte';
   import FileTreeItem from './FileTreeItem.svelte';
   import RecentlyDeletedPanel from './RecentlyDeletedPanel.svelte';
@@ -16,8 +16,7 @@
   import type { LeftSidebarView, RecentVault, VaultNode, VaultSnapshot } from './types';
   import { validateEntryName } from './validation';
   import { NOTE_DRAG_TYPE, noteMoveDestination } from './noteMove';
-
-  const trashName = isWindows ? 'Recycle Bin' : 'Trash';
+  import { m, SLOT, splitSlots, trashName } from './i18n.svelte';
 
   interface Props {
     snapshot: VaultSnapshot;
@@ -134,18 +133,18 @@
   // macOS draws its traffic lights over the top-left corner of the window.
   const isMac = navigator.userAgent.includes('Mac');
 
-  const BASE_VIEWS: { id: LeftSidebarView; label: string; icon: IconName; hint?: string }[] = [
-    { id: 'files', label: 'Notes', icon: 'notebook' },
-    { id: 'search', label: 'Full-text search', icon: 'magnifying-glass', hint: shortcutLabel('Ctrl+Shift+F') },
-    { id: 'tags', label: 'Tags', icon: 'tag' },
-    { id: 'calendar', label: 'Calendar', icon: 'calendar-blank' },
-    { id: 'trash', label: 'Recently deleted', icon: 'trash' },
-  ];
+  const BASE_VIEWS = $derived<{ id: LeftSidebarView; label: string; icon: IconName; hint?: string }[]>([
+    { id: 'files', label: m.sidebar_view_notes(), icon: 'notebook' },
+    { id: 'search', label: m.sidebar_view_search(), icon: 'magnifying-glass', hint: shortcutLabel('Ctrl+Shift+F') },
+    { id: 'tags', label: m.sidebar_view_tags(), icon: 'tag' },
+    { id: 'calendar', label: m.sidebar_view_calendar(), icon: 'calendar-blank' },
+    { id: 'trash', label: m.sidebar_view_trash(), icon: 'trash' },
+  ]);
 
   // The conflicts view appears only while the vault has conflict copies to resolve.
   let VIEWS = $derived(
     vaultStore.syncConflicts.length > 0 || settingsStore.leftSidebarView === 'conflicts'
-      ? [...BASE_VIEWS, { id: 'conflicts' as const, label: 'Sync conflicts', icon: 'warning' as const }]
+      ? [...BASE_VIEWS, { id: 'conflicts' as const, label: m.sidebar_view_conflicts(), icon: 'warning' as const }]
       : BASE_VIEWS
   );
 
@@ -172,7 +171,7 @@
     contextMenu = null;
     creatingKind = kind;
     creatingParentRel = parentRel;
-    creatingDraftName = kind === 'note' ? 'Untitled' : 'New Folder';
+    creatingDraftName = kind === 'note' ? m.note_untitled() : m.sidebar_new_folder_name();
     if (parentRel) {
       expandedPaths = { ...expandedPaths, [parentRel]: true };
     }
@@ -241,6 +240,14 @@
     window.addEventListener('pointermove', handleMove);
     window.addEventListener('pointerup', handleUp);
   }
+
+  const createEntryLabel = $derived.by(() => {
+    if (creatingKind === 'folder') {
+      return creatingParentRel ? m.sidebar_new_folder_in({ folder: creatingParentRel }) : m.sidebar_new_folder_in_root();
+    }
+    return creatingParentRel ? m.sidebar_new_note_in({ folder: creatingParentRel }) : m.sidebar_new_note_in_root();
+  });
+  const deleteConfirmParts = $derived(splitSlots(m.sidebar_confirm_move_to_trash({ name: SLOT, trash: trashName() })));
 </script>
 
 <svelte:window
@@ -259,14 +266,14 @@
   <aside
     class="sidebar-pane"
     style:width="{width}px"
-    aria-label="Vault file tree"
+    aria-label={m.sidebar_file_tree()}
     oncontextmenu={(e) => handleContextMenu(e, null)}
   >
     <div class="sidebar-header" class:mac-inset={isMac} data-tauri-drag-region>
       <button
         type="button"
         class="vault-switcher-btn"
-        title="Switch vault ({snapshot.rootPath})"
+        title={m.sidebar_switch_vault_title({ path: snapshot.rootPath })}
         aria-haspopup="menu"
         aria-expanded={vaultMenuOpen}
         onclick={(e) => {
@@ -282,14 +289,14 @@
 
       <IconButton
         icon="sidebar-simple"
-        label="Hide sidebar"
-        tooltip={shortcutLabel('Hide sidebar (Ctrl+\\)')}
+        label={m.sidebar_hide()}
+        tooltip={m.sidebar_hide_tooltip({ shortcut: shortcutLabel('Ctrl+\\') })}
         onclick={() => settingsStore.toggleSidebar()}
       />
     </div>
 
     {#if vaultMenuOpen}
-      <div class="vault-menu" role="menu" aria-label="Switch vault">
+      <div class="vault-menu" role="menu" aria-label={m.sidebar_switch_vault()}>
         {#each recentVaults as vault (vault.path)}
           {@const isCurrent = samePath(vault.path, snapshot.rootPath)}
           <button
@@ -324,7 +331,7 @@
         >
           <span class="vault-menu-check"></span>
           <span class="vault-menu-text">
-            <span class="vault-menu-name">Open or create another vault…</span>
+            <span class="vault-menu-name">{m.sidebar_other_vault()}</span>
           </span>
         </button>
       </div>
@@ -333,15 +340,15 @@
     <button
       type="button"
       class="search-btn"
-      title={shortcutLabel('Find a note by name (Ctrl+O)')}
+      title={m.sidebar_find_note_title({ shortcut: shortcutLabel('Ctrl+O') })}
       onclick={() => (settingsStore.showQuickSwitcher = true)}
     >
       <Icon name="magnifying-glass" />
-      <span>Search notes</span>
+      <span>{m.sidebar_search_notes()}</span>
       <kbd>{shortcutLabel('Ctrl O')}</kbd>
     </button>
 
-    <nav class="library" aria-label="Sidebar views">
+    <nav class="library" aria-label={m.sidebar_views()}>
       {#each VIEWS as view (view.id)}
         <button
           type="button"
@@ -362,32 +369,32 @@
 
     {#if settingsStore.leftSidebarView === 'files'}
       <div class="section-label">
-        <span class="nav-switch" role="radiogroup" aria-label="Organize notes by">
+        <span class="nav-switch" role="radiogroup" aria-label={m.sidebar_organize_by()}>
           <button
             type="button"
             role="radio"
             aria-checked={settingsStore.notesNavigation === 'folders'}
             class:on={settingsStore.notesNavigation === 'folders'}
             onclick={() => settingsStore.setNotesNavigation('folders')}
-          >Folders</button>
+          >{m.sidebar_folders()}</button>
           <button
             type="button"
             role="radio"
             aria-checked={settingsStore.notesNavigation === 'tags'}
             class:on={settingsStore.notesNavigation === 'tags'}
             onclick={() => settingsStore.setNotesNavigation('tags')}
-          >Tags &amp; links</button>
+          >{m.sidebar_tags_links()}</button>
         </span>
         <IconButton
           icon="file-plus"
           size="sm"
-          label="New note"
+          label={m.common_new_note()}
           onclick={() => startNewEntry('note', '')}
         />
         <IconButton
           icon="folder-simple-plus"
           size="sm"
-          label="New folder"
+          label={m.common_new_folder()}
           onclick={() => startNewEntry('folder', '')}
         />
       </div>
@@ -395,8 +402,7 @@
       {#if creatingKind}
         <form class="create-entry-bar" onsubmit={submitNewEntry}>
           <div class="create-entry-label">
-            New {creatingKind}
-            {creatingParentRel ? `in ${creatingParentRel}` : 'in root'}:
+            {createEntryLabel}
           </div>
           <div class="create-entry-controls">
             <!-- svelte-ignore a11y_autofocus -->
@@ -416,14 +422,14 @@
               class="mini-btn primary"
               disabled={Boolean(creatingValidationError)}
             >
-              Create
+              {m.common_create()}
             </button>
             <button
               type="button"
               class="mini-btn"
               onclick={() => (creatingKind = null)}
             >
-              Cancel
+              {m.common_cancel()}
             </button>
           </div>
           {#if creatingValidationError}
@@ -433,9 +439,9 @@
       {/if}
 
       {#if pendingDeleteNode}
-        <div class="delete-confirm-bar" role="alertdialog" aria-label={`Confirm move to ${trashName}`}>
+        <div class="delete-confirm-bar" role="alertdialog" aria-label={m.sidebar_confirm_move_label({ trash: trashName() })}>
           <div class="delete-confirm-text">
-            Move <strong>{pendingDeleteNode.name}</strong> to {trashName}?
+            {deleteConfirmParts[0]}<strong>{pendingDeleteNode.name}</strong>{deleteConfirmParts[1]}
           </div>
           <div class="delete-confirm-actions">
             <button
@@ -447,14 +453,14 @@
                 onDeleteEntry(target.relPath);
               }}
             >
-              Move to {trashName}
+              {m.sidebar_move_to_trash({ trash: trashName() })}
             </button>
             <button
               type="button"
               class="mini-btn"
               onclick={() => (pendingDeleteNode = null)}
             >
-              Cancel
+              {m.common_cancel()}
             </button>
           </div>
         </div>
@@ -463,8 +469,8 @@
       <div class="tree-scroll">
         {#if snapshot.tree.length === 0}
           <div class="empty-tree">
-            <p>This vault has no notes yet.</p>
-            <Button icon="file-plus" onclick={() => startNewEntry('note', '')}>Write the first note</Button>
+            <p>{m.sidebar_empty_vault()}</p>
+            <Button icon="file-plus" onclick={() => startNewEntry('note', '')}>{m.sidebar_write_first_note()}</Button>
           </div>
         {:else if settingsStore.notesNavigation === 'tags'}
           <TagsLinksView {activeRelPath} {onSelectFile} />
@@ -473,13 +479,13 @@
             type="button"
             class="root-drop-target"
             class:drop-target={dropTargetRel === ''}
-            aria-label="Vault root"
-            title="Drop a note here to move it to the vault root"
+            aria-label={m.sidebar_vault_root()}
+            title={m.sidebar_drop_to_root()}
             ondragover={(event) => dragOverFolder(event, '')}
             ondragleave={leaveFolder}
             ondrop={(event) => void dropNote(event, '')}
           ><Icon name="folder-simple" size={14} /> {snapshot.name}</button>
-          <ul class="tree-root" role="tree" aria-label="Notes and folders">
+          <ul class="tree-root" role="tree" aria-label={m.sidebar_notes_and_folders()}>
             {#each snapshot.tree as node (node.relPath)}
               <FileTreeItem
                 {node}
@@ -522,12 +528,12 @@
 
     <div class="sidebar-footer">
       <Button variant="primary" icon="note-pencil" class="new-note" onclick={() => startNewEntry('note', '')}>
-        New note <kbd>{shortcutLabel('Ctrl N')}</kbd>
+        {m.common_new_note()} <kbd>{shortcutLabel('Ctrl N')}</kbd>
       </Button>
       <IconButton
         icon="gear-six"
-        label="Settings"
-        tooltip={shortcutLabel('Settings (Ctrl+,)')}
+        label={m.settings_title()}
+        tooltip={m.sidebar_settings_tooltip({ shortcut: shortcutLabel('Ctrl+,') })}
         onclick={() => (settingsStore.showSettings = true)}
       />
     </div>
@@ -538,7 +544,7 @@
       class:dragging={isResizing}
       role="separator"
       aria-orientation="vertical"
-      aria-label="Resize sidebar"
+      aria-label={m.sidebar_resize()}
       onpointerdown={handleResizePointerDown}
     ></div>
   </aside>
@@ -565,7 +571,7 @@
       onclick={() => startNewEntry('note', folderTarget)}
     >
       <Icon name="file-plus" />
-      <span>New note{folderTarget ? ` in ${folderTarget}` : ''}</span>
+      <span>{folderTarget ? m.sidebar_ctx_new_note_in({ folder: folderTarget }) : m.common_new_note()}</span>
     </button>
     <button
       type="button"
@@ -574,7 +580,7 @@
       onclick={() => startNewEntry('folder', folderTarget)}
     >
       <Icon name="folder-simple-plus" />
-      <span>New folder{folderTarget ? ` in ${folderTarget}` : ''}</span>
+      <span>{folderTarget ? m.sidebar_ctx_new_folder_in({ folder: folderTarget }) : m.common_new_folder()}</span>
     </button>
     {#if targetNode}
       <div class="ctx-sep" role="separator"></div>
@@ -585,7 +591,7 @@
         onclick={() => handleStartRename(targetNode)}
       >
         <Icon name="pencil-simple-line" />
-        <span>Rename (F2)</span>
+        <span>{m.sidebar_ctx_rename()}</span>
       </button>
       <button
         type="button"
@@ -598,7 +604,7 @@
         }}
       >
         <Icon name="trash" />
-        <span>Move to {trashName} (Del)</span>
+        <span>{m.sidebar_ctx_move_to_trash({ trash: trashName() })}</span>
       </button>
     {/if}
   </div>

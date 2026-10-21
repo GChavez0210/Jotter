@@ -1,3 +1,5 @@
+import { m } from './i18n.svelte';
+
 const WINDOWS_RESERVED_NAMES = new Set([
   'CON',
   'PRN',
@@ -33,36 +35,36 @@ const INVALID_CHAR_REGEX = /[<>:"/\\|?*\x00-\x1F]/;
  */
 export function validateEntryName(rawName: string): string | null {
   if (!rawName || rawName.trim().length === 0) {
-    return 'Name cannot be empty.';
+    return m.validation_name_empty();
   }
 
   if (rawName.endsWith(' ') || rawName.endsWith('.')) {
-    return 'Names cannot end with a space or a period.';
+    return m.validation_name_trailing();
   }
 
   if (/\.md$/i.test(rawName)) {
     const stem = rawName.slice(0, -3);
     if (!stem || stem.trim().length === 0) {
-      return 'Note name cannot be empty.';
+      return m.validation_note_name_empty();
     }
     if (stem.endsWith(' ') || stem.endsWith('.')) {
-      return 'Names cannot end with a space or a period.';
+      return m.validation_name_trailing();
     }
   }
 
   const trimmed = rawName.trim();
   if (trimmed.startsWith('.')) {
-    return `Names starting with a dot ("${trimmed}") are reserved.`;
+    return m.validation_name_dot({ name: trimmed });
   }
 
   const badCharMatch = rawName.match(INVALID_CHAR_REGEX);
   if (badCharMatch) {
-    return `Invalid filename character "${badCharMatch[0]}". Avoid < > : " / \\ | ? *`;
+    return m.validation_bad_char({ char: badCharMatch[0] });
   }
 
   const stemBeforeDot = trimmed.split('.')[0]?.trim() ?? '';
   if (WINDOWS_RESERVED_NAMES.has(stemBeforeDot.toUpperCase())) {
-    return `"${stemBeforeDot}" is a reserved filename on a supported platform.`;
+    return m.validation_reserved({ name: stemBeforeDot });
   }
 
   return null;

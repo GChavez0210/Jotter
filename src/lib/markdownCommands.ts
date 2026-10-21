@@ -1,6 +1,7 @@
 import { EditorSelection, type TransactionSpec } from '@codemirror/state';
 import type { EditorView, KeyBinding } from '@codemirror/view';
 import { foldAll, unfoldAll } from '@codemirror/language';
+import { m } from './i18n.svelte';
 import { toggleZoom } from './outliner';
 import { addDueDate } from './dueDates';
 
@@ -278,8 +279,10 @@ export function insertTable(view: EditorView): boolean {
   const sel = state.selection.main;
   const line = state.doc.lineAt(sel.from);
   const leading = line.text.trim().length > 0 ? '\n\n' : '';
-  const headerCell = 'Column 1';
-  const tableTemplate = `${leading}| ${headerCell} | Column 2 | Column 3 |\n| --- | --- | --- |\n| Value 1 | Value 2 | Value 3 |\n`;
+  const headerCell = m.md_table_column({ n: 1 });
+  const header = [headerCell, m.md_table_column({ n: 2 }), m.md_table_column({ n: 3 })].join(' | ');
+  const row = [1, 2, 3].map((n) => m.md_table_value({ n })).join(' | ');
+  const tableTemplate = `${leading}| ${header} |\n| --- | --- | --- |\n| ${row} |\n`;
 
   const cellStart = sel.from + leading.length + 2;
   const cellEnd = cellStart + headerCell.length;
@@ -311,7 +314,7 @@ export function insertMarkdownLink(view: EditorView, wiki = false): boolean {
     return true;
   }
 
-  const label = selected || 'link text';
+  const label = selected || m.md_link_text();
   const url = 'https://';
   const insert = `[${label}](${url})`;
   const urlStart = sel.from + label.length + 3;
