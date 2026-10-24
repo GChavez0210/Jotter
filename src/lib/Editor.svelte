@@ -37,6 +37,7 @@
   import { createLineNumbersExtension } from './lineNumbers';
   import { i18n, m } from './i18n.svelte';
   import { refreshEditorLocale } from './editorLocale';
+  import { searchExtension, searchTheme } from './editorSearch';
   import { aiResultChange, aiTargetRange, type AiPlacement, type AiScope, type AiTarget } from './aiText';
   import { createSpellcheckExtension, misspelledWordAt, refreshSpellcheck } from './spellcheck';
   import Icon from './ui/Icon.svelte';
@@ -147,6 +148,7 @@
   const spellcheckCompartment = new Compartment();
   const lineNumbersCompartment = new Compartment();
   const placeholderCompartment = new Compartment();
+  const searchCompartment = new Compartment();
 
   function lineNumbersExtension() {
     if (!settingsStore.showLineNumbers) return [];
@@ -863,6 +865,8 @@
         createCalcExtension(),
         createOutlinerExtension(),
         editorTheme,
+        searchTheme,
+        searchCompartment.of(searchExtension()),
         keymap.of([
           { key: 'Tab', run: acceptInlineCalculation },
           ...outlinerKeymap,
@@ -964,6 +968,7 @@
     const translatedPlaceholder = placeholder(m.editor_placeholder());
     untrack(() => view)?.dispatch({ effects: [
       placeholderCompartment.reconfigure(translatedPlaceholder),
+      searchCompartment.reconfigure(searchExtension()),
       refreshEditorLocale.of(),
     ] });
   });

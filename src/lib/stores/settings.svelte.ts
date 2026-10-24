@@ -9,6 +9,7 @@ import type {
   EditingMode,
   FocusMode,
   LeftSidebarView,
+  RightPanelTab,
   ThemePreference,
 } from '../types';
 
@@ -50,6 +51,7 @@ export class SettingsStore {
   leftSidebarView = $state<LeftSidebarView>('files');
   selectedTag = $state<string | null>(null);
   showRightPanel = $state(true);
+  rightPanelTab = $state<RightPanelTab>('note');
 
   // Milestone 5: Editor Font Size, Accent Color, Vault Hidden Files, Image Paste Format
   editorFontSize = $state<number>(16);
@@ -451,6 +453,17 @@ export class SettingsStore {
     }
   }
 
+  /** Opens the right panel on a tab, widening a narrow window the way the sidebar does. */
+  showRightPanelTab(tab: RightPanelTab) {
+    this.rightPanelTab = tab;
+    this.persist('jotter.rightPanelTab', tab);
+    if (this.focusMode !== 'off') this.exitFocusMode();
+    if (this.rightPanelVisible) return;
+    this.showRightPanel = true;
+    this.persist('jotter.showRightPanel', 'true');
+    if (this.rightPanelAutoHidden) void this.widenWindowForRightPanel();
+  }
+
   /** Like the sidebar, asking for the right panel in a narrow window widens the window. */
   toggleRightPanel() {
     const show = !this.rightPanelVisible;
@@ -510,11 +523,17 @@ export class SettingsStore {
       if (
         savedLeftView === 'files' ||
         savedLeftView === 'search' ||
-        savedLeftView === 'tags' ||
-        savedLeftView === 'calendar' ||
-        savedLeftView === 'trash'
+        savedLeftView === 'tags'
       ) {
         this.leftSidebarView = savedLeftView;
+      }
+      // Calendar and Recently deleted moved from the sidebar to the right panel.
+      const savedRightTab = localStorage.getItem('jotter.rightPanelTab');
+      const legacyTab = savedLeftView as string | null;
+      if (savedRightTab === 'note' || savedRightTab === 'calendar' || savedRightTab === 'trash') {
+        this.rightPanelTab = savedRightTab;
+      } else if (legacyTab === 'calendar' || legacyTab === 'trash') {
+        this.rightPanelTab = legacyTab;
       }
       const savedRightPanel = localStorage.getItem('jotter.showRightPanel');
       if (savedRightPanel === 'true' || savedRightPanel === 'false') {

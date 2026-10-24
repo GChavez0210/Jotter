@@ -139,7 +139,7 @@
             id: 'view-calendar',
             category: m.cmd_cat_navigation(),
             label: m.cmd_view_calendar(),
-            action: () => settingsStore.setLeftSidebarView('calendar'),
+            action: () => settingsStore.showRightPanelTab('calendar'),
           },
           {
             id: 'daily-note',
@@ -152,7 +152,7 @@
             id: 'view-trash',
             category: m.cmd_cat_navigation(),
             label: m.cmd_view_trash(),
-            action: () => settingsStore.setLeftSidebarView('trash'),
+            action: () => settingsStore.showRightPanelTab('trash'),
           },
           {
             id: 'view-files',

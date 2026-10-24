@@ -1,8 +1,6 @@
 <script lang="ts">
   import { shortcutLabel } from './platform';
-  import CalendarView from './CalendarView.svelte';
   import FileTreeItem from './FileTreeItem.svelte';
-  import RecentlyDeletedPanel from './RecentlyDeletedPanel.svelte';
   import SyncConflictsPanel from './SyncConflictsPanel.svelte';
   import TagsLinksView from './TagsLinksView.svelte';
   import SearchPanel from './SearchPanel.svelte';
@@ -139,8 +137,6 @@
     { id: 'files', label: m.sidebar_view_notes(), icon: 'notebook' },
     { id: 'search', label: m.sidebar_view_search(), icon: 'magnifying-glass', hint: shortcutLabel('Ctrl+Shift+F') },
     { id: 'tags', label: m.sidebar_view_tags(), icon: 'tag' },
-    { id: 'calendar', label: m.sidebar_view_calendar(), icon: 'calendar-blank' },
-    { id: 'trash', label: m.sidebar_view_trash(), icon: 'trash' },
   ]);
 
   // The conflicts view appears only while the vault has conflict copies to resolve.
@@ -560,10 +556,6 @@
       <SearchPanel />
     {:else if settingsStore.leftSidebarView === 'tags'}
       <TagBrowserPanel />
-    {:else if settingsStore.leftSidebarView === 'calendar'}
-      <CalendarView />
-    {:else if settingsStore.leftSidebarView === 'trash'}
-      <RecentlyDeletedPanel />
     {:else if settingsStore.leftSidebarView === 'conflicts'}
       <SyncConflictsPanel />
     {/if}
