@@ -30,7 +30,8 @@ let browser;
 let page;
 try {
   for(let i=0;i<60;i++) {
-    if(app.exitCode !== null) throw Error(`App exited with ${app.exitCode}: ${logs}`);
+    // Jotter allows one instance, so a copy already running takes over this launch and it exits.
+    if(app.exitCode !== null) throw Error(`App exited with ${app.exitCode}. Close any running Jotter and retry. ${logs}`);
     try {browser=await chromium.connectOverCDP(`http://127.0.0.1:${port}`,{timeout:1000});break;} catch {await pause(500);}
   }
   if(!browser) throw Error(`WebView2 debugging endpoint unavailable: ${logs}`);
@@ -103,11 +104,16 @@ try {
   await expect.poll(editorLineSpacing).not.toBeCloseTo(1.8, 2);
   await page.getByLabel('verify',{exact:true}).check();
   await expect.poll(editorLineSpacing).toBeCloseTo(1.8, 2);
-  await expect(page.getByText('CSS snippets are small style files', {exact:false})).toBeVisible();
+  await expect(page.getByText('Restyle Jotter with your own', {exact:false})).toBeVisible();
   await page.screenshot({path:join(root,'css-snippets-settings.png')});
   await page.getByLabel('Summon hotkey',{exact:true}).check();
   await expect(page.getByRole('alert')).toHaveCount(0);
   checks.push('CSS snippet example applies, toggles off cleanly, and native summon shortcut registers');
+  // Hiding to the tray needs the tray icon, so choosing it turns the icon on.
+  await page.getByRole('radio',{name:'Hides to the tray',exact:true}).click();
+  await expect(page.getByLabel('Keep Jotter in the tray',{exact:true})).toBeChecked();
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  checks.push('Close-to-tray turns on tray residency and the native tray icon accepts it');
   await page.keyboard.press('Escape');
   // Jotter's dictionaries replace the WebView checker, so the native attribute is off.
   expect(await page.locator('.cm-content').getAttribute('spellcheck')).toBe('false');

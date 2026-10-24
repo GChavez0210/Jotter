@@ -23,6 +23,9 @@ export type EditingMode = 'live' | 'source';
 
 export type FocusMode = 'off' | 'minimal' | 'zen';
 
+/** What the window's close button does. */
+export type CloseAction = 'quit' | 'tray';
+
 export type VaultNodeKind = 'file' | 'folder';
 
 export interface VaultNode {

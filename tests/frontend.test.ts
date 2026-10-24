@@ -727,6 +727,32 @@ test('failed summon changes restore the last working setting and keep the error'
   assert.equal(systemStore.summonError, '');
 });
 
+test('tray and close-button settings reach the backend once per change', async () => {
+  const calls: string[] = [];
+  systemControl.configureWindow = async (tray, hide) => {
+    calls.push(`${tray}:${hide}`);
+    if (tray && hide) throw new Error('Cannot change the tray icon');
+  };
+  settingsStore.trayEnabled = true;
+  settingsStore.closeAction = 'quit';
+  await systemStore.syncWindowBehavior();
+  await systemStore.syncWindowBehavior();
+  assert.deepEqual(calls, ['true:false']);
+  assert.equal(systemStore.trayError, '');
+
+  settingsStore.closeAction = 'tray';
+  await systemStore.syncWindowBehavior();
+  assert.deepEqual(calls, ['true:false', 'true:true']);
+  assert.equal(systemStore.trayError, 'Cannot change the tray icon');
+
+  // A failed change is not recorded as applied, so the next sync retries it.
+  settingsStore.trayEnabled = false;
+  settingsStore.closeAction = 'quit';
+  await systemStore.syncWindowBehavior();
+  assert.deepEqual(calls, ['true:false', 'true:true', 'false:false']);
+  assert.equal(systemStore.trayError, '');
+});
+
 test('AI targets skip frontmatter and results apply as one undoable step', () => {
   const doc = '---\ntags: [a]\n---\nFirst line\nSecond line';
   let state = EditorState.create({doc, extensions:[history()], selection:{anchor:20, head:30}});

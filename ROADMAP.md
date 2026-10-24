@@ -24,11 +24,12 @@ Desktop portability foundations are in place. Linux and Android are in Phase 3; 
 - [x] **Custom CSS snippets.** Load user `.css` files on top of the theme.
 - [x] **Typo-tolerant search.** Add fuzzy term matching to full-text search.
 - [x] **License.** Pick and publish an open-source license. Jotter is licensed under MIT.
-- [ ] **Single instance.** Launching Jotter while it is already running brings the open window to the front instead of starting a second instance. Restore a minimized or tray-hidden window. Use `tauri-plugin-single-instance`.
-- [ ] **Close button behavior.** A setting chooses what the window's X button does: quit Jotter, or hide it to the tray. Separate tray residency from the summon hotkey, which today turns on both. The tray menu's Quit always exits after saving.
+- [x] **Single instance.** Launching Jotter while it is already running brings the open window to the front instead of starting a second instance. Restore a minimized or tray-hidden window. Use `tauri-plugin-single-instance`.
+- [x] **Close button behavior.** A setting chooses what the window's X button does: quit Jotter, or hide it to the tray. Separate tray residency from the summon hotkey, which today turns on both. The tray menu's Quit always exits after saving.
 - [ ] **Narrow windows.** Lower the minimum window width below 640 px. When the window gets too narrow to fit the sidebar and the text column, hide the sidebar. When the user then shows the sidebar, widen the window just enough to fit both.
 - [ ] **Pinned notes.** Pin notes to the top of the sidebar for one-click access. Store pins per vault in app data.
 - [ ] **Outline panel.** List the open note's headings in the right panel, and jump to one with a click. Highlight the heading at the cursor.
+- [ ] **Right sidebar calendar and recently deleted items.** Move the calendar and recently deleted items to the right sidebar.
 - [ ] **Find and replace in a note.** `Ctrl+F` finds text in the open note and `Ctrl+H` replaces it, with match case, whole word, and regular expression options. Use `@codemirror/search` and translate its labels.
 - [ ] **Settings export and import.** Settings live in WebView local storage today, so a reinstall or a new computer starts from defaults. Export them to a file, import them on another machine, and move their storage to the app data folder.
 - [ ] **Task reminders.** Show a system notification when a task comes due. Due dates are already indexed. Use `tauri-plugin-notification`, with a setting to turn reminders off.

@@ -1,14 +1,20 @@
-import { configureSummon, listCssSnippets, openSnippetsFolder } from '../ipc';
+import {
+  configureSummon,
+  configureWindowBehavior,
+  listCssSnippets,
+  openSnippetsFolder,
+} from '../ipc';
 import type { CssSnippet } from '../types';
 import { settingsStore } from './settings.svelte';
 
 const SNIPPET_ATTR = 'data-jotter-snippet';
 
-/** CSS snippets and the summon hotkey: settings that reach outside the editor. */
+/** CSS snippets, the summon hotkey, and the tray: settings that reach outside the editor. */
 class SystemStore {
   snippets = $state<CssSnippet[]>([]);
   snippetError = $state('');
   summonError = $state('');
+  trayError = $state('');
 
   /** Re-reads the snippets folder and applies the enabled snippets. */
   async reloadSnippets() {
@@ -70,6 +76,25 @@ class SystemStore {
     return this.summonQueue;
   }
 
+  private windowQueue: Promise<void> = Promise.resolve();
+  private appliedWindow = { tray: false, hide: false };
+
+  /** Pushes the tray icon and close-button settings to the backend, one call at a time. */
+  syncWindowBehavior(): Promise<void> {
+    const tray = settingsStore.trayEnabled;
+    const hide = settingsStore.closeAction === 'tray';
+    this.windowQueue = this.windowQueue.then(async () => {
+      if (tray === this.appliedWindow.tray && hide === this.appliedWindow.hide) return;
+      try {
+        await configureWindowBehavior(tray, hide);
+        this.appliedWindow = { tray, hide };
+        this.trayError = '';
+      } catch (err) {
+        this.trayError = err instanceof Error ? err.message : String(err);
+      }
+    });
+    return this.windowQueue;
+  }
 }
 
 export const systemStore = new SystemStore();

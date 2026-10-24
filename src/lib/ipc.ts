@@ -209,6 +209,13 @@ export async function configureSummon(enabled: boolean, shortcut: string): Promi
   return invoke<void>('configure_summon', { enabled, shortcut });
 }
 
+export async function configureWindowBehavior(
+  trayResident: boolean,
+  hideOnClose: boolean
+): Promise<void> {
+  return invoke<void>('configure_window_behavior', { trayResident, hideOnClose });
+}
+
 export async function quitApp(quit = true): Promise<void> {
   return invoke<void>('quit_app', { quit });
 }

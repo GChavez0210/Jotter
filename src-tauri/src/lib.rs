@@ -979,13 +979,19 @@ fn configure_summon(app_handle: AppHandle, enabled: bool, shortcut: String) -> R
     crate::tray::configure(&app_handle, enabled, &shortcut)
 }
 
+/// Shows or hides the tray icon and sets what the window's close button does.
+#[tauri::command]
+fn configure_window_behavior(
+    app_handle: AppHandle,
+    tray_resident: bool,
+    hide_on_close: bool,
+) -> Result<(), String> {
+    crate::tray::set_window_behavior(&app_handle, tray_resident, hide_on_close)
+}
+
 #[tauri::command]
 fn quit_app(app_handle: AppHandle, quit: bool) {
-    let resident = app_handle
-        .state::<crate::tray::SummonState>()
-        .resident
-        .load(Ordering::SeqCst);
-    if quit || !resident {
+    if quit || !crate::tray::should_hide_window(&app_handle) {
         app_handle.exit(0);
     } else if let Some(window) = app_handle.get_webview_window("main") {
         let _ = window.hide();
@@ -1070,10 +1076,17 @@ pub fn run() {
 
     let search_idx = VaultSearchIndex::new().expect("Failed to initialize Tantivy search index");
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Single instance must be the first plugin, so a second launch exits before it builds state.
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+        crate::tray::show_main_window(app);
+    }));
+
+    builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
-        .manage(crate::tray::SummonState::default())
+        .manage(crate::tray::BackgroundState::default())
         .manage(Arc::new(crate::spell::SpellState::default()))
         .manage(ai_state)
         .manage(AppState {
@@ -1140,6 +1153,7 @@ pub fn run() {
             spell_add_word,
             open_dictionaries_folder,
             configure_summon,
+            configure_window_behavior,
             quit_app,
             keep_app_open,
             set_tray_labels,
