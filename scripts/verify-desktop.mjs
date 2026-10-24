@@ -12,7 +12,8 @@ const vault = join(root, 'vault');
 await mkdir(vault, {recursive:true});
 await mkdir(join(root, 'app-data/Jotter/snippets'), {recursive:true});
 await writeFile(join(root, 'app-data/Jotter/snippets/verify.css'), ':root { --verify-snippet: loaded; }\n.cm-content { line-height: 1.8; }');
-const note = '# Verification\n\nWe receive the budget.\n\nA mispeled word.\n\nInline $x^2$.\n\n$$ x^2 + y^2 $$\n\n```mermaid\ngraph TD; A-->B\n```\n\n> ```mermaid\n> graph TD; C-->D\n> ```\n\n    $$ indented code $$\n';
+// The headings and the plain fence feed the outline check; the rest feeds rendering and spelling.
+const note = '# Verification\n\nWe receive the budget.\n\nA mispeled word.\n\nInline $x^2$.\n\n$$ x^2 + y^2 $$\n\n```mermaid\ngraph TD; A-->B\n```\n\n> ```mermaid\n> graph TD; C-->D\n> ```\n\n    $$ indented code $$\n\n## Details\n\n```\n# not a heading\n```\n\n## Wrap up\n\nEnd.\n';
 await writeFile(join(vault,'Verification.md'),note);
 await mkdir(join(vault,'Templates'),{recursive:true});
 await writeFile(join(vault,'Templates/Daily.md'),'# {{title}}\nDate: {{date}}\n');
@@ -125,14 +126,27 @@ try {
   await expect(page.locator('.pinned-item')).toHaveText(/Verification/);
   checks.push('Pinning writes to app data, not the vault, and a rename carries the pin');
 
+  // The outline lists real headings only, and clicking one moves the cursor to it.
+  // The note's fenced "# not a heading" must not appear.
+  await expect(page.locator('.outline-text')).toHaveText(['Verification','Details','Wrap up']);
+  await page.locator('.outline-row',{hasText:'Wrap up'}).click();
+  await expect(page.locator('.outline-row.active .outline-text')).toHaveText('Wrap up');
+  await page.locator('.outline-row',{hasText:'Details'}).click();
+  await expect(page.locator('.outline-row.active .outline-text')).toHaveText('Details');
+  checks.push('Outline skips headings inside code fences, and clicking one moves the cursor there');
+
   // A real window below the sidebar's width threshold, then the sidebar asked back.
   const setWindowWidth = (width) => page.evaluate(
     (w)=>window.__TAURI_INTERNALS__.invoke('plugin:window|set_size',{label:'main',value:{Logical:{width:w,height:760}}}),
     width,
   );
   const sidebar = page.getByRole('complementary',{name:'Vault file tree'});
+  const notePanel = page.getByRole('complementary',{name:'Note panel'});
+  await expect(notePanel).toBeVisible();
   await setWindowWidth(500);
   await expect(sidebar).toBeHidden();
+  // The right panel yields its width before the sidebar does.
+  await expect(notePanel).toBeHidden();
   await page.getByRole('button',{name:'Show sidebar'}).click();
   await expect(sidebar).toBeVisible();
   // Just enough for the sidebar and the text column, not the width it started at.

@@ -1,7 +1,7 @@
 import { defaultSummonShortcut } from '../platform';
 import { m } from '../i18n.svelte';
 import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
-import { sidebarFitsWindow, titleBarIsCompact, widthForSidebar } from '../layout';
+import { rightPanelFitsWindow, sidebarFitsWindow, titleBarIsCompact, widthForSidebar } from '../layout';
 import { designTokens, isAccentPresetId, type AccentPresetId } from '../designTokens';
 import type {
   CloseAction,
@@ -107,6 +107,14 @@ class SettingsStore {
 
   /** True while the sidebar belongs on screen, whoever hid it. */
   sidebarVisible = $derived(!this.sidebarCollapsed && !this.sidebarAutoHidden);
+
+  /** The right panel yields its width before the sidebar does. */
+  rightPanelAutoHidden = $derived(
+    !rightPanelFitsWindow(this.windowWidth, this.sidebarWidth, this.sidebarVisible)
+  );
+
+  /** True while the right panel belongs on screen, whoever hid it. */
+  rightPanelVisible = $derived(this.showRightPanel && !this.rightPanelAutoHidden);
 
   /** The title bar drops its text labels to keep the window controls reachable. */
   titleBarCompact = $derived(titleBarIsCompact(this.windowWidth));
@@ -411,7 +419,10 @@ class SettingsStore {
 
   /** Grows the window to the width the sidebar and the text column need, and no further. */
   private async widenWindowForSidebar() {
-    const target = widthForSidebar(this.sidebarWidth);
+    await this.widenWindowTo(widthForSidebar(this.sidebarWidth));
+  }
+
+  private async widenWindowTo(target: number) {
     if (this.windowWidth >= target) return;
     try {
       const win = getCurrentWindow();
@@ -440,16 +451,19 @@ class SettingsStore {
     }
   }
 
+  /** Like the sidebar, asking for the right panel in a narrow window widens the window. */
   toggleRightPanel() {
-    this.showRightPanel = !this.showRightPanel;
-    try {
-      localStorage.setItem(
-        'jotter.showRightPanel',
-        String(this.showRightPanel)
-      );
-    } catch {
-      // ignore
-    }
+    const show = !this.rightPanelVisible;
+    this.showRightPanel = show;
+    this.persist('jotter.showRightPanel', String(show));
+    if (show && this.rightPanelAutoHidden) void this.widenWindowForRightPanel();
+  }
+
+  private async widenWindowForRightPanel() {
+    const { rightPanelWidth, editorMinWidth } = designTokens.layout;
+    const target =
+      (this.sidebarVisible ? Math.round(this.sidebarWidth) : 0) + rightPanelWidth + editorMinWidth;
+    await this.widenWindowTo(target);
   }
 
   applyThemeToDocument(pref: ThemePreference) {

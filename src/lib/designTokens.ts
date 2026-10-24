@@ -41,6 +41,8 @@ export const designTokens = {
     sidebarDefaultWidth: 248,
     sidebarMinWidth: 180,
     sidebarMaxWidth: 480,
+    /** Mirrors the fixed `.right-panel` width in `RightPanel.svelte`. */
+    rightPanelWidth: 248,
     /** Mirrors `minWidth` for the main window in `src-tauri/tauri.conf.json`. */
     windowMinWidth: 480,
     /** Below this the title bar drops its text labels so the window controls stay reachable. */

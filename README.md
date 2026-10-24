@@ -257,6 +257,8 @@ npm run build
 
 After building on Windows, run the isolated desktop checks with `node scripts/verify-desktop.mjs`. The script uses the release executable, a disposable vault, separate app data, and a separate WebView2 profile under `src-tauri/target/desktop-verification/`. It exercises real rendering, Recycle Bin restore, save failures, tray residency, and delayed saves. Screenshots and results stay in that directory. It does not install the app. Close any running Jotter first: the app allows one instance, so a second launch hands over to the first and exits.
 
+The main run leaves the window set to hide on close, so the close button's default quit path needs its own run: `JOTTER_CLOSE_ONLY=1 node scripts/verify-desktop.mjs` starts a fresh profile and confirms a native close saves a last-moment edit and then exits.
+
 See [DECISIONS.md](DECISIONS.md) for architecture and accessibility decisions, [ROADMAP.md](ROADMAP.md) for planned features, and [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ## License

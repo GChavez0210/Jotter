@@ -14,6 +14,21 @@ export function sidebarFitsWindow(windowWidth: number, sidebarWidth: number): bo
 }
 
 /**
+ * True while the window has room for the right panel beside the text column, counting the
+ * sidebar when it is on screen. The right panel yields first, so a narrowing window keeps the
+ * file tree longer than the backlinks and outline beside it.
+ */
+export function rightPanelFitsWindow(
+  windowWidth: number,
+  sidebarWidth: number,
+  sidebarVisible: boolean
+): boolean {
+  const { rightPanelWidth, editorMinWidth } = designTokens.layout;
+  const taken = sidebarVisible ? Math.round(sidebarWidth) : 0;
+  return windowWidth >= taken + rightPanelWidth + editorMinWidth;
+}
+
+/**
  * Widest the sidebar may be dragged in this window. Without the ceiling, widening the sidebar
  * past what the window holds would hide the sidebar under the pointer that is dragging it.
  */
