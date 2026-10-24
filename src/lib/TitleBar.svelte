@@ -88,9 +88,11 @@
       />
     {/if}
     {#if !vaultStore.vaultSnapshot}
-      <span class="app-name">
-        {tabsStore.scratchpadMode ? m.scratchpad_title() : 'Jotter'}
-      </span>
+      {#if !settingsStore.titleBarCompact}
+        <span class="app-name">
+          {tabsStore.scratchpadMode ? m.scratchpad_title() : 'Jotter'}
+        </span>
+      {/if}
       {#if tabsStore.scratchpadMode}
         <Button variant="subtle" icon="folder-open" onclick={() => (tabsStore.scratchpadMode = false)}>
           {m.first_run_open_vault()}
@@ -156,6 +158,7 @@
     {#if hasEditor}
       <Segmented
         label={m.titlebar_editor_mode()}
+        compact={settingsStore.titleBarCompact}
         value={settingsStore.editingMode}
         options={[
           { value: 'live', label: m.titlebar_live(), icon: 'eye', title: m.titlebar_live_title({ shortcut: shortcutLabel('Ctrl+/') }) },

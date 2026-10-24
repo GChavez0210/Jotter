@@ -26,7 +26,7 @@ Desktop portability foundations are in place. Linux and Android are in Phase 3; 
 - [x] **License.** Pick and publish an open-source license. Jotter is licensed under MIT.
 - [x] **Single instance.** Launching Jotter while it is already running brings the open window to the front instead of starting a second instance. Restore a minimized or tray-hidden window. Use `tauri-plugin-single-instance`.
 - [x] **Close button behavior.** A setting chooses what the window's X button does: quit Jotter, or hide it to the tray. Separate tray residency from the summon hotkey, which today turns on both. The tray menu's Quit always exits after saving.
-- [ ] **Narrow windows.** Lower the minimum window width below 640 px. When the window gets too narrow to fit the sidebar and the text column, hide the sidebar. When the user then shows the sidebar, widen the window just enough to fit both.
+- [x] **Narrow windows.** Lower the minimum window width below 640 px. When the window gets too narrow to fit the sidebar and the text column, hide the sidebar. When the user then shows the sidebar, widen the window just enough to fit both.
 - [ ] **Pinned notes.** Pin notes to the top of the sidebar for one-click access. Store pins per vault in app data.
 - [ ] **Outline panel.** List the open note's headings in the right panel, and jump to one with a click. Highlight the heading at the cursor.
 - [ ] **Right sidebar calendar and recently deleted items.** Move the calendar and recently deleted items to the right sidebar.

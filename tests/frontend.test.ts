@@ -2,6 +2,8 @@ import { systemStore } from '../src/lib/stores/system.svelte';
 import { settingsStore } from '../src/lib/stores/settings.svelte';
 import { systemControl } from './ipc.mock';
 import { isMac, isMacPlatform, shortcutLabel } from '../src/lib/platform';
+import { designTokens } from '../src/lib/designTokens';
+import { maxSidebarWidth, sidebarFitsWindow, titleBarIsCompact, widthForSidebar } from '../src/lib/layout';
 import { validateEntryName } from '../src/lib/validation';
 import { mock, test } from 'node:test';
 import { i18n, m, matchSystemLocale, SLOT, splitSlots } from '../src/lib/i18n.svelte';
@@ -725,6 +727,41 @@ test('failed summon changes restore the last working setting and keep the error'
   settingsStore.setSummon(false);
   await systemStore.syncSummon();
   assert.equal(systemStore.summonError, '');
+});
+
+test('a narrow window drops the sidebar, and showing it asks for exactly the width it needs', () => {
+  const sidebar = designTokens.layout.sidebarDefaultWidth;
+  const needed = widthForSidebar(sidebar);
+  assert.equal(needed, sidebar + designTokens.layout.editorMinWidth);
+  assert.equal(sidebarFitsWindow(needed, sidebar), true);
+  assert.equal(sidebarFitsWindow(needed - 1, sidebar), false);
+  // The window minimum must leave room for the text column once the sidebar steps aside.
+  assert.ok(designTokens.layout.windowMinWidth >= designTokens.layout.editorMinWidth);
+  assert.ok(designTokens.layout.windowMinWidth < needed);
+  // A wider sidebar needs a wider window, so dragging it out hides it sooner.
+  assert.ok(widthForSidebar(designTokens.layout.sidebarMaxWidth) > needed);
+});
+
+test('the sidebar cannot be dragged wider than the window can hold', () => {
+  const { sidebarMinWidth, sidebarMaxWidth, editorMinWidth, windowMinWidth } = designTokens.layout;
+  // A roomy window allows the full range.
+  assert.equal(maxSidebarWidth(2000), sidebarMaxWidth);
+  // A narrow window stops the drag where the text column would start losing space.
+  assert.equal(maxSidebarWidth(800), 800 - editorMinWidth);
+  // Dragging to the ceiling never hides the sidebar it is dragging.
+  for (const width of [windowMinWidth, 700, 900, 1400]) {
+    assert.ok(sidebarFitsWindow(width, maxSidebarWidth(width)) || width < widthForSidebar(sidebarMinWidth));
+  }
+  // The floor wins in a window too narrow for any sidebar at all.
+  assert.equal(maxSidebarWidth(windowMinWidth), sidebarMinWidth);
+});
+
+test('the title bar gives up its labels below the compact width', () => {
+  const compactAt = designTokens.layout.titleBarCompactWidth;
+  assert.equal(titleBarIsCompact(compactAt), false);
+  assert.equal(titleBarIsCompact(compactAt - 1), true);
+  // The narrowest window the user can drag to must still be a compact one.
+  assert.equal(titleBarIsCompact(designTokens.layout.windowMinWidth), true);
 });
 
 test('tray and close-button settings reach the backend once per change', async () => {

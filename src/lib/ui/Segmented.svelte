@@ -17,10 +17,12 @@
     label: string;
     /** Fill the available width with equally sized options. */
     fill?: boolean;
+    /** Show icons alone, for narrow windows. Options without an icon keep their label. */
+    compact?: boolean;
     onchange: (value: T) => void;
   }
 
-  let { options, value, label, fill = false, onchange }: Props = $props();
+  let { options, value, label, fill = false, compact = false, onchange }: Props = $props();
 
   function handleKeydown(event: KeyboardEvent, index: number) {
     const step = event.key === 'ArrowRight' || event.key === 'ArrowDown' ? 1 : event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 0;
@@ -35,17 +37,20 @@
 
 <div class="segmented" class:fill role="radiogroup" aria-label={label}>
   {#each options as option, index (option.value)}
+    {@const iconOnly = compact && Boolean(option.icon)}
     <button
       type="button"
+      class:icon-only={iconOnly}
       role="radio"
       aria-checked={option.value === value}
+      aria-label={iconOnly ? option.label : undefined}
       tabindex={option.value === value ? 0 : -1}
-      title={option.title}
+      title={option.title ?? (iconOnly ? option.label : undefined)}
       onclick={() => onchange(option.value)}
       onkeydown={(event) => handleKeydown(event, index)}
     >
       {#if option.icon}<Icon name={option.icon} size={14} />{/if}
-      {option.label}
+      {#if !iconOnly}{option.label}{/if}
     </button>
   {/each}
 </div>
@@ -77,6 +82,13 @@
     transition:
       background-color var(--transition-fast),
       color var(--transition-fast);
+  }
+
+  /* Without a label the button would be a wide blank; square it around the icon. */
+  button.icon-only {
+    padding: 0;
+    width: 28px;
+    justify-content: center;
   }
 
   .segmented.fill {

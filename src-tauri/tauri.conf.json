@@ -16,7 +16,7 @@
         "title": "Jotter",
         "width": 1120,
         "height": 760,
-        "minWidth": 640,
+        "minWidth": 480,
         "minHeight": 460,
         "resizable": true,
         "dragDropEnabled": false,

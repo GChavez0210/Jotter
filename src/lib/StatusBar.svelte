@@ -20,8 +20,8 @@
   });
 
   function showConflicts() {
+    // Picking the view reveals the sidebar, widening a narrow window if it has to.
     settingsStore.setLeftSidebarView('conflicts');
-    if (settingsStore.sidebarCollapsed) settingsStore.toggleSidebar();
   }
 </script>
 
