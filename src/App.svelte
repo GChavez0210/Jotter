@@ -354,6 +354,12 @@
     void systemStore.syncSummon();
   });
 
+  $effect(() => {
+    void settingsStore.trayEnabled;
+    void settingsStore.closeAction;
+    void systemStore.syncWindowBehavior();
+  });
+
   function createUntitledNote() {
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
     void vaultStore.createNoteInVault('', m.note_default_name({ stamp }));

@@ -938,6 +938,39 @@
             <div class="setting-card column-card">
               <div class="setting-row-top">
                 <div class="setting-info">
+                  <label for="toggle-tray" class="setting-label">{m.settings_tray()}</label>
+                  <div class="setting-desc">{m.settings_tray_desc()}</div>
+                </div>
+                <input
+                  id="toggle-tray"
+                  type="checkbox"
+                  class="fluent-toggle"
+                  checked={settingsStore.trayEnabled}
+                  onchange={(e) =>
+                    settingsStore.setTrayEnabled((e.currentTarget as HTMLInputElement).checked)}
+                />
+              </div>
+              <div class="setting-info">
+                <div class="setting-label">{m.settings_close_action()}</div>
+                <div class="setting-desc">{m.settings_close_action_desc()}</div>
+              </div>
+              <Segmented
+                label={m.settings_close_action()}
+                value={settingsStore.closeAction}
+                options={[
+                  { value: 'quit', label: m.settings_close_quit() },
+                  { value: 'tray', label: m.settings_close_tray() },
+                ]}
+                onchange={(action) => settingsStore.setCloseAction(action)}
+              />
+              {#if systemStore.trayError}
+                <div class="field-error" role="alert">{systemStore.trayError}</div>
+              {/if}
+            </div>
+
+            <div class="setting-card column-card">
+              <div class="setting-row-top">
+                <div class="setting-info">
                   <div class="setting-label">{m.settings_snippets()}</div>
                   <div class="setting-desc">
                     {settingsSnippetsDescParts[0]}<code>.css</code>{settingsSnippetsDescParts[1]}

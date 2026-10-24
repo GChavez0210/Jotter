@@ -24,8 +24,13 @@ export const restoreDeletedEntry = async () => {};
 export const removeRecentVaultEntry = async () => [];
 export const renameEntry = (oldPath: string, newPath: string) => control.rename(oldPath, newPath);
 
-export const systemControl = { configure: async (_enabled: boolean, _shortcut: string): Promise<void> => {} };
+export const systemControl = {
+  configure: async (_enabled: boolean, _shortcut: string): Promise<void> => {},
+  configureWindow: async (_trayResident: boolean, _hideOnClose: boolean): Promise<void> => {},
+};
 export const configureSummon = (enabled: boolean, shortcut: string) => systemControl.configure(enabled, shortcut);
+export const configureWindowBehavior = (trayResident: boolean, hideOnClose: boolean) =>
+  systemControl.configureWindow(trayResident, hideOnClose);
 export const listCssSnippets = async () => [];
 export const openSnippetsFolder = async () => {};
 

@@ -136,8 +136,12 @@ Jotter's interface is available in English and Spanish. **Settings → Appearanc
 
 To add a language, add its code to `locales` in `project.inlang/settings.json` and copy `messages/en.json` to `messages/<code>.json`, then translate the values. Keep every `{placeholder}`, in the same order as English. `npm test` fails when a translation is missing a key or reorders placeholders.
 
-### Summon Hotkey
-Turn on **Settings → System → Summon hotkey** to show or hide Jotter from any app with `Ctrl+Alt+J`, or a hotkey you choose. While it is on, Jotter keeps an icon in the tray, and closing the window hides it instead of quitting. Quit from the tray icon's menu; Jotter saves open notes before it exits.
+### Summon Hotkey, Tray, and Closing
+Turn on **Settings → System → Summon hotkey** to show or hide Jotter from any app with `Ctrl+Alt+J`, or a hotkey you choose.
+
+**Keep Jotter in the tray** puts an icon in the system tray while Jotter runs, and **Closing the window** chooses what the window's X button does: quit Jotter, or hide it to the tray. Hiding to the tray turns the tray icon on, so the window always has a way back. Quit from the tray icon's menu; Jotter saves open notes before it exits.
+
+Launching Jotter while it already runs brings the open window to the front, whether it sits in the tray, is minimized, or is behind another app.
 
 ### CSS Snippets
 Put `.css` files in the app data `snippets` folder, then turn each one on in **Settings → System → CSS snippets**. Snippets load after the theme, so they can override its colors, fonts and spacing. **Open folder** opens the snippets folder, and **Reload** picks up edits.
@@ -251,7 +255,7 @@ npm test
 npm run build
 ```
 
-After building on Windows, run the isolated desktop checks with `node scripts/verify-desktop.mjs`. The script uses the release executable, a disposable vault, separate app data, and a separate WebView2 profile under `src-tauri/target/desktop-verification/`. It exercises real rendering, Recycle Bin restore, save failures, tray residency, and delayed saves. Screenshots and results stay in that directory. It does not install the app.
+After building on Windows, run the isolated desktop checks with `node scripts/verify-desktop.mjs`. The script uses the release executable, a disposable vault, separate app data, and a separate WebView2 profile under `src-tauri/target/desktop-verification/`. It exercises real rendering, Recycle Bin restore, save failures, tray residency, and delayed saves. Screenshots and results stay in that directory. It does not install the app. Close any running Jotter first: the app allows one instance, so a second launch hands over to the first and exits.
 
 See [DECISIONS.md](DECISIONS.md) for architecture and accessibility decisions, [ROADMAP.md](ROADMAP.md) for planned features, and [CHANGELOG.md](CHANGELOG.md) for release notes.
 

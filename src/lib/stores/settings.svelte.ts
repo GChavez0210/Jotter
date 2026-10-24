@@ -3,6 +3,7 @@ import { m } from '../i18n.svelte';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { designTokens, isAccentPresetId, type AccentPresetId } from '../designTokens';
 import type {
+  CloseAction,
   CopyMode,
   EditingMode,
   FocusMode,
@@ -66,6 +67,10 @@ class SettingsStore {
   dailyTemplatePath = $state('Templates/Daily.md');
   summonEnabled = $state(false);
   summonShortcut = $state(defaultSummonShortcut);
+  /** Keep a tray icon while Jotter runs. */
+  trayEnabled = $state(false);
+  /** Hiding to the tray needs the tray icon, so the two settings move together. */
+  closeAction = $state<CloseAction>('quit');
 
   // Roadmap phase 2
   /** The Notes sidebar view lists folders, or tags with each note's links. */
@@ -256,6 +261,20 @@ class SettingsStore {
     this.summonShortcut = shortcut.trim() || defaultSummonShortcut;
     this.persist('jotter.summonEnabled', String(enabled));
     this.persist('jotter.summonShortcut', this.summonShortcut);
+  }
+
+  /** Turning the tray off sends the close button back to quitting. */
+  setTrayEnabled(enabled: boolean) {
+    this.trayEnabled = enabled;
+    this.persist('jotter.trayEnabled', String(enabled));
+    if (!enabled && this.closeAction === 'tray') this.setCloseAction('quit');
+  }
+
+  /** Hiding to the tray turns the tray icon on, so the window stays reachable. */
+  setCloseAction(action: CloseAction) {
+    this.closeAction = action;
+    this.persist('jotter.closeAction', action);
+    if (action === 'tray' && !this.trayEnabled) this.setTrayEnabled(true);
   }
 
   private persist(key: string, value: string) {
@@ -528,6 +547,17 @@ class SettingsStore {
       this.summonEnabled = localStorage.getItem('jotter.summonEnabled') === 'true';
       const savedShortcut = localStorage.getItem('jotter.summonShortcut');
       if (savedShortcut) this.summonShortcut = savedShortcut;
+      // The summon hotkey used to force tray residency and hide-on-close. Keep that behavior
+      // for anyone who had it on before the two settings became independent.
+      const savedTray = localStorage.getItem('jotter.trayEnabled');
+      const savedCloseAction = localStorage.getItem('jotter.closeAction');
+      if (savedTray === null && savedCloseAction === null) {
+        this.trayEnabled = this.summonEnabled;
+        this.closeAction = this.summonEnabled ? 'tray' : 'quit';
+      } else {
+        this.trayEnabled = savedTray === 'true';
+        if (savedCloseAction === 'tray' && this.trayEnabled) this.closeAction = 'tray';
+      }
       const savedPreFocus = localStorage.getItem('jotter.preFocusLayout');
       if (savedPreFocus) {
         try {

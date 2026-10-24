@@ -1,7 +1,8 @@
-//! Summon hotkey and tray icon.
+//! Summon hotkey, tray icon, and close-button behavior.
 //!
-//! When the summon hotkey is on, Jotter keeps a tray icon, closing the window hides it instead
-//! of quitting, and the hotkey brings the window to the front from any app.
+//! Three settings work independently: the summon hotkey brings the window to the front from any
+//! app, tray residency keeps a tray icon, and the close button either quits Jotter or hides the
+//! window. The tray menu's Quit always exits.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
@@ -17,9 +18,11 @@ const TRAY_ID: &str = "jotter-tray";
 pub const QUIT_REQUESTED_EVENT: &str = "quit-requested";
 
 #[derive(Default)]
-pub struct SummonState {
+pub struct BackgroundState {
+    /// The tray icon is visible while this is set.
+    pub tray_resident: AtomicBool,
     /// Closing the main window hides it while this is set.
-    pub resident: AtomicBool,
+    pub hide_on_close: AtomicBool,
     pub shortcut: Mutex<Option<Shortcut>>,
 }
 
@@ -98,10 +101,10 @@ pub fn create_tray(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Turns the summon hotkey and tray residency on or off. Replaces any previously registered
-/// hotkey. Returns an error when the shortcut text is invalid or another app already owns it.
+/// Turns the summon hotkey on or off. Replaces any previously registered hotkey. Returns an
+/// error when the shortcut text is invalid or another app already owns it.
 pub fn configure(app: &AppHandle, enabled: bool, shortcut_text: &str) -> Result<(), String> {
-    let state = app.state::<SummonState>();
+    let state = app.state::<BackgroundState>();
     let global = app.global_shortcut();
 
     let mut current = state
@@ -118,16 +121,51 @@ pub fn configure(app: &AppHandle, enabled: bool, shortcut_text: &str) -> Result<
         }).map_err(|e| format!("Cannot register {shortcut_text}. Another app may already use it: {e}")),
         |shortcut| global.unregister(shortcut).map_err(|e| format!("Cannot unregister shortcut: {e}")),
     )?;
-
-    state.resident.store(enabled, Ordering::SeqCst);
-    if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        let _ = tray.set_visible(enabled);
-    }
     Ok(())
 }
 
+/// Shows or hides the tray icon and records what the window's close button does.
+pub fn set_window_behavior(
+    app: &AppHandle,
+    tray_resident: bool,
+    hide_on_close: bool,
+) -> Result<(), String> {
+    let state = app.state::<BackgroundState>();
+    // Move the icon first. A failed change leaves the previous settings in place, so the window
+    // never hides into a tray that is not there.
+    let tray = app.tray_by_id(TRAY_ID);
+    if let Some(tray) = &tray {
+        tray.set_visible(tray_resident)
+            .map_err(|e| format!("Cannot change the tray icon: {e}"))?;
+    }
+    state
+        .tray_resident
+        .store(tray_resident && tray.is_some(), Ordering::SeqCst);
+    state.hide_on_close.store(hide_on_close, Ordering::SeqCst);
+    Ok(())
+}
 
-/// Keep the previous hotkey and residency when a replacement cannot be registered.
+/// Hiding the window is safe only when the tray icon or the summon hotkey can bring it back.
+pub fn hides_on_close(hide_on_close: bool, tray_resident: bool, summon_registered: bool) -> bool {
+    hide_on_close && (tray_resident || summon_registered)
+}
+
+/// Answers whether closing the window hides it, from the current settings.
+pub fn should_hide_window(app: &AppHandle) -> bool {
+    let state = app.state::<BackgroundState>();
+    let summon_registered = state
+        .shortcut
+        .lock()
+        .map(|shortcut| shortcut.is_some())
+        .unwrap_or(false);
+    hides_on_close(
+        state.hide_on_close.load(Ordering::SeqCst),
+        state.tray_resident.load(Ordering::SeqCst),
+        summon_registered,
+    )
+}
+
+/// Keep the previous hotkey when a replacement cannot be registered.
 fn replace_shortcut<T: Copy + Eq>(
     current: &mut Option<T>, next: Option<T>,
     mut register: impl FnMut(T) -> Result<(), String>,
@@ -147,8 +185,20 @@ fn replace_shortcut<T: Copy + Eq>(
 
 #[cfg(test)]
 mod tests {
-    use super::replace_shortcut;
+    use super::{hides_on_close, replace_shortcut};
     use std::cell::RefCell;
+
+    #[test]
+    fn close_button_quits_unless_the_user_chose_to_hide() {
+        assert!(!hides_on_close(false, true, true));
+        assert!(hides_on_close(true, true, false));
+        assert!(hides_on_close(true, false, true));
+    }
+
+    #[test]
+    fn hiding_without_a_way_back_quits_instead() {
+        assert!(!hides_on_close(true, false, false));
+    }
 
     #[test]
     fn failed_replacement_keeps_previous_hotkey() {
