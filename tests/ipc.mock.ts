@@ -60,3 +60,8 @@ export const aiDeleteKey = aiGetStatus;
 export async function readVaultImageDataUrl(_target: string): Promise<string> {
   throw new Error('Image loading is unavailable in store tests.');
 }
+export const settingsControl = {stored: null as string | null, saves: [] as string[]};
+export const loadAppSettings = async () => settingsControl.stored;
+export const saveAppSettings = async (json: string) => {settingsControl.stored = json; settingsControl.saves.push(json);};
+export const exportSettingsFile = async () => null;
+export const importSettingsFile = async () => null;

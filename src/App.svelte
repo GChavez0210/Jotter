@@ -3,6 +3,7 @@
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import AiPanel from './lib/AiPanel.svelte';
+  import { appStorage } from './lib/appStorage';
   import RightPanel from './lib/RightPanel.svelte';
   import ClipboardInspector from './lib/ClipboardInspector.svelte';
   import CommandPalette from './lib/CommandPalette.svelte';
@@ -406,7 +407,7 @@
 
     void vaultStore.refreshRecentVaults().then(() => {
       try {
-        const lastVault = localStorage.getItem('jotter.lastVaultPath');
+        const lastVault = appStorage.getItem('jotter.lastVaultPath');
         if (lastVault) {
           void vaultStore.openVaultByPath(lastVault);
         }

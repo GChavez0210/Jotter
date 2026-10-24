@@ -31,7 +31,7 @@ Desktop portability foundations are in place. Linux and Android are in Phase 3; 
 - [x] **Outline panel.** List the open note's headings in the right panel, and jump to one with a click. Highlight the heading at the cursor.
 - [x] **Right sidebar calendar and recently deleted items.** Move the calendar and recently deleted items to the right sidebar.
 - [x] **Find and replace in a note.** `Ctrl+F` finds text in the open note and `Ctrl+H` replaces it, with match case, whole word, and regular expression options. Use `@codemirror/search` and translate its labels.
-- [ ] **Settings export and import.** Settings live in WebView local storage today, so a reinstall or a new computer starts from defaults. Export them to a file, import them on another machine, and move their storage to the app data folder.
+- [x] **Settings export and import.** Settings live in WebView local storage today, so a reinstall or a new computer starts from defaults. Export them to a file, import them on another machine, and move their storage to the app data folder.
 - [ ] **Task reminders.** Show a system notification when a task comes due. Due dates are already indexed. Use `tauri-plugin-notification`, with a setting to turn reminders off.
 - [ ] **Reduce the frontend entry bundle.** Investigate Vite’s large-chunk advisory and split optional features where useful. Verify startup and editor behavior after changes.
 

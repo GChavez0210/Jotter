@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod app_settings;
 pub mod clipboard;
 pub mod fs_atomic;
 pub mod index;
@@ -770,6 +771,59 @@ fn get_note_cards(state: State<'_, AppState>) -> Result<Vec<NoteCard>, String> {
     crate::index::query_note_cards(&conn)
 }
 
+/// The app data folder, beside the recent vaults list.
+fn app_data_dir(state: &State<'_, AppState>) -> PathBuf {
+    state
+        .recent_vaults_file
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(std::env::temp_dir)
+}
+
+/// Returns the saved app settings as JSON, or `None` before the first save.
+#[tauri::command]
+fn load_app_settings(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    crate::app_settings::load(&crate::app_settings::settings_path(&app_data_dir(&state)))
+}
+
+#[tauri::command]
+fn save_app_settings(state: State<'_, AppState>, json: String) -> Result<(), String> {
+    crate::app_settings::save(&crate::app_settings::settings_path(&app_data_dir(&state)), &json)
+}
+
+/// Asks where to save the settings export and writes `json` there. Returns `None` on cancel.
+#[tauri::command]
+async fn export_settings_file(
+    app: AppHandle,
+    json: String,
+    labels: Option<DialogLabels>,
+) -> Result<Option<String>, String> {
+    let labels = labels.unwrap_or_else(|| DialogLabels::new("Export settings", "Jotter settings"));
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(path) = app.dialog().file().set_title(labels.title)
+            .set_file_name("jotter-settings.json").add_filter(labels.filter, &["json"])
+            .blocking_save_file() else { return Ok(None); };
+        let path = path.into_path().map_err(|e| e.to_string())?;
+        crate::app_settings::save(&path, &json)?;
+        Ok(Some(path.to_string_lossy().into_owned()))
+    }).await.map_err(|e| e.to_string())?
+}
+
+/// Asks for a settings file and returns its text. Returns `None` on cancel.
+#[tauri::command]
+async fn import_settings_file(
+    app: AppHandle,
+    labels: Option<DialogLabels>,
+) -> Result<Option<String>, String> {
+    let labels = labels.unwrap_or_else(|| DialogLabels::new("Import settings", "Jotter settings"));
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(path) = app.dialog().file().set_title(labels.title)
+            .add_filter(labels.filter, &["json"]).blocking_pick_file() else { return Ok(None); };
+        let path = path.into_path().map_err(|e| e.to_string())?;
+        crate::app_settings::read_import(&path).map(Some)
+    }).await.map_err(|e| e.to_string())?
+}
+
 /// Asks where to keep the task calendar file. Returns `None` when the user cancels.
 #[tauri::command]
 async fn pick_task_calendar_path(
@@ -1174,6 +1228,10 @@ pub fn run() {
             query_due_tasks,
             get_note_cards,
             pick_task_calendar_path,
+            load_app_settings,
+            save_app_settings,
+            export_settings_file,
+            import_settings_file,
             write_task_calendar,
             list_pinned_notes,
             set_note_pinned,

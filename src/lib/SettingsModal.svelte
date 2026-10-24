@@ -16,7 +16,9 @@
   import { PROVIDER_NAMES } from './syncConflicts';
   import { taskCalendarStore } from './stores/taskCalendar.svelte';
   import { spellingStore } from './stores/spelling.svelte';
-  import { openDictionariesFolder } from './ipc';
+  import { exportSettingsFile, importSettingsFile, openDictionariesFolder } from './ipc';
+  import { appStorage } from './appStorage';
+  import { buildSettingsExport, parseSettingsImport } from './settingsTransfer';
   import { AI_PROVIDER_LABELS, aiStore } from './stores/ai.svelte';
   import type { AiProvider, CopyMode } from './types';
   import { i18n, LANGUAGE_NAMES, locales, m, splitSlots, SLOT, type LanguagePreference } from './i18n.svelte';
@@ -64,6 +66,62 @@
     rose: m.accent_rose,
   };
   let aiError = $state('');
+
+  let transferMessage = $state('');
+  let transferError = $state('');
+  let pendingImport = $state<{ settings: Record<string, string>; skipped: number } | null>(null);
+
+  async function exportSettings() {
+    transferMessage = '';
+    transferError = '';
+    try {
+      await appStorage.flush();
+      const path = await exportSettingsFile(buildSettingsExport(appStorage.snapshot()), {
+        title: m.dialog_settings_export_title(),
+        filter: m.dialog_settings_filter(),
+      });
+      if (path) transferMessage = m.settings_export_done({ path });
+    } catch (err) {
+      transferError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function chooseImport() {
+    transferMessage = '';
+    transferError = '';
+    pendingImport = null;
+    try {
+      const text = await importSettingsFile({
+        title: m.dialog_settings_import_title(),
+        filter: m.dialog_settings_filter(),
+      });
+      if (text === null) return;
+      const parsed = parseSettingsImport(text);
+      if (parsed.ok) {
+        pendingImport = { settings: parsed.settings, skipped: parsed.skipped };
+      } else if (parsed.reason === 'newer-version') {
+        transferError = m.settings_import_newer();
+      } else if (parsed.reason === 'empty') {
+        transferError = m.settings_import_empty();
+      } else {
+        transferError = m.settings_import_invalid();
+      }
+    } catch (err) {
+      transferError = err instanceof Error ? err.message : String(err);
+    }
+  }
+
+  async function applyImport() {
+    if (!pendingImport) return;
+    try {
+      await appStorage.replaceTransferable(pendingImport.settings);
+      // Stores read their saved values at startup, so a reload applies the import everywhere.
+      window.location.reload();
+    } catch (err) {
+      transferError = err instanceof Error ? err.message : String(err);
+      pendingImport = null;
+    }
+  }
   let aiNotice = $state('');
   let aiBusy = $state(false);
   let keyDraft = $state('');
@@ -1009,6 +1067,37 @@
               {/if}
               {#if systemStore.snippetError}
                 <div class="field-error" role="alert">{systemStore.snippetError}</div>
+              {/if}
+            </div>
+
+            <div class="setting-card column-card">
+              <div class="setting-row-top">
+                <div class="setting-info">
+                  <div class="setting-label">{m.settings_transfer()}</div>
+                  <div class="setting-desc">{m.settings_transfer_desc()}</div>
+                </div>
+                <div class="button-row">
+                  <Button icon="export" onclick={() => void exportSettings()}>{m.settings_export()}</Button>
+                  <Button icon="folder-open" onclick={() => void chooseImport()}>{m.settings_import()}</Button>
+                </div>
+              </div>
+              {#if pendingImport}
+                <div class="setting-desc" role="alert">
+                  {m.settings_import_confirm({ count: Object.keys(pendingImport.settings).length })}
+                  {#if pendingImport.skipped > 0}
+                    {m.settings_import_skipped({ skipped: pendingImport.skipped })}
+                  {/if}
+                </div>
+                <div class="button-row">
+                  <Button variant="primary" onclick={() => void applyImport()}>{m.settings_import_apply()}</Button>
+                  <Button onclick={() => (pendingImport = null)}>{m.common_cancel()}</Button>
+                </div>
+              {/if}
+              {#if transferMessage}
+                <div class="setting-desc" role="status">{transferMessage}</div>
+              {/if}
+              {#if transferError}
+                <div class="field-error" role="alert">{transferError}</div>
               {/if}
             </div>
           </section>

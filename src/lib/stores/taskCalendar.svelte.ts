@@ -1,3 +1,4 @@
+import { appStorage } from '../appStorage';
 import { m } from '../i18n.svelte';
 import { pickTaskCalendarPath, writeTaskCalendar } from '../ipc';
 import { clipboardStore } from './clipboard.svelte';
@@ -18,7 +19,7 @@ class TaskCalendarStore {
 
   constructor() {
     try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}');
+      const saved = JSON.parse(appStorage.getItem(STORAGE_KEY) ?? '{}');
       if (saved && typeof saved === 'object') this.paths = saved;
     } catch {
       this.paths = {};
@@ -33,7 +34,7 @@ class TaskCalendarStore {
 
   private persist() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.paths));
+      appStorage.setItem(STORAGE_KEY, JSON.stringify(this.paths));
     } catch {
       // The setting lasts for this session only.
     }

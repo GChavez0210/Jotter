@@ -1,4 +1,5 @@
 import { aiCancel, aiDeleteKey, aiGetStatus, aiRun, aiSaveConfig, aiSaveKey } from '../ipc';
+import { appStorage } from '../appStorage';
 import { m } from '../i18n.svelte';
 import type { AiConfig, AiOperation, AiProvider, AiResult, AiStatus, RewriteStyle } from '../types';
 
@@ -73,9 +74,9 @@ class AiStore {
 
   constructor() {
     try {
-      const lang = localStorage.getItem(LANGUAGE_KEY);
+      const lang = appStorage.getItem(LANGUAGE_KEY);
       if (lang) this.targetLanguage = lang;
-      this.rewriteStyle = normalizeRewriteStyle(localStorage.getItem(STYLE_KEY));
+      this.rewriteStyle = normalizeRewriteStyle(appStorage.getItem(STYLE_KEY));
     } catch {
       // Storage unavailable; keep defaults.
     }
@@ -201,7 +202,7 @@ class AiStore {
 
   private persist(key: string, value: string) {
     try {
-      localStorage.setItem(key, value);
+      appStorage.setItem(key, value);
     } catch {
       // ignore storage errors
     }

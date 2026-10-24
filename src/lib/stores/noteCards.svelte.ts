@@ -1,4 +1,5 @@
 import { getNoteCards } from '../ipc';
+import { appStorage } from '../appStorage';
 import type { NoteCard } from '../types';
 import { vaultStore } from './vault.svelte';
 
@@ -22,7 +23,7 @@ class NoteCardsStore {
 
   constructor() {
     try {
-      const saved = JSON.parse(localStorage.getItem(OPENED_KEY) ?? '{}');
+      const saved = JSON.parse(appStorage.getItem(OPENED_KEY) ?? '{}');
       if (saved && typeof saved === 'object') this.opened = saved;
     } catch {
       this.opened = {};
@@ -41,7 +42,7 @@ class NoteCardsStore {
     const list = (this.opened[root] ?? []).filter((p) => p !== relPath);
     this.opened = { ...this.opened, [root]: [relPath, ...list].slice(0, MAX_OPENED) };
     try {
-      localStorage.setItem(OPENED_KEY, JSON.stringify(this.opened));
+      appStorage.setItem(OPENED_KEY, JSON.stringify(this.opened));
     } catch {
       // History lasts for this session only.
     }

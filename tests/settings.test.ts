@@ -2,6 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SettingsStore } from '../src/lib/stores/settings.svelte';
 import { windowControl } from './window.mock';
+import { settingsControl } from './ipc.mock';
+import { appStorage } from '../src/lib/appStorage';
+import { buildSettingsExport, parseSettingsImport } from '../src/lib/settingsTransfer';
 
 function browser(saved: Record<string, string> = {}) {
   const storage = new Map(Object.entries(saved));
@@ -112,4 +115,59 @@ test('automatic hiding preserves sidebar preference through focus mode and resta
     collapsed.setWindowWidth(1120);
     assert.equal(collapsed.sidebarVisible, false);
   } finally { env.restore(); }
+});
+
+test('export leaves out entries that belong to one computer and import round-trips the rest', () => {
+  const text = buildSettingsExport({
+    'jotter.themePref': 'dark',
+    'jotter.lastVaultPath': 'C:\Notes',
+    'jotter.taskCalendars': '{}',
+    'other.key': 'x',
+  });
+  const parsed = parseSettingsImport(text);
+  assert.deepEqual(parsed, { ok: true, settings: { 'jotter.themePref': 'dark' }, skipped: 0 });
+});
+
+test('import rejects foreign, newer, and empty files and drops malformed entries', () => {
+  assert.deepEqual(parseSettingsImport('nope'), { ok: false, reason: 'invalid' });
+  assert.deepEqual(parseSettingsImport('{"settings":{}}'), { ok: false, reason: 'invalid' });
+  const file = (version: number, settings: unknown) =>
+    JSON.stringify({ format: 'jotter-settings', version, settings });
+  assert.deepEqual(parseSettingsImport(file(99, {})), { ok: false, reason: 'newer-version' });
+  assert.deepEqual(parseSettingsImport(file(1, {})), { ok: false, reason: 'empty' });
+  assert.deepEqual(
+    parseSettingsImport(file(1, { 'jotter.copyMode': 'plain', 'jotter.lastVaultPath': 'x', 'jotter.bad': 5 })),
+    { ok: true, settings: { 'jotter.copyMode': 'plain' }, skipped: 2 }
+  );
+});
+
+test('the settings file takes over from local storage once and then persists changes', async () => {
+  const local = new Map([['jotter.themePref', 'dark'], ['unrelated', 'keep']]);
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    get length() { return local.size; },
+    key: (i: number) => [...local.keys()][i] ?? null,
+    getItem: (key: string) => local.get(key) ?? null,
+    setItem: (key: string, value: string) => local.set(key, value),
+    removeItem: (key: string) => local.delete(key),
+  } });
+  settingsControl.stored = null;
+  settingsControl.saves.length = 0;
+  try {
+    await appStorage.load();
+    assert.equal(appStorage.getItem('jotter.themePref'), 'dark');
+    assert.deepEqual(JSON.parse(settingsControl.stored ?? '{}'), { 'jotter.themePref': 'dark' });
+    assert.equal(local.has('jotter.themePref'), false);
+    assert.equal(local.has('unrelated'), true);
+
+    appStorage.setItem('jotter.copyMode', 'plain');
+    await appStorage.flush();
+    assert.deepEqual(JSON.parse(settingsControl.stored ?? '{}'), { 'jotter.themePref': 'dark', 'jotter.copyMode': 'plain' });
+
+    await appStorage.replaceTransferable({ 'jotter.themePref': 'light' });
+    assert.deepEqual(JSON.parse(settingsControl.stored ?? '{}'), { 'jotter.themePref': 'light' });
+  } finally {
+    if (previous) Object.defineProperty(globalThis, 'localStorage', previous);
+    else Reflect.deleteProperty(globalThis, 'localStorage');
+  }
 });
