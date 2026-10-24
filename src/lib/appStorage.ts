@@ -1,5 +1,5 @@
 import { loadAppSettings, saveAppSettings } from './ipc';
-import { isTransferableKey } from './settingsTransfer';
+import { isTransferableKey, isTransferableEntry } from './settingsTransfer';
 
 const SAVE_DELAY_MS = 200;
 
@@ -73,11 +73,21 @@ class AppStorage {
    */
   async replaceTransferable(incoming: Record<string, string>): Promise<void> {
     if (!this.map) throw new Error('Settings storage is not available');
+    if (Object.keys(incoming).length === 0 || !Object.entries(incoming).every(([key, value]) => isTransferableEntry(key, value))) {
+      throw new Error('Invalid settings import');
+    }
+    const previous = this.map;
+    this.map = new Map(previous);
     for (const key of [...this.map.keys()]) {
       if (isTransferableKey(key)) this.map.delete(key);
     }
     for (const [key, value] of Object.entries(incoming)) this.map.set(key, value);
-    await this.flush();
+    try {
+      await this.flush();
+    } catch (err) {
+      this.map = previous;
+      throw err;
+    }
   }
 
   /** Writes any pending change now. Saves run one after another so the last write wins. */

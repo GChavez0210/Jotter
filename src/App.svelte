@@ -3,6 +3,9 @@
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import { appStorage } from './lib/appStorage';
+  import { saveBeforeLeaving } from './lib/saveBeforeLeaving';
+  import LazyLoadError from './lib/LazyLoadError.svelte';
+  import Dialog from './lib/ui/Dialog.svelte';
   import { configureTaskReminders } from './lib/ipc';
   import RightPanel from './lib/RightPanel.svelte';
   import ClipboardInspector from './lib/ClipboardInspector.svelte';
@@ -393,7 +396,7 @@
       closing = true;
       try {
         await tick();
-        if (await tabsStore.flushAllAutosaves()) await quitApp(quit);
+        if (await saveBeforeLeaving(() => tabsStore.flushAllAutosaves(), () => appStorage.flush())) await quitApp(quit);
         else await keepAppOpen();
       } catch (err) {
         clipboardStore.setStatus(m.status_save_before_close_failed({ error: String(err) }));
@@ -638,6 +641,10 @@
           editorRef?.focusEditor();
         }}
       />
+    {:catch}
+      <Dialog label={m.lazy_load_failed()} onClose={() => { settingsStore.showQuickSwitcher = false; editorRef?.focusEditor(); }}>
+        <LazyLoadError onClose={() => { settingsStore.showQuickSwitcher = false; editorRef?.focusEditor(); }} />
+      </Dialog>
     {/await}
   {/if}
 
@@ -655,6 +662,10 @@
           editorRef?.focusEditor();
         }}
       />
+    {:catch}
+      <Dialog label={m.lazy_load_failed()} onClose={() => { settingsStore.showCommandPalette = false; editorRef?.focusEditor(); }}>
+        <LazyLoadError onClose={() => { settingsStore.showCommandPalette = false; editorRef?.focusEditor(); }} />
+      </Dialog>
     {/await}
   {/if}
 
@@ -674,6 +685,10 @@
           editorRef?.focusEditor();
         }}
       />
+    {:catch}
+      <Dialog label={m.lazy_load_failed()} onClose={() => { aiStore.closePanel(); editorRef?.focusEditor(); }}>
+        <LazyLoadError onClose={() => { aiStore.closePanel(); editorRef?.focusEditor(); }} />
+      </Dialog>
     {/await}
   {/if}
 
@@ -686,6 +701,10 @@
           editorRef?.focusEditor();
         }}
       />
+    {:catch}
+      <Dialog label={m.lazy_load_failed()} onClose={() => { settingsStore.showSettings = false; editorRef?.focusEditor(); }}>
+        <LazyLoadError onClose={() => { settingsStore.showSettings = false; editorRef?.focusEditor(); }} />
+      </Dialog>
     {/await}
   {/if}
 </div>

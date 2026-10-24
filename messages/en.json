@@ -846,5 +846,14 @@
         "countPlural=*": "{count} chars"
       }
     }
-  ]
+  ],
+  "settings_import_unsaved": "Save your notes before importing settings. Resolve the save error and try again.",
+  "lazy_load_failed": "This panel could not load. Reload Jotter and try again.",
+  "lazy_reload": "Reload Jotter",
+  "lazy_reload_save_failed": "Jotter could not save your changes. Resolve the save error before reloading.",
+  "settings_file_too_large": "Settings files must be 1 MiB or smaller.",
+  "settings_file_read_failed": "Could not read the settings file. Check its permissions and try again.",
+  "settings_file_write_failed": "Could not write the settings file. Check the destination folder and try again.",
+  "settings_file_path_failed": "Choose a local settings file and try again.",
+  "settings_storage_failed": "Could not save or access settings. Check file permissions and try again."
 }

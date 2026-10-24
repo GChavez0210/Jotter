@@ -10,6 +10,19 @@ use crate::fs_atomic::atomic_write_str;
 /// An export or import file larger than this is not a Jotter settings file.
 pub const MAX_SETTINGS_BYTES: u64 = 1024 * 1024;
 
+#[derive(Debug, serde::Serialize)]
+pub struct SettingsFileError {
+    pub code: &'static str,
+    pub path: String,
+    pub detail: String,
+}
+
+impl SettingsFileError {
+    pub fn new(code: &'static str, path: &Path, detail: impl ToString) -> Self {
+        Self { code, path: path.to_string_lossy().into_owned(), detail: detail.to_string() }
+    }
+}
+
 pub fn settings_path(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("settings.json")
 }
@@ -36,14 +49,14 @@ pub fn save(settings_file: &Path, json: &str) -> Result<(), String> {
 }
 
 /// Reads a settings file the user picked.
-pub fn read_import(path: &Path) -> Result<String, String> {
+pub fn read_import(path: &Path) -> Result<String, SettingsFileError> {
     let size = std::fs::metadata(path)
-        .map_err(|e| format!("Cannot read {}: {e}", path.display()))?
+        .map_err(|e| SettingsFileError::new("read", path, e))?
         .len();
     if size > MAX_SETTINGS_BYTES {
-        return Err(format!("{} is too large to be a Jotter settings file", path.display()));
+        return Err(SettingsFileError::new("too_large", path, "Settings files must be at most 1 MiB"));
     }
-    std::fs::read_to_string(path).map_err(|e| format!("Cannot read {}: {e}", path.display()))
+    std::fs::read_to_string(path).map_err(|e| SettingsFileError::new("read", path, e))
 }
 
 #[cfg(test)]
@@ -86,6 +99,6 @@ mod tests {
         let dir = temp_dir("big");
         let file = dir.join("big.json");
         std::fs::write(&file, vec![b' '; (MAX_SETTINGS_BYTES + 1) as usize]).unwrap();
-        assert!(read_import(&file).is_err());
+        assert_eq!(read_import(&file).unwrap_err().code, "too_large");
     }
 }

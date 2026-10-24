@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LazyLoadError from './LazyLoadError.svelte';
   import { shortcutLabel } from './platform';
   import FileTreeItem from './FileTreeItem.svelte';
   import TagsLinksView from './TagsLinksView.svelte';
@@ -552,14 +553,20 @@
     {:else if settingsStore.leftSidebarView === 'search'}
       {#await import('./SearchPanel.svelte') then { default: SearchPanel }}
         <SearchPanel />
+      {:catch}
+        <LazyLoadError onClose={() => settingsStore.setLeftSidebarView('files')} />
       {/await}
     {:else if settingsStore.leftSidebarView === 'tags'}
       {#await import('./TagBrowserPanel.svelte') then { default: TagBrowserPanel }}
         <TagBrowserPanel />
+      {:catch}
+        <LazyLoadError onClose={() => settingsStore.setLeftSidebarView('files')} />
       {/await}
     {:else if settingsStore.leftSidebarView === 'conflicts'}
       {#await import('./SyncConflictsPanel.svelte') then { default: SyncConflictsPanel }}
         <SyncConflictsPanel />
+      {:catch}
+        <LazyLoadError onClose={() => settingsStore.setLeftSidebarView('files')} />
       {/await}
     {/if}
 

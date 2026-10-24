@@ -18,6 +18,9 @@
   import { spellingStore } from './stores/spelling.svelte';
   import { exportSettingsFile, importSettingsFile, openDictionariesFolder } from './ipc';
   import { appStorage } from './appStorage';
+  import { saveBeforeLeaving } from './saveBeforeLeaving';
+  import { tabsStore } from './stores/tabs.svelte';
+  import { settingsErrorMessage } from './settingsErrors';
   import { buildSettingsExport, parseSettingsImport } from './settingsTransfer';
   import { AI_PROVIDER_LABELS, aiStore } from './stores/ai.svelte';
   import type { AiProvider, CopyMode } from './types';
@@ -82,7 +85,7 @@
       });
       if (path) transferMessage = m.settings_export_done({ path });
     } catch (err) {
-      transferError = err instanceof Error ? err.message : String(err);
+      transferError = settingsErrorMessage(err);
     }
   }
 
@@ -107,18 +110,25 @@
         transferError = m.settings_import_invalid();
       }
     } catch (err) {
-      transferError = err instanceof Error ? err.message : String(err);
+      transferError = settingsErrorMessage(err);
     }
   }
 
   async function applyImport() {
     if (!pendingImport) return;
     try {
-      await appStorage.replaceTransferable(pendingImport.settings);
+      const incoming = pendingImport.settings;
+      if (!(await saveBeforeLeaving(
+        () => tabsStore.flushAllAutosaves(),
+        () => appStorage.replaceTransferable(incoming),
+      ))) {
+        transferError = m.settings_import_unsaved();
+        return;
+      }
       // Stores read their saved values at startup, so a reload applies the import everywhere.
       window.location.reload();
     } catch (err) {
-      transferError = err instanceof Error ? err.message : String(err);
+      transferError = settingsErrorMessage(err);
       pendingImport = null;
     }
   }

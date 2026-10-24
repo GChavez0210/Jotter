@@ -11,7 +11,8 @@
     "i18n": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide --strategy globalVariable baseLocale --emit-ts-declarations --silent",
     "check": "npm run i18n && svelte-check --tsconfig ./tsconfig.json && tsc --noEmit",
     "tauri": "tauri",
-    "test": "npm run i18n && node scripts/test-frontend.mjs"
+    "test": "npm run i18n && node scripts/test-frontend.mjs",
+    "test:review-ui": "npm run i18n && node --test tests/review-ui.test.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.3",

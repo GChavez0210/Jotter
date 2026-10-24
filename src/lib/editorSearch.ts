@@ -47,6 +47,7 @@ export function searchExtension(): Extension {
 /** Panel and match styling that follows the app theme. */
 export const searchTheme: Extension = EditorView.theme({
   '.cm-panels': {
+    zIndex: '20',
     backgroundColor: 'var(--surface-raised)',
     color: 'var(--text-primary)',
     fontFamily: 'var(--font-ui)',

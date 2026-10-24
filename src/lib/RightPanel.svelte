@@ -1,4 +1,5 @@
 <script lang="ts">
+  import LazyLoadError from './LazyLoadError.svelte';
   import BacklinksPanel from './BacklinksPanel.svelte';
   import OutlinePanel from './OutlinePanel.svelte';
   import IconButton from './ui/IconButton.svelte';
@@ -34,10 +35,14 @@
     {#if settingsStore.rightPanelTab === 'calendar'}
       {#await import('./CalendarView.svelte') then { default: CalendarView }}
         <CalendarView />
+      {:catch}
+        <LazyLoadError onClose={() => settingsStore.toggleRightPanel()} />
       {/await}
     {:else if settingsStore.rightPanelTab === 'trash'}
       {#await import('./RecentlyDeletedPanel.svelte') then { default: RecentlyDeletedPanel }}
         <RecentlyDeletedPanel />
+      {:catch}
+        <LazyLoadError onClose={() => settingsStore.toggleRightPanel()} />
       {/await}
     {:else}
       <OutlinePanel />

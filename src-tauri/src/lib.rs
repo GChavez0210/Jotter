@@ -799,16 +799,16 @@ async fn export_settings_file(
     app: AppHandle,
     json: String,
     labels: Option<DialogLabels>,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, crate::app_settings::SettingsFileError> {
     let labels = labels.unwrap_or_else(|| DialogLabels::new("Export settings", "Jotter settings"));
     tauri::async_runtime::spawn_blocking(move || {
         let Some(path) = app.dialog().file().set_title(labels.title)
             .set_file_name("jotter-settings.json").add_filter(labels.filter, &["json"])
             .blocking_save_file() else { return Ok(None); };
-        let path = path.into_path().map_err(|e| e.to_string())?;
-        crate::app_settings::save(&path, &json)?;
+        let path = path.into_path().map_err(|e| crate::app_settings::SettingsFileError::new("invalid_path", Path::new(""), e))?;
+        crate::app_settings::save(&path, &json).map_err(|e| crate::app_settings::SettingsFileError::new("write", &path, e))?;
         Ok(Some(path.to_string_lossy().into_owned()))
-    }).await.map_err(|e| e.to_string())?
+    }).await.map_err(|e| crate::app_settings::SettingsFileError::new("operation", Path::new(""), e))?
 }
 
 /// Asks for a settings file and returns its text. Returns `None` on cancel.
@@ -816,14 +816,14 @@ async fn export_settings_file(
 async fn import_settings_file(
     app: AppHandle,
     labels: Option<DialogLabels>,
-) -> Result<Option<String>, String> {
+) -> Result<Option<String>, crate::app_settings::SettingsFileError> {
     let labels = labels.unwrap_or_else(|| DialogLabels::new("Import settings", "Jotter settings"));
     tauri::async_runtime::spawn_blocking(move || {
         let Some(path) = app.dialog().file().set_title(labels.title)
             .add_filter(labels.filter, &["json"]).blocking_pick_file() else { return Ok(None); };
-        let path = path.into_path().map_err(|e| e.to_string())?;
+        let path = path.into_path().map_err(|e| crate::app_settings::SettingsFileError::new("invalid_path", Path::new(""), e))?;
         crate::app_settings::read_import(&path).map(Some)
-    }).await.map_err(|e| e.to_string())?
+    }).await.map_err(|e| crate::app_settings::SettingsFileError::new("operation", Path::new(""), e))?
 }
 
 /// Turns task reminders on or off.
@@ -844,15 +844,32 @@ fn spawn_reminder_loop(app: AppHandle) {
         let reminders = app.state::<crate::reminders::ReminderState>();
         let file = crate::reminders::reminders_path(&app_data_dir(&state));
         let mut announced = crate::reminders::load_announced(&file);
+        let mut history_dirty = file.exists();
+        crate::reminders::prune_announced(&mut announced, chrono::Utc::now());
         loop {
             std::thread::sleep(Duration::from_secs(30));
+            let now = chrono::Local::now();
+            history_dirty |= crate::reminders::prune_announced(&mut announced, now.with_timezone(&chrono::Utc));
+            if history_dirty {
+                match crate::reminders::save_announced(&file, &mut announced, now.with_timezone(&chrono::Utc)) {
+                    Ok(()) => history_dirty = false,
+                    Err(err) => eprintln!("Cannot save task reminders: {err}"),
+                }
+            }
             if !reminders.enabled.load(Ordering::SeqCst) {
                 continue;
             }
-            let Ok(tasks) = state.sqlite_conn.lock().map_err(|e| e.to_string())
-                .and_then(|conn| crate::index::query_due_tasks(&conn)) else { continue };
-            let now = chrono::Local::now().naive_local();
-            let due = crate::reminders::due_reminders(&tasks, now, &announced);
+            // Serialize with vault open/close so the database and vault identity belong together.
+            // Keep this guard through notification submission; SQLite is released after the query.
+            let Ok(_operation) = state.vault_operation.lock() else { continue };
+            let Ok(root) = state.active_vault.lock().map(|root| root.clone()) else { continue };
+            let Some(root) = root else { continue };
+            let tasks = match crate::reminders::query_tasks(&state.sqlite_conn, &root) {
+                Ok(tasks) => tasks,
+                Err(err) => { eprintln!("Cannot query task reminders: {err}"); continue; }
+            };
+            let vault_key = crate::platform::vault_key(&root);
+            let due = crate::reminders::due_reminders(Some(&vault_key), &tasks, now, &announced);
             if due.is_empty() {
                 continue;
             }
@@ -864,10 +881,14 @@ fn spawn_reminder_loop(app: AppHandle) {
                 // Keep an unshown reminder for the next pass, since the system may be busy.
                 if shown.is_ok() {
                     announced.insert(reminder.key, reminder.due);
+                    history_dirty = true;
                 }
             }
-            if let Err(err) = crate::reminders::save_announced(&file, &mut announced, now) {
-                eprintln!("Cannot save task reminders: {err}");
+            if history_dirty {
+                match crate::reminders::save_announced(&file, &mut announced, now.with_timezone(&chrono::Utc)) {
+                    Ok(()) => history_dirty = false,
+                    Err(err) => eprintln!("Cannot save task reminders: {err}"),
+                }
             }
         }
     });
