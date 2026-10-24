@@ -2,16 +2,12 @@
   import { shortcutLabel } from './lib/platform';
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import type { UnlistenFn } from '@tauri-apps/api/event';
-  import AiPanel from './lib/AiPanel.svelte';
   import { appStorage } from './lib/appStorage';
   import { configureTaskReminders } from './lib/ipc';
   import RightPanel from './lib/RightPanel.svelte';
   import ClipboardInspector from './lib/ClipboardInspector.svelte';
-  import CommandPalette from './lib/CommandPalette.svelte';
   import Editor from './lib/Editor.svelte';
   import FirstRunScreen from './lib/FirstRunScreen.svelte';
-  import QuickSwitcher from './lib/QuickSwitcher.svelte';
-  import SettingsModal from './lib/SettingsModal.svelte';
   import NoteHeader from './lib/NoteHeader.svelte';
   import Sidebar from './lib/Sidebar.svelte';
   import StatusBar from './lib/StatusBar.svelte';
@@ -635,54 +631,62 @@
   </div>
 
   {#if settingsStore.showQuickSwitcher}
-    <QuickSwitcher
-      onClose={() => {
-        settingsStore.showQuickSwitcher = false;
-        editorRef?.focusEditor();
-      }}
-    />
+    {#await import('./lib/QuickSwitcher.svelte') then { default: QuickSwitcher }}
+      <QuickSwitcher
+        onClose={() => {
+          settingsStore.showQuickSwitcher = false;
+          editorRef?.focusEditor();
+        }}
+      />
+    {/await}
   {/if}
 
   {#if settingsStore.showCommandPalette}
-    <CommandPalette
-      onFormat={handleFormatCommand}
-      onCopyTrigger={() => editorRef?.triggerCopyFromToolbar()}
-      onPastePlainTrigger={() => editorRef?.triggerPastePlainFromToolbar()}
-      onRefreshInspector={() => void refreshInspectorPreview()}
-      onExportHtml={() => void handleExportHtml()}
-      onExportPdf={() => void handleExportPdf()}
-      onClose={() => {
-        settingsStore.showCommandPalette = false;
-        editorRef?.focusEditor();
-      }}
-    />
+    {#await import('./lib/CommandPalette.svelte') then { default: CommandPalette }}
+      <CommandPalette
+        onFormat={handleFormatCommand}
+        onCopyTrigger={() => editorRef?.triggerCopyFromToolbar()}
+        onPastePlainTrigger={() => editorRef?.triggerPastePlainFromToolbar()}
+        onRefreshInspector={() => void refreshInspectorPreview()}
+        onExportHtml={() => void handleExportHtml()}
+        onExportPdf={() => void handleExportPdf()}
+        onClose={() => {
+          settingsStore.showCommandPalette = false;
+          editorRef?.focusEditor();
+        }}
+      />
+    {/await}
   {/if}
 
   {#if aiStore.showPanel && editorRef}
-    <AiPanel
-      hasSelection={editorRef.hasSelection()}
-      captureTarget={(scope) => editorRef?.captureAiTarget(scope) ?? null}
-      applyResult={(target, text, placement) =>
-        editorRef?.applyAiResult(target, text, placement) ?? false}
-      onOpenSettings={() => {
-        aiStore.closePanel();
-        settingsStore.openSettings('ai');
-      }}
-      onClose={() => {
-        aiStore.closePanel();
-        editorRef?.focusEditor();
-      }}
-    />
+    {#await import('./lib/AiPanel.svelte') then { default: AiPanel }}
+      <AiPanel
+        hasSelection={editorRef.hasSelection()}
+        captureTarget={(scope) => editorRef?.captureAiTarget(scope) ?? null}
+        applyResult={(target, text, placement) =>
+          editorRef?.applyAiResult(target, text, placement) ?? false}
+        onOpenSettings={() => {
+          aiStore.closePanel();
+          settingsStore.openSettings('ai');
+        }}
+        onClose={() => {
+          aiStore.closePanel();
+          editorRef?.focusEditor();
+        }}
+      />
+    {/await}
   {/if}
 
   {#if settingsStore.showSettings}
-    <SettingsModal
-      onRefreshInspector={() => void refreshInspectorPreview()}
-      onClose={() => {
-        settingsStore.showSettings = false;
-        editorRef?.focusEditor();
-      }}
-    />
+    {#await import('./lib/SettingsModal.svelte') then { default: SettingsModal }}
+      <SettingsModal
+        onRefreshInspector={() => void refreshInspectorPreview()}
+        onClose={() => {
+          settingsStore.showSettings = false;
+          editorRef?.focusEditor();
+        }}
+      />
+    {/await}
   {/if}
 </div>
 

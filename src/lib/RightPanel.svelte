@@ -1,8 +1,6 @@
 <script lang="ts">
   import BacklinksPanel from './BacklinksPanel.svelte';
   import OutlinePanel from './OutlinePanel.svelte';
-  import CalendarView from './CalendarView.svelte';
-  import RecentlyDeletedPanel from './RecentlyDeletedPanel.svelte';
   import IconButton from './ui/IconButton.svelte';
   import Segmented from './ui/Segmented.svelte';
   import { settingsStore } from './stores/settings.svelte';
@@ -34,9 +32,13 @@
       />
     </div>
     {#if settingsStore.rightPanelTab === 'calendar'}
-      <CalendarView />
+      {#await import('./CalendarView.svelte') then { default: CalendarView }}
+        <CalendarView />
+      {/await}
     {:else if settingsStore.rightPanelTab === 'trash'}
-      <RecentlyDeletedPanel />
+      {#await import('./RecentlyDeletedPanel.svelte') then { default: RecentlyDeletedPanel }}
+        <RecentlyDeletedPanel />
+      {/await}
     {:else}
       <OutlinePanel />
       <BacklinksPanel />

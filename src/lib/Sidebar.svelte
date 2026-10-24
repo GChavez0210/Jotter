@@ -1,10 +1,7 @@
 <script lang="ts">
   import { shortcutLabel } from './platform';
   import FileTreeItem from './FileTreeItem.svelte';
-  import SyncConflictsPanel from './SyncConflictsPanel.svelte';
   import TagsLinksView from './TagsLinksView.svelte';
-  import SearchPanel from './SearchPanel.svelte';
-  import TagBrowserPanel from './TagBrowserPanel.svelte';
   import Icon from './ui/Icon.svelte';
   import Button from './ui/Button.svelte';
   import IconButton from './ui/IconButton.svelte';
@@ -553,11 +550,17 @@
         {/if}
       </div>
     {:else if settingsStore.leftSidebarView === 'search'}
-      <SearchPanel />
+      {#await import('./SearchPanel.svelte') then { default: SearchPanel }}
+        <SearchPanel />
+      {/await}
     {:else if settingsStore.leftSidebarView === 'tags'}
-      <TagBrowserPanel />
+      {#await import('./TagBrowserPanel.svelte') then { default: TagBrowserPanel }}
+        <TagBrowserPanel />
+      {/await}
     {:else if settingsStore.leftSidebarView === 'conflicts'}
-      <SyncConflictsPanel />
+      {#await import('./SyncConflictsPanel.svelte') then { default: SyncConflictsPanel }}
+        <SyncConflictsPanel />
+      {/await}
     {/if}
 
     <div class="sidebar-footer">
