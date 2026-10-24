@@ -12,6 +12,8 @@
   import IconButton from './ui/IconButton.svelte';
   import type { IconName } from './ui/icons';
   import { settingsStore } from './stores/settings.svelte';
+  import { designTokens } from './designTokens';
+  import { maxSidebarWidth } from './layout';
   import { vaultStore } from './stores/vault.svelte';
   import type { LeftSidebarView, RecentVault, VaultNode, VaultSnapshot } from './types';
   import { validateEntryName } from './validation';
@@ -227,7 +229,11 @@
     isResizing = true;
 
     const handleMove = (moveEvent: PointerEvent) => {
-      const clamped = Math.max(180, Math.min(480, moveEvent.clientX));
+      const widest = maxSidebarWidth(settingsStore.windowWidth);
+      const clamped = Math.max(
+        designTokens.layout.sidebarMinWidth,
+        Math.min(widest, moveEvent.clientX)
+      );
       onResize(clamped);
     };
 

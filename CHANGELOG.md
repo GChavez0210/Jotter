@@ -12,6 +12,7 @@ Roadmap Phase 2.
 
 ### Added
 
+- **Narrow windows.** The window now resizes down to 480 px wide, so Jotter fits beside another app. Below 608 px the sidebar steps aside to keep the text column readable, and showing it again widens the window by just enough to fit both. Widening the window brings the sidebar back on its own, unless you collapsed it yourself. Below 600 px the title bar trades its text labels for icons so the window controls stay reachable.
 - **Single instance.** Launching Jotter while it already runs brings the open window to the front, including from the tray or a minimized state, instead of starting a second copy.
 - **Close button and tray settings.** **Settings → System → Keep Jotter in the tray** controls the tray icon, and **Closing the window** chooses between quitting and hiding to the tray. The summon hotkey no longer forces either one. Choosing to hide turns the tray icon on, so the window always has a way back. The tray menu's Quit still exits after saving.
 - **Line numbers.** **Settings → Editor → Line numbers**, or the command palette, shows a number beside each line. Numbers line up with the first row of headings, code blocks, and tables, and the text column stays centered.

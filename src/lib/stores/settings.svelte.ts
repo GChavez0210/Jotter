@@ -1,6 +1,7 @@
 import { defaultSummonShortcut } from '../platform';
 import { m } from '../i18n.svelte';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
+import { sidebarFitsWindow, titleBarIsCompact, widthForSidebar } from '../layout';
 import { designTokens, isAccentPresetId, type AccentPresetId } from '../designTokens';
 import type {
   CloseAction,
@@ -80,6 +81,13 @@ class SettingsStore {
 
   sidebarWidth = $state<number>(designTokens.layout.sidebarDefaultWidth);
   sidebarCollapsed = $state(false);
+  /**
+   * Current window width, read at startup so the first paint already knows whether the sidebar
+   * fits. The resize handler keeps it current. Never persisted.
+   */
+  windowWidth = $state<number>(
+    typeof window === 'undefined' ? designTokens.layout.windowMinWidth : window.innerWidth
+  );
   showSettings = $state(false);
   /** Section the Settings dialog shows when it next opens, such as `ai`. */
   settingsSectionRequest = $state<string | null>(null);
@@ -90,6 +98,18 @@ class SettingsStore {
   effectiveDark = $derived(
     this.themePref === 'system' ? this.systemIsDark : this.themePref !== 'light'
   );
+
+  /**
+   * The window is too narrow for the sidebar and the text column together. Kept apart from
+   * `sidebarCollapsed` so a narrow session never rewrites what the user chose.
+   */
+  sidebarAutoHidden = $derived(!sidebarFitsWindow(this.windowWidth, this.sidebarWidth));
+
+  /** True while the sidebar belongs on screen, whoever hid it. */
+  sidebarVisible = $derived(!this.sidebarCollapsed && !this.sidebarAutoHidden);
+
+  /** The title bar drops its text labels to keep the window controls reachable. */
+  titleBarCompact = $derived(titleBarIsCompact(this.windowWidth));
 
   setCopyMode(next: CopyMode, onAfterChange?: () => void) {
     this.copyMode = next;
@@ -374,16 +394,36 @@ class SettingsStore {
     }
   }
 
+  /**
+   * Shows or hides the sidebar, acting on what the user sees. Asking for it back in a window
+   * that cannot fit it widens the window instead of refusing.
+   */
   toggleSidebar() {
-    this.sidebarCollapsed = !this.sidebarCollapsed;
+    const show = !this.sidebarVisible;
+    this.setSidebarCollapsed(!show);
+    if (show && this.sidebarAutoHidden) void this.widenWindowForSidebar();
+  }
+
+  private setSidebarCollapsed(collapsed: boolean) {
+    this.sidebarCollapsed = collapsed;
+    this.persist('jotter.sidebarCollapsed', String(collapsed));
+  }
+
+  /** Grows the window to the width the sidebar and the text column need, and no further. */
+  private async widenWindowForSidebar() {
+    const target = widthForSidebar(this.sidebarWidth);
+    if (this.windowWidth >= target) return;
     try {
-      localStorage.setItem(
-        'jotter.sidebarCollapsed',
-        String(this.sidebarCollapsed)
-      );
+      const win = getCurrentWindow();
+      await win.setSize(new LogicalSize(target, window.innerHeight));
     } catch {
-      // ignore
+      // ignore when running in browser preview outside Tauri
     }
+  }
+
+  /** Tracks the window width so the sidebar and the title bar can answer for themselves. */
+  setWindowWidth(width: number) {
+    this.windowWidth = width;
   }
 
   setLeftSidebarView(view: LeftSidebarView) {
@@ -391,14 +431,8 @@ class SettingsStore {
       this.exitFocusMode();
     }
     this.leftSidebarView = view;
-    if (this.sidebarCollapsed) {
-      this.sidebarCollapsed = false;
-      try {
-        localStorage.setItem('jotter.sidebarCollapsed', 'false');
-      } catch {
-        // ignore
-      }
-    }
+    // Picking a view asks for the sidebar, so a narrow window widens to show it.
+    if (!this.sidebarVisible) this.toggleSidebar();
     try {
       localStorage.setItem('jotter.leftSidebarView', view);
     } catch {
@@ -593,8 +627,13 @@ class SettingsStore {
     };
     mediaQuery.addEventListener('change', handleMediaChange);
 
+    const handleResize = () => this.setWindowWidth(window.innerWidth);
+    handleResize();
+    window.addEventListener('resize', handleResize);
+
     return () => {
       mediaQuery.removeEventListener('change', handleMediaChange);
+      window.removeEventListener('resize', handleResize);
     };
   }
 }

@@ -36,9 +36,15 @@ export const designTokens = {
     rowHeight: 28,
     barHeight: 40,
     editorMaxWidth: 680,
+    /** Narrowest text column worth keeping. Below this the sidebar gives up its space. */
+    editorMinWidth: 360,
     sidebarDefaultWidth: 248,
     sidebarMinWidth: 180,
     sidebarMaxWidth: 480,
+    /** Mirrors `minWidth` for the main window in `src-tauri/tauri.conf.json`. */
+    windowMinWidth: 480,
+    /** Below this the title bar drops its text labels so the window controls stay reachable. */
+    titleBarCompactWidth: 600,
   },
   motion: {
     fast: '120ms ease-out',

@@ -50,7 +50,7 @@
   let sidebarVisible = $derived(
     Boolean(vaultStore.vaultSnapshot) &&
       settingsStore.focusMode === 'off' &&
-      !settingsStore.sidebarCollapsed
+      settingsStore.sidebarVisible
   );
 
   $effect(() => {
@@ -462,7 +462,7 @@
       onOpenVault={(path) => void vaultStore.openVaultByPath(path)}
       activeRelPath={tabsStore.activeTabPath}
       width={settingsStore.sidebarWidth}
-      collapsed={settingsStore.sidebarCollapsed}
+      collapsed={!settingsStore.sidebarVisible}
       onResize={(w) => settingsStore.setSidebarWidth(w)}
       onSelectFile={(relPath) => void tabsStore.openNoteInTab(relPath)}
       onCreateNote={(parent, name) =>

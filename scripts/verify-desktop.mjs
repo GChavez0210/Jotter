@@ -1,6 +1,6 @@
 import { chromium, expect } from '@playwright/test';
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile, readFile, chmod } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, chmod, stat } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
 
@@ -16,8 +16,20 @@ const note = '# Verification\n\nWe receive the budget.\n\nA mispeled word.\n\nIn
 await writeFile(join(vault,'Verification.md'),note);
 await mkdir(join(vault,'Templates'),{recursive:true});
 await writeFile(join(vault,'Templates/Daily.md'),'# {{title}}\nDate: {{date}}\n');
+// Tauri embeds the frontend at compile time, but cargo does not watch `dist`, so a frontend-only
+// change plus `cargo build` leaves the previous bundle inside the executable and this harness
+// would check code that is no longer in the tree.
+const exePath = resolve(process.env.JOTTER_TEST_EXE ?? 'src-tauri/target/release/jotter.exe');
+const [exeStat, bundleStat] = await Promise.all([stat(exePath), stat(resolve('dist/index.html'))]);
+if (exeStat.mtimeMs < bundleStat.mtimeMs) {
+  throw new Error(
+    `${exePath} is older than dist/index.html, so it still embeds an earlier frontend. ` +
+    'Rebuild it: npm run build && touch src-tauri/src/lib.rs && cargo build --release',
+  );
+}
+
 const port = 9432;
-const app = spawn(resolve(process.env.JOTTER_TEST_EXE ?? 'src-tauri/target/release/jotter.exe'),[],{
+const app = spawn(exePath,[],{
   windowsHide:true,
   env:{...process.env,LOCALAPPDATA:join(root,'app-data'),WEBVIEW2_USER_DATA_FOLDER:join(root,'webview'),WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS:`--remote-debugging-port=${port}`},
   stdio:['ignore','pipe','pipe'],
@@ -90,6 +102,26 @@ try {
   await page.getByLabel('Search vault notes').fill('recieve');
   await expect(page.locator('.hit-title')).toContainText('Verification');
   checks.push('Typo-tolerant search finds receive from recieve');
+
+  // A real window below the sidebar's width threshold, then the sidebar asked back.
+  const setWindowWidth = (width) => page.evaluate(
+    (w)=>window.__TAURI_INTERNALS__.invoke('plugin:window|set_size',{label:'main',value:{Logical:{width:w,height:760}}}),
+    width,
+  );
+  const sidebar = page.getByRole('complementary',{name:'Vault file tree'});
+  await setWindowWidth(500);
+  await expect(sidebar).toBeHidden();
+  await page.getByRole('button',{name:'Show sidebar'}).click();
+  await expect(sidebar).toBeVisible();
+  // Just enough for the sidebar and the text column, not the width it started at.
+  const widened = await page.evaluate(()=>window.innerWidth);
+  expect(widened).toBeGreaterThan(500);
+  expect(widened).toBeLessThan(1120);
+  await setWindowWidth(500);
+  await expect(sidebar).toBeHidden();
+  await setWindowWidth(1120);
+  await expect(sidebar).toBeVisible();
+  checks.push('Narrow window hides the sidebar, showing it widens the window to fit, and widening restores it');
 
   await page.keyboard.press('Control+,');
   await page.getByRole('button',{name:'System',exact:true}).click();

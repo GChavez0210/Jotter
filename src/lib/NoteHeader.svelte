@@ -75,8 +75,8 @@
 
   function showTag(tag: string) {
     settingsStore.selectedTag = tag;
+    // Picking the view reveals the sidebar, widening a narrow window if it has to.
     settingsStore.setLeftSidebarView('tags');
-    if (settingsStore.sidebarCollapsed) settingsStore.toggleSidebar();
   }
 </script>
 
