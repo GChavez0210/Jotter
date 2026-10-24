@@ -24,6 +24,14 @@ export const restoreDeletedEntry = async () => {};
 export const removeRecentVaultEntry = async () => [];
 export const renameEntry = (oldPath: string, newPath: string) => control.rename(oldPath, newPath);
 
+export const pinControl = { pinned: [] as string[] };
+export const listPinnedNotes = async () => pinControl.pinned;
+export const setNotePinned = async (relPath: string, pinned: boolean) => {
+  pinControl.pinned = pinControl.pinned.filter((p) => p !== relPath);
+  if (pinned) pinControl.pinned.push(relPath);
+  return pinControl.pinned;
+};
+
 export const systemControl = {
   configure: async (_enabled: boolean, _shortcut: string): Promise<void> => {},
   configureWindow: async (_trayResident: boolean, _hideOnClose: boolean): Promise<void> => {},

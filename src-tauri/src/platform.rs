@@ -1,5 +1,5 @@
 //! Platform paths and portable export names.
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Keep the existing Windows location so upgrades retain recent vaults and dictionaries.
 /// Other desktops use the OS data directory; persistent data must never fall back to temp.
@@ -12,6 +12,25 @@ pub fn app_data_dir() -> Result<PathBuf, String> {
     root
         .map(|dir| dir.join("Jotter"))
         .ok_or_else(|| "The operating system did not provide an application data directory".into())
+}
+
+/// Stable 64-bit FNV-1a hash.
+fn fnv1a_64(input: &str) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in input.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+/// Names the app data files that belong to one vault: its index cache and its pinned notes.
+/// Windows resolves one vault through several spellings, so the key folds case and slashes.
+pub fn vault_key(vault_root: &Path) -> String {
+    let key = vault_root.to_string_lossy().into_owned();
+    #[cfg(target_os = "windows")]
+    let key = key.to_lowercase().replace('\\', "/");
+    format!("{:016x}", fnv1a_64(key.trim_end_matches('/')))
 }
 
 pub fn export_file_name(title: &str, extension: &str) -> String {

@@ -1,6 +1,6 @@
 import { chromium, expect } from '@playwright/test';
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile, readFile, chmod, stat } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, readdir, chmod, stat } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
 
@@ -102,6 +102,28 @@ try {
   await page.getByLabel('Search vault notes').fill('recieve');
   await expect(page.locator('.hit-title')).toContainText('Verification');
   checks.push('Typo-tolerant search finds receive from recieve');
+
+  // Pins live in app data, so they must survive a rename and outlive the window.
+  // The search above left the sidebar on its own view; pinning needs the file tree.
+  await page.getByRole('navigation',{name:'Sidebar views'}).getByRole('button',{name:'Notes'}).click();
+  await page.locator('.tree-root').getByRole('button',{name:'Verification',exact:true}).click({button:'right'});
+  await page.getByRole('menuitem',{name:'Pin to top'}).click();
+  await expect(page.locator('.pinned-item')).toHaveCount(1);
+  await expect(page.locator('.pinned-item')).toHaveText(/Verification/);
+  expect(await readFile(join(root,'app-data/Jotter/vaults',(await readdir(join(root,'app-data/Jotter/vaults')))[0]),'utf8'))
+    .toContain('Verification.md');
+  // Renaming through the sidebar carries the pin instead of dropping it.
+  const renameTreeNote = async (from, to) => {
+    await page.locator('.tree-root').getByRole('button',{name:from,exact:true}).click({button:'right'});
+    await page.getByRole('menuitem',{name:'Rename'}).click();
+    await page.locator('.rename-input').fill(to);
+    await page.locator('.rename-input').press('Enter');
+  };
+  await renameTreeNote('Verification','Renamed');
+  await expect(page.locator('.pinned-item')).toHaveText(/Renamed/);
+  await renameTreeNote('Renamed','Verification');
+  await expect(page.locator('.pinned-item')).toHaveText(/Verification/);
+  checks.push('Pinning writes to app data, not the vault, and a rename carries the pin');
 
   // A real window below the sidebar's width threshold, then the sidebar asked back.
   const setWindowWidth = (width) => page.evaluate(

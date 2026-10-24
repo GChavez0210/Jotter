@@ -177,6 +177,15 @@ export async function restoreDeletedEntry(id: string): Promise<[string, VaultSna
   return invoke<[string, VaultSnapshot]>('restore_deleted_entry', { id });
 }
 
+export async function listPinnedNotes(): Promise<string[]> {
+  return invoke<string[]>('list_pinned_notes');
+}
+
+/** Returns the whole pinned list, in the order the sidebar shows it. */
+export async function setNotePinned(relPath: string, pinned: boolean): Promise<string[]> {
+  return invoke<string[]>('set_note_pinned', { relPath, pinned });
+}
+
 export async function listCssSnippets(): Promise<CssSnippet[]> {
   return invoke<CssSnippet[]>('list_css_snippets');
 }

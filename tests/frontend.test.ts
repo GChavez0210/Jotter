@@ -14,6 +14,7 @@ import { EditorState } from '@codemirror/state';
 import { tabsStore } from '../src/lib/stores/tabs.svelte';
 import { vaultStore, fillDailyTemplate } from '../src/lib/stores/vault.svelte';
 import { control } from './ipc.mock';
+import { pinControl } from './ipc.mock';
 import { captureEditorOperation } from '../src/lib/editorOperations';
 import { findRichBlocks } from '../src/lib/livePreviewBlocks';
 import { CalcError, evaluate, evaluateCalcBlock, formatNumber, inlineCalculation } from '../src/lib/calc';
@@ -727,6 +728,29 @@ test('failed summon changes restore the last working setting and keep the error'
   settingsStore.setSummon(false);
   await systemStore.syncSummon();
   assert.equal(systemStore.summonError, '');
+});
+
+test('pinning a note keeps the backend order and unpinning removes it', async () => {
+  pinControl.pinned = [];
+  await vaultStore.openVaultByPath('B');
+  assert.deepEqual(vaultStore.pinnedPaths, []);
+
+  await vaultStore.togglePin('a.md');
+  await vaultStore.togglePin('Work/b.md');
+  assert.deepEqual(vaultStore.pinnedPaths, ['a.md', 'Work/b.md']);
+  assert.equal(vaultStore.isPinned('Work/b.md'), true);
+  assert.equal(vaultStore.isPinned('missing.md'), false);
+
+  await vaultStore.togglePin('a.md');
+  assert.deepEqual(vaultStore.pinnedPaths, ['Work/b.md']);
+});
+
+test('closing a vault drops its pins so the next vault starts clean', async () => {
+  pinControl.pinned = ['a.md'];
+  await vaultStore.openVaultByPath('B');
+  assert.deepEqual(vaultStore.pinnedPaths, ['a.md']);
+  await vaultStore.switchVault();
+  assert.deepEqual(vaultStore.pinnedPaths, []);
 });
 
 test('a narrow window drops the sidebar, and showing it asks for exactly the width it needs', () => {

@@ -11,6 +11,8 @@ import {
   readNote,
   rebuildVaultIndex,
   restoreDeletedEntry,
+  listPinnedNotes,
+  setNotePinned,
   removeRecentVaultEntry,
   renameEntry,
 } from '../ipc';
@@ -81,6 +83,8 @@ class VaultStore {
   recentVaults = $state<RecentVault[]>([]);
   onboardingError = $state('');
   indexVersion = $state(0);
+  /** Relative paths pinned to the top of the sidebar, in the order they were pinned. */
+  pinnedPaths = $state<string[]>([]);
   deletedVersion = $state(0);
 
   constructor() {
@@ -203,6 +207,7 @@ class VaultStore {
         // ignore
       }
       await this.refreshRecentVaults();
+      await this.refreshPins();
       // The Home page is the start screen when it is on; otherwise open the first note.
       const firstFile = settingsStore.showHomePage ? null : findFirstFileNode(snap.tree);
       if (firstFile) {
@@ -234,6 +239,7 @@ class VaultStore {
         // ignore
       }
       await this.refreshRecentVaults();
+      await this.refreshPins();
       // The Home page is the start screen when it is on; otherwise open the first note.
       const firstFile = settingsStore.showHomePage ? null : findFirstFileNode(snap.tree);
       if (firstFile) {
@@ -255,6 +261,7 @@ class VaultStore {
     }
     invalidateImagePreviews('');
     this.vaultSnapshot = null;
+    this.pinnedPaths = [];
     this.bumpIndexVersion();
     tabsStore.scratchpadMode = false;
     tabsStore.resetTabs();
@@ -319,6 +326,8 @@ class VaultStore {
       this.vaultSnapshot = res.snapshot;
       this.bumpIndexVersion();
       tabsStore.updatePathsAfterRename(res.oldRelPath, res.newRelPath);
+      // Rust rewrote any pin under the old path.
+      await this.refreshPins();
       clipboardStore.setStatus(
         (action === 'move' ? m.status_moved : m.status_renamed)({ from: res.oldRelPath, to: res.newRelPath })
       );
@@ -352,12 +361,47 @@ class VaultStore {
       invalidateImagePreviews();
       this.bumpIndexVersion();
       tabsStore.removeTabsUnderPath(relPath);
+      await this.refreshPins();
       clipboardStore.setStatus(m.status_moved_to_trash({ path: relPath, trash: trashName() }));
     } catch (err) {
       clipboardStore.setStatus(
         m.status_delete_failed({ error: err instanceof Error ? err.message : String(err) })
       );
     }
+  }
+
+  /** Re-reads the pins for the open vault. Pins live in app data, not in the vault. */
+  async refreshPins() {
+    if (!this.vaultSnapshot) {
+      this.pinnedPaths = [];
+      return;
+    }
+    const root = this.vaultSnapshot.rootPath;
+    try {
+      const pins = await listPinnedNotes();
+      // A vault switch while the call was in flight must not show the old vault's pins.
+      if (this.vaultSnapshot?.rootPath === root) this.pinnedPaths = pins;
+    } catch {
+      this.pinnedPaths = [];
+    }
+  }
+
+  async togglePin(relPath: string) {
+    const root = this.vaultSnapshot?.rootPath;
+    if (!root) return;
+    const pinned = !this.isPinned(relPath);
+    try {
+      const pins = await setNotePinned(relPath, pinned);
+      if (this.vaultSnapshot?.rootPath === root) this.pinnedPaths = pins;
+    } catch (err) {
+      clipboardStore.setStatus(
+        m.status_pin_failed({ error: err instanceof Error ? err.message : String(err) })
+      );
+    }
+  }
+
+  isPinned(relPath: string): boolean {
+    return this.pinnedPaths.some((pin) => pin === relPath);
   }
 
   /** Restores a note or folder from the OS trash and opens it if it is a note. */
@@ -368,6 +412,7 @@ class VaultStore {
       invalidateImagePreviews();
       this.vaultSnapshot = snap;
       this.bumpIndexVersion();
+      await this.refreshPins();
       if (relPath.toLowerCase().endsWith('.md')) {
         await tabsStore.openNoteInTab(relPath);
       }
