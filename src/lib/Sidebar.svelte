@@ -1,12 +1,8 @@
 <script lang="ts">
+  import LazyLoadError from './LazyLoadError.svelte';
   import { shortcutLabel } from './platform';
-  import CalendarView from './CalendarView.svelte';
   import FileTreeItem from './FileTreeItem.svelte';
-  import RecentlyDeletedPanel from './RecentlyDeletedPanel.svelte';
-  import SyncConflictsPanel from './SyncConflictsPanel.svelte';
   import TagsLinksView from './TagsLinksView.svelte';
-  import SearchPanel from './SearchPanel.svelte';
-  import TagBrowserPanel from './TagBrowserPanel.svelte';
   import Icon from './ui/Icon.svelte';
   import Button from './ui/Button.svelte';
   import IconButton from './ui/IconButton.svelte';
@@ -139,8 +135,6 @@
     { id: 'files', label: m.sidebar_view_notes(), icon: 'notebook' },
     { id: 'search', label: m.sidebar_view_search(), icon: 'magnifying-glass', hint: shortcutLabel('Ctrl+Shift+F') },
     { id: 'tags', label: m.sidebar_view_tags(), icon: 'tag' },
-    { id: 'calendar', label: m.sidebar_view_calendar(), icon: 'calendar-blank' },
-    { id: 'trash', label: m.sidebar_view_trash(), icon: 'trash' },
   ]);
 
   // The conflicts view appears only while the vault has conflict copies to resolve.
@@ -557,15 +551,23 @@
         {/if}
       </div>
     {:else if settingsStore.leftSidebarView === 'search'}
-      <SearchPanel />
+      {#await import('./SearchPanel.svelte') then { default: SearchPanel }}
+        <SearchPanel />
+      {:catch}
+        <LazyLoadError onClose={() => settingsStore.setLeftSidebarView('files')} />
+      {/await}
     {:else if settingsStore.leftSidebarView === 'tags'}
-      <TagBrowserPanel />
-    {:else if settingsStore.leftSidebarView === 'calendar'}
-      <CalendarView />
-    {:else if settingsStore.leftSidebarView === 'trash'}
-      <RecentlyDeletedPanel />
+      {#await import('./TagBrowserPanel.svelte') then { default: TagBrowserPanel }}
+        <TagBrowserPanel />
+      {:catch}
+        <LazyLoadError onClose={() => settingsStore.setLeftSidebarView('files')} />
+      {/await}
     {:else if settingsStore.leftSidebarView === 'conflicts'}
-      <SyncConflictsPanel />
+      {#await import('./SyncConflictsPanel.svelte') then { default: SyncConflictsPanel }}
+        <SyncConflictsPanel />
+      {:catch}
+        <LazyLoadError onClose={() => settingsStore.setLeftSidebarView('files')} />
+      {/await}
     {/if}
 
     <div class="sidebar-footer">

@@ -1,4 +1,5 @@
 import { listSpellDictionaries, spellAddWord } from '../ipc';
+import { appStorage } from '../appStorage';
 import { clearSpellingCache, matchDictionaries } from '../spellcheck';
 import type { SpellDictionary } from '../types';
 import { vaultStore } from './vault.svelte';
@@ -23,8 +24,8 @@ class SpellingStore {
 
   constructor() {
     try {
-      if (localStorage.getItem(ENGINE_KEY) === 'system') this.engine = 'system';
-      const saved = JSON.parse(localStorage.getItem(LANGUAGES_KEY) ?? '{}');
+      if (appStorage.getItem(ENGINE_KEY) === 'system') this.engine = 'system';
+      const saved = JSON.parse(appStorage.getItem(LANGUAGES_KEY) ?? '{}');
       if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
         this.languagesByVault = Object.fromEntries(
           Object.entries(saved).filter((entry): entry is [string, string[]] => {
@@ -93,7 +94,7 @@ class SpellingStore {
 
   private persist(key: string, value: string) {
     try {
-      localStorage.setItem(key, value);
+      appStorage.setItem(key, value);
     } catch {
       // The setting lasts for this session only.
     }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { appStorage } from './appStorage';
   import { shortcutLabel } from './platform';
   import Button from './ui/Button.svelte';
   import Icon from './ui/Icon.svelte';
@@ -29,7 +30,7 @@
 
   function loadAll(): Record<string, HomeSection[]> {
     try {
-      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '{}');
+      const saved = JSON.parse(appStorage.getItem(STORAGE_KEY) ?? '{}');
       return saved && typeof saved === 'object' ? saved : {};
     } catch {
       return {};
@@ -57,7 +58,7 @@
   function save(next: HomeSection[]) {
     allSections = { ...allSections, [root]: next };
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(allSections));
+      appStorage.setItem(STORAGE_KEY, JSON.stringify(allSections));
     } catch {
       // The layout lasts for this session only.
     }
@@ -85,7 +86,7 @@
     const { [root]: _removed, ...rest } = allSections;
     allSections = rest;
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(rest));
+      appStorage.setItem(STORAGE_KEY, JSON.stringify(rest));
     } catch {
       // ignore
     }

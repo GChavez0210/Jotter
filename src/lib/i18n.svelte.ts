@@ -7,6 +7,7 @@ import {
   type Locale,
 } from './paraglide/runtime';
 
+import { appStorage } from './appStorage';
 import { m } from './paraglide/messages';
 import { isWindows } from './platform';
 
@@ -37,7 +38,7 @@ function systemLanguages(): readonly string[] {
 
 function loadPreference(): LanguagePreference {
   try {
-    const saved = localStorage.getItem(STORAGE_KEY);
+    const saved = appStorage.getItem(STORAGE_KEY);
     if (saved === 'system' || (saved && isLocale(saved))) return saved;
   } catch {
     // Storage can be unavailable; fall back to the OS language.
@@ -54,7 +55,7 @@ class I18nStore {
   setPreference(next: LanguagePreference) {
     this.preference = next;
     try {
-      localStorage.setItem(STORAGE_KEY, next);
+      appStorage.setItem(STORAGE_KEY, next);
     } catch {
       // ignore storage errors
     }

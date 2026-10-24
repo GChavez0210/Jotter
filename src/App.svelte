@@ -2,14 +2,15 @@
   import { shortcutLabel } from './lib/platform';
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import type { UnlistenFn } from '@tauri-apps/api/event';
-  import AiPanel from './lib/AiPanel.svelte';
+  import { appStorage } from './lib/appStorage';
+  import { saveBeforeLeaving } from './lib/saveBeforeLeaving';
+  import LazyLoadError from './lib/LazyLoadError.svelte';
+  import Dialog from './lib/ui/Dialog.svelte';
+  import { configureTaskReminders } from './lib/ipc';
   import RightPanel from './lib/RightPanel.svelte';
   import ClipboardInspector from './lib/ClipboardInspector.svelte';
-  import CommandPalette from './lib/CommandPalette.svelte';
   import Editor from './lib/Editor.svelte';
   import FirstRunScreen from './lib/FirstRunScreen.svelte';
-  import QuickSwitcher from './lib/QuickSwitcher.svelte';
-  import SettingsModal from './lib/SettingsModal.svelte';
   import NoteHeader from './lib/NoteHeader.svelte';
   import Sidebar from './lib/Sidebar.svelte';
   import StatusBar from './lib/StatusBar.svelte';
@@ -355,6 +356,13 @@
   });
 
   $effect(() => {
+    // Reminders run in the backend so they still fire while the window sits in the tray.
+    void configureTaskReminders(settingsStore.taskReminders).catch(() => {
+      // The backend is missing in a browser preview.
+    });
+  });
+
+  $effect(() => {
     void settingsStore.trayEnabled;
     void settingsStore.closeAction;
     void systemStore.syncWindowBehavior();
@@ -388,7 +396,7 @@
       closing = true;
       try {
         await tick();
-        if (await tabsStore.flushAllAutosaves()) await quitApp(quit);
+        if (await saveBeforeLeaving(() => tabsStore.flushAllAutosaves(), () => appStorage.flush())) await quitApp(quit);
         else await keepAppOpen();
       } catch (err) {
         clipboardStore.setStatus(m.status_save_before_close_failed({ error: String(err) }));
@@ -406,7 +414,7 @@
 
     void vaultStore.refreshRecentVaults().then(() => {
       try {
-        const lastVault = localStorage.getItem('jotter.lastVaultPath');
+        const lastVault = appStorage.getItem('jotter.lastVaultPath');
         if (lastVault) {
           void vaultStore.openVaultByPath(lastVault);
         }
@@ -626,54 +634,78 @@
   </div>
 
   {#if settingsStore.showQuickSwitcher}
-    <QuickSwitcher
-      onClose={() => {
-        settingsStore.showQuickSwitcher = false;
-        editorRef?.focusEditor();
-      }}
-    />
+    {#await import('./lib/QuickSwitcher.svelte') then { default: QuickSwitcher }}
+      <QuickSwitcher
+        onClose={() => {
+          settingsStore.showQuickSwitcher = false;
+          editorRef?.focusEditor();
+        }}
+      />
+    {:catch}
+      <Dialog label={m.lazy_load_failed()} onClose={() => { settingsStore.showQuickSwitcher = false; editorRef?.focusEditor(); }}>
+        <LazyLoadError onClose={() => { settingsStore.showQuickSwitcher = false; editorRef?.focusEditor(); }} />
+      </Dialog>
+    {/await}
   {/if}
 
   {#if settingsStore.showCommandPalette}
-    <CommandPalette
-      onFormat={handleFormatCommand}
-      onCopyTrigger={() => editorRef?.triggerCopyFromToolbar()}
-      onPastePlainTrigger={() => editorRef?.triggerPastePlainFromToolbar()}
-      onRefreshInspector={() => void refreshInspectorPreview()}
-      onExportHtml={() => void handleExportHtml()}
-      onExportPdf={() => void handleExportPdf()}
-      onClose={() => {
-        settingsStore.showCommandPalette = false;
-        editorRef?.focusEditor();
-      }}
-    />
+    {#await import('./lib/CommandPalette.svelte') then { default: CommandPalette }}
+      <CommandPalette
+        onFormat={handleFormatCommand}
+        onCopyTrigger={() => editorRef?.triggerCopyFromToolbar()}
+        onPastePlainTrigger={() => editorRef?.triggerPastePlainFromToolbar()}
+        onRefreshInspector={() => void refreshInspectorPreview()}
+        onExportHtml={() => void handleExportHtml()}
+        onExportPdf={() => void handleExportPdf()}
+        onClose={() => {
+          settingsStore.showCommandPalette = false;
+          editorRef?.focusEditor();
+        }}
+      />
+    {:catch}
+      <Dialog label={m.lazy_load_failed()} onClose={() => { settingsStore.showCommandPalette = false; editorRef?.focusEditor(); }}>
+        <LazyLoadError onClose={() => { settingsStore.showCommandPalette = false; editorRef?.focusEditor(); }} />
+      </Dialog>
+    {/await}
   {/if}
 
   {#if aiStore.showPanel && editorRef}
-    <AiPanel
-      hasSelection={editorRef.hasSelection()}
-      captureTarget={(scope) => editorRef?.captureAiTarget(scope) ?? null}
-      applyResult={(target, text, placement) =>
-        editorRef?.applyAiResult(target, text, placement) ?? false}
-      onOpenSettings={() => {
-        aiStore.closePanel();
-        settingsStore.openSettings('ai');
-      }}
-      onClose={() => {
-        aiStore.closePanel();
-        editorRef?.focusEditor();
-      }}
-    />
+    {#await import('./lib/AiPanel.svelte') then { default: AiPanel }}
+      <AiPanel
+        hasSelection={editorRef.hasSelection()}
+        captureTarget={(scope) => editorRef?.captureAiTarget(scope) ?? null}
+        applyResult={(target, text, placement) =>
+          editorRef?.applyAiResult(target, text, placement) ?? false}
+        onOpenSettings={() => {
+          aiStore.closePanel();
+          settingsStore.openSettings('ai');
+        }}
+        onClose={() => {
+          aiStore.closePanel();
+          editorRef?.focusEditor();
+        }}
+      />
+    {:catch}
+      <Dialog label={m.lazy_load_failed()} onClose={() => { aiStore.closePanel(); editorRef?.focusEditor(); }}>
+        <LazyLoadError onClose={() => { aiStore.closePanel(); editorRef?.focusEditor(); }} />
+      </Dialog>
+    {/await}
   {/if}
 
   {#if settingsStore.showSettings}
-    <SettingsModal
-      onRefreshInspector={() => void refreshInspectorPreview()}
-      onClose={() => {
-        settingsStore.showSettings = false;
-        editorRef?.focusEditor();
-      }}
-    />
+    {#await import('./lib/SettingsModal.svelte') then { default: SettingsModal }}
+      <SettingsModal
+        onRefreshInspector={() => void refreshInspectorPreview()}
+        onClose={() => {
+          settingsStore.showSettings = false;
+          editorRef?.focusEditor();
+        }}
+      />
+    {:catch}
+      <Dialog label={m.lazy_load_failed()} onClose={() => { settingsStore.showSettings = false; editorRef?.focusEditor(); }}>
+        <LazyLoadError onClose={() => { settingsStore.showSettings = false; editorRef?.focusEditor(); }} />
+      </Dialog>
+    {/await}
   {/if}
 </div>
 

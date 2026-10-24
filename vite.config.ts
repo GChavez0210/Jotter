@@ -19,6 +19,17 @@ export default defineConfig({
     target: 'esnext',
     minify: 'esbuild',
     cssMinify: true,
+    rollupOptions: {
+      output: {
+        // Keep the editor engine and the message catalog out of the app chunk. Each changes
+        // rarely, so a rebuilt app chunk leaves these cached, and no single file passes 500 kB.
+        manualChunks(id) {
+          if (/node_modules[\/]@codemirror[\/](view|state|language|commands|search|autocomplete)[\/]|node_modules[\/]@lezer[\/](common|highlight|lr)[\/]/.test(id)) return 'editor-engine';
+          if (/node_modules[\/]@(codemirror|lezer)[\/]/.test(id)) return 'editor-languages';
+          if (/src[\/]lib[\/]paraglide[\/]/.test(id)) return 'messages';
+        },
+      },
+    },
   },
   server: {
     port: 1420,

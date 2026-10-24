@@ -56,6 +56,7 @@ import { aiControl } from './ipc.mock';
 import { history, undo, undoDepth } from '@codemirror/commands';
 import { EditorView, ViewPlugin } from '@codemirror/view';
 import { refreshEditorLocale } from '../src/lib/editorLocale';
+import { searchPhrases } from '../src/lib/editorSearch';
 import { createLivePreviewExtension } from '../src/lib/livePreview';
 import { createCalcExtension } from '../src/lib/calcPreview';
 import { cachedDiagram, renderDiagram } from '../src/lib/richBlocks';
@@ -1409,5 +1410,19 @@ test('diagram error caches keep the language they were rendered in', async () =>
     assert.equal(cachedDiagram(source), spanish);
     i18n.setPreference('en');
     assert.equal(cachedDiagram(source), english);
+  } finally { i18n.setPreference('system'); }
+});
+
+test('find and replace labels translate and keep the $ placeholders', () => {
+  try {
+    const phrases = searchPhrases();
+    assert.equal(phrases.Find, 'Find');
+    assert.equal(phrases['replaced $ matches'], 'Replaced $ matches');
+    i18n.setPreference('es');
+    const spanish = searchPhrases();
+    assert.deepEqual(Object.keys(spanish), Object.keys(phrases));
+    assert.equal(spanish.Find, 'Buscar');
+    assert.ok(spanish['replaced $ matches'].includes('$'));
+    assert.ok(spanish['replaced match on line $'].includes('$'));
   } finally { i18n.setPreference('system'); }
 });

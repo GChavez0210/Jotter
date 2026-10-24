@@ -308,3 +308,27 @@ export async function aiRun(request: AiRequest): Promise<AiResult> {
 export async function aiCancel(operationId: string): Promise<boolean> {
   return invoke<boolean>('ai_cancel', { operationId });
 }
+
+/** The saved app settings as JSON text, or `null` before the first save. */
+export async function loadAppSettings(): Promise<string | null> {
+  return invoke<string | null>('load_app_settings');
+}
+
+export async function saveAppSettings(json: string): Promise<void> {
+  return invoke<void>('save_app_settings', { json });
+}
+
+/** Asks where to save the export. Resolves to the saved path, or `null` when the user cancels. */
+export async function exportSettingsFile(json: string, labels?: DialogLabels): Promise<string | null> {
+  return invoke<string | null>('export_settings_file', { json, labels: labels ?? null });
+}
+
+/** Asks for a settings file. Resolves to its text, or `null` when the user cancels. */
+export async function importSettingsFile(labels?: DialogLabels): Promise<string | null> {
+  return invoke<string | null>('import_settings_file', { labels: labels ?? null });
+}
+
+/** Turns task reminders on or off in the background loop. */
+export async function configureTaskReminders(enabled: boolean): Promise<void> {
+  return invoke<void>('configure_task_reminders', { enabled });
+}

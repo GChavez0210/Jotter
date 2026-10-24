@@ -1,3 +1,4 @@
+import { appStorage } from '../appStorage';
 import { defaultSummonShortcut } from '../platform';
 import { m } from '../i18n.svelte';
 import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
@@ -9,6 +10,7 @@ import type {
   EditingMode,
   FocusMode,
   LeftSidebarView,
+  RightPanelTab,
   ThemePreference,
 } from '../types';
 
@@ -50,6 +52,7 @@ export class SettingsStore {
   leftSidebarView = $state<LeftSidebarView>('files');
   selectedTag = $state<string | null>(null);
   showRightPanel = $state(true);
+  rightPanelTab = $state<RightPanelTab>('note');
 
   // Milestone 5: Editor Font Size, Accent Color, Vault Hidden Files, Image Paste Format
   editorFontSize = $state<number>(16);
@@ -70,6 +73,8 @@ export class SettingsStore {
   summonShortcut = $state(defaultSummonShortcut);
   /** Keep a tray icon while Jotter runs. */
   trayEnabled = $state(false);
+  /** Notify when a task with a due date comes due. */
+  taskReminders = $state(true);
   /** Hiding to the tray needs the tray icon, so the two settings move together. */
   closeAction = $state<CloseAction>('quit');
 
@@ -122,7 +127,7 @@ export class SettingsStore {
   setCopyMode(next: CopyMode, onAfterChange?: () => void) {
     this.copyMode = next;
     try {
-      localStorage.setItem('jotter.copyMode', next);
+      appStorage.setItem('jotter.copyMode', next);
     } catch {
       // ignore storage errors
     }
@@ -132,7 +137,7 @@ export class SettingsStore {
   setEditingMode(next: EditingMode) {
     this.editingMode = next;
     try {
-      localStorage.setItem('jotter.editingMode', next);
+      appStorage.setItem('jotter.editingMode', next);
     } catch {
       // ignore
     }
@@ -145,7 +150,7 @@ export class SettingsStore {
   setTypewriterScrolling(enabled: boolean) {
     this.typewriterScrolling = enabled;
     try {
-      localStorage.setItem('jotter.typewriterScrolling', String(enabled));
+      appStorage.setItem('jotter.typewriterScrolling', String(enabled));
     } catch {
       // ignore
     }
@@ -154,7 +159,7 @@ export class SettingsStore {
   setDimInactiveParagraphs(enabled: boolean) {
     this.dimInactiveParagraphs = enabled;
     try {
-      localStorage.setItem('jotter.dimInactiveParagraphs', String(enabled));
+      appStorage.setItem('jotter.dimInactiveParagraphs', String(enabled));
     } catch {
       // ignore
     }
@@ -166,7 +171,7 @@ export class SettingsStore {
     this.editorFontSize = next;
     document.documentElement.style.setProperty('--editor-font-size', `${next}px`);
     try {
-      localStorage.setItem('jotter.editorFontSize', String(next));
+      appStorage.setItem('jotter.editorFontSize', String(next));
     } catch {
       // ignore
     }
@@ -181,9 +186,9 @@ export class SettingsStore {
     }
     this.applyAccentToDocument();
     try {
-      localStorage.setItem('jotter.accentMode', this.accentColorMode);
-      localStorage.setItem('jotter.accentPreset', this.accentPreset);
-      localStorage.setItem('jotter.customAccentColor', this.customAccentColor);
+      appStorage.setItem('jotter.accentMode', this.accentColorMode);
+      appStorage.setItem('jotter.accentPreset', this.accentPreset);
+      appStorage.setItem('jotter.customAccentColor', this.customAccentColor);
     } catch {
       // ignore
     }
@@ -209,7 +214,7 @@ export class SettingsStore {
   setShowHiddenFiles(show: boolean) {
     this.showHiddenFiles = show;
     try {
-      localStorage.setItem('jotter.showHiddenFiles', String(show));
+      appStorage.setItem('jotter.showHiddenFiles', String(show));
     } catch {
       // ignore
     }
@@ -218,7 +223,7 @@ export class SettingsStore {
   setImageLinkFormat(fmt: 'wikilink' | 'markdown') {
     this.imageLinkFormat = fmt;
     try {
-      localStorage.setItem('jotter.imageLinkFormat', fmt);
+      appStorage.setItem('jotter.imageLinkFormat', fmt);
     } catch {
       // ignore
     }
@@ -229,7 +234,7 @@ export class SettingsStore {
     this.writingFont = font;
     this.applyWritingFontToDocument();
     try {
-      localStorage.setItem('jotter.writingFont', font);
+      appStorage.setItem('jotter.writingFont', font);
     } catch {
       // ignore
     }
@@ -291,6 +296,11 @@ export class SettingsStore {
     this.persist('jotter.summonShortcut', this.summonShortcut);
   }
 
+  setTaskReminders(enabled: boolean) {
+    this.taskReminders = enabled;
+    this.persist('jotter.taskReminders', String(enabled));
+  }
+
   /** Turning the tray off sends the close button back to quitting. */
   setTrayEnabled(enabled: boolean) {
     this.trayEnabled = enabled;
@@ -307,7 +317,7 @@ export class SettingsStore {
 
   private persist(key: string, value: string) {
     try {
-      localStorage.setItem(key, value);
+      appStorage.setItem(key, value);
     } catch {
       // ignore storage errors
     }
@@ -321,7 +331,7 @@ export class SettingsStore {
         showRightPanel: this.showRightPanel,
       };
       try {
-        localStorage.setItem(
+        appStorage.setItem(
           'jotter.preFocusLayout',
           JSON.stringify(this.preFocusLayout)
         );
@@ -334,15 +344,15 @@ export class SettingsStore {
       this.showRightPanel = this.preFocusLayout.showRightPanel ?? true;
       this.preFocusLayout = null;
       try {
-        localStorage.setItem(
+        appStorage.setItem(
           'jotter.sidebarCollapsed',
           String(this.sidebarCollapsed)
         );
-        localStorage.setItem(
+        appStorage.setItem(
           'jotter.showRightPanel',
           String(this.showRightPanel)
         );
-        localStorage.removeItem('jotter.preFocusLayout');
+        appStorage.removeItem('jotter.preFocusLayout');
       } catch {
         // ignore
       }
@@ -352,7 +362,7 @@ export class SettingsStore {
     this.topHoverReveal = false;
     this.showSettings = false;
     try {
-      localStorage.setItem('jotter.focusMode', next);
+      appStorage.setItem('jotter.focusMode', next);
     } catch {
       // ignore
     }
@@ -386,7 +396,7 @@ export class SettingsStore {
   setThemePreference(next: ThemePreference) {
     this.themePref = next;
     try {
-      localStorage.setItem('jotter.themePref', next);
+      appStorage.setItem('jotter.themePref', next);
     } catch {
       // ignore
     }
@@ -396,7 +406,7 @@ export class SettingsStore {
   setSidebarWidth(width: number) {
     this.sidebarWidth = width;
     try {
-      localStorage.setItem('jotter.sidebarWidth', String(width));
+      appStorage.setItem('jotter.sidebarWidth', String(width));
     } catch {
       // ignore
     }
@@ -445,10 +455,21 @@ export class SettingsStore {
     // Picking a view asks for the sidebar, so a narrow window widens to show it.
     if (!this.sidebarVisible) this.toggleSidebar();
     try {
-      localStorage.setItem('jotter.leftSidebarView', view);
+      appStorage.setItem('jotter.leftSidebarView', view);
     } catch {
       // ignore
     }
+  }
+
+  /** Opens the right panel on a tab, widening a narrow window the way the sidebar does. */
+  showRightPanelTab(tab: RightPanelTab) {
+    this.rightPanelTab = tab;
+    this.persist('jotter.rightPanelTab', tab);
+    if (this.focusMode !== 'off') this.exitFocusMode();
+    if (this.rightPanelVisible) return;
+    this.showRightPanel = true;
+    this.persist('jotter.showRightPanel', 'true');
+    if (this.rightPanelAutoHidden) void this.widenWindowForRightPanel();
   }
 
   /** Like the sidebar, asking for the right panel in a narrow window widens the window. */
@@ -477,7 +498,7 @@ export class SettingsStore {
 
   initFromStorageAndSystem(): () => void {
     try {
-      const savedMode = localStorage.getItem('jotter.copyMode') as CopyMode | null;
+      const savedMode = appStorage.getItem('jotter.copyMode') as CopyMode | null;
       if (
         savedMode === 'markdown_source' ||
         savedMode === 'plain' ||
@@ -485,7 +506,7 @@ export class SettingsStore {
       ) {
         this.copyMode = savedMode;
       }
-      const savedTheme = localStorage.getItem(
+      const savedTheme = appStorage.getItem(
         'jotter.themePref'
       ) as ThemePreference | null;
       if (
@@ -496,45 +517,51 @@ export class SettingsStore {
       ) {
         this.themePref = savedTheme;
       }
-      const savedWidth = Number(localStorage.getItem('jotter.sidebarWidth'));
+      const savedWidth = Number(appStorage.getItem('jotter.sidebarWidth'));
       if (savedWidth >= 180 && savedWidth <= 480) {
         this.sidebarWidth = savedWidth;
       }
-      const savedCollapsed = localStorage.getItem('jotter.sidebarCollapsed');
+      const savedCollapsed = appStorage.getItem('jotter.sidebarCollapsed');
       if (savedCollapsed === 'true' || savedCollapsed === 'false') {
         this.sidebarCollapsed = savedCollapsed === 'true';
       }
-      const savedLeftView = localStorage.getItem(
+      const savedLeftView = appStorage.getItem(
         'jotter.leftSidebarView'
       ) as LeftSidebarView | null;
       if (
         savedLeftView === 'files' ||
         savedLeftView === 'search' ||
-        savedLeftView === 'tags' ||
-        savedLeftView === 'calendar' ||
-        savedLeftView === 'trash'
+        savedLeftView === 'tags'
       ) {
         this.leftSidebarView = savedLeftView;
       }
-      const savedRightPanel = localStorage.getItem('jotter.showRightPanel');
+      // Calendar and Recently deleted moved from the sidebar to the right panel.
+      const savedRightTab = appStorage.getItem('jotter.rightPanelTab');
+      const legacyTab = savedLeftView as string | null;
+      if (savedRightTab === 'note' || savedRightTab === 'calendar' || savedRightTab === 'trash') {
+        this.rightPanelTab = savedRightTab;
+      } else if (legacyTab === 'calendar' || legacyTab === 'trash') {
+        this.rightPanelTab = legacyTab;
+      }
+      const savedRightPanel = appStorage.getItem('jotter.showRightPanel');
       if (savedRightPanel === 'true' || savedRightPanel === 'false') {
         this.showRightPanel = savedRightPanel === 'true';
       }
-      const savedEditingMode = localStorage.getItem(
+      const savedEditingMode = appStorage.getItem(
         'jotter.editingMode'
       ) as EditingMode | null;
       if (savedEditingMode === 'live' || savedEditingMode === 'source') {
         this.editingMode = savedEditingMode;
       }
-      const savedTypewriter = localStorage.getItem('jotter.typewriterScrolling');
+      const savedTypewriter = appStorage.getItem('jotter.typewriterScrolling');
       if (savedTypewriter === 'true' || savedTypewriter === 'false') {
         this.typewriterScrolling = savedTypewriter === 'true';
       }
-      const savedDim = localStorage.getItem('jotter.dimInactiveParagraphs');
+      const savedDim = appStorage.getItem('jotter.dimInactiveParagraphs');
       if (savedDim === 'true' || savedDim === 'false') {
         this.dimInactiveParagraphs = savedDim === 'true';
       }
-      const savedFontSize = Number(localStorage.getItem('jotter.editorFontSize'));
+      const savedFontSize = Number(appStorage.getItem('jotter.editorFontSize'));
       if ([12, 14, 16, 20].includes(savedFontSize)) {
         this.editorFontSize = savedFontSize;
       }
@@ -542,63 +569,64 @@ export class SettingsStore {
         '--editor-font-size',
         `${this.editorFontSize}px`
       );
-      const savedAccentMode = localStorage.getItem('jotter.accentMode');
+      const savedAccentMode = appStorage.getItem('jotter.accentMode');
       if (savedAccentMode === 'preset' || savedAccentMode === 'system' || savedAccentMode === 'custom') {
         this.accentColorMode = savedAccentMode;
-      } else if (localStorage.getItem('jotter.accentColorMode') === 'custom') {
+      } else if (appStorage.getItem('jotter.accentColorMode') === 'custom') {
         // Keep a custom accent chosen before presets existed. The old 'system' default becomes Ink.
         this.accentColorMode = 'custom';
       }
-      const savedPreset = localStorage.getItem('jotter.accentPreset');
+      const savedPreset = appStorage.getItem('jotter.accentPreset');
       if (isAccentPresetId(savedPreset)) {
         this.accentPreset = savedPreset;
       }
-      const savedAccentHex = localStorage.getItem('jotter.customAccentColor');
+      const savedAccentHex = appStorage.getItem('jotter.customAccentColor');
       if (savedAccentHex && /^#[0-9a-fA-F]{6}$/.test(savedAccentHex)) {
         this.customAccentColor = savedAccentHex;
       }
       this.applyAccentToDocument();
-      const savedHidden = localStorage.getItem('jotter.showHiddenFiles');
+      const savedHidden = appStorage.getItem('jotter.showHiddenFiles');
       if (savedHidden === 'true' || savedHidden === 'false') {
         this.showHiddenFiles = savedHidden === 'true';
       }
-      const savedImgFormat = localStorage.getItem('jotter.imageLinkFormat');
+      const savedImgFormat = appStorage.getItem('jotter.imageLinkFormat');
       if (savedImgFormat === 'wikilink' || savedImgFormat === 'markdown') {
         this.imageLinkFormat = savedImgFormat;
       }
-      const savedFont = localStorage.getItem('jotter.writingFont');
+      const savedFont = appStorage.getItem('jotter.writingFont');
       if (savedFont === 'serif' || savedFont === 'sans' || savedFont === 'mono') {
         this.writingFont = savedFont;
       }
       this.applyWritingFontToDocument();
-      const savedNav = localStorage.getItem('jotter.notesNavigation');
+      const savedNav = appStorage.getItem('jotter.notesNavigation');
       if (savedNav === 'folders' || savedNav === 'tags') this.notesNavigation = savedNav;
-      const savedHome = localStorage.getItem('jotter.showHomePage');
+      const savedHome = appStorage.getItem('jotter.showHomePage');
       if (savedHome === 'true' || savedHome === 'false') this.showHomePage = savedHome === 'true';
-      this.showLineNumbers = localStorage.getItem('jotter.showLineNumbers') === 'true';
-      const savedSpell = localStorage.getItem('jotter.spellCheck');
+      this.showLineNumbers = appStorage.getItem('jotter.showLineNumbers') === 'true';
+      const savedSpell = appStorage.getItem('jotter.spellCheck');
       if (savedSpell === 'true' || savedSpell === 'false') {
         this.spellCheck = savedSpell === 'true';
       }
       try {
-        const savedSnippets = JSON.parse(localStorage.getItem('jotter.enabledSnippets') ?? '[]');
+        const savedSnippets = JSON.parse(appStorage.getItem('jotter.enabledSnippets') ?? '[]');
         if (Array.isArray(savedSnippets)) {
           this.enabledSnippets = savedSnippets.filter((n) => typeof n === 'string');
         }
       } catch {
         this.enabledSnippets = [];
       }
-      const savedDailyFolder = localStorage.getItem('jotter.dailyFolder');
+      const savedDailyFolder = appStorage.getItem('jotter.dailyFolder');
       if (savedDailyFolder !== null) this.dailyFolder = savedDailyFolder;
-      const savedDailyTemplate = localStorage.getItem('jotter.dailyTemplatePath');
+      const savedDailyTemplate = appStorage.getItem('jotter.dailyTemplatePath');
       if (savedDailyTemplate !== null) this.dailyTemplatePath = savedDailyTemplate;
-      this.summonEnabled = localStorage.getItem('jotter.summonEnabled') === 'true';
-      const savedShortcut = localStorage.getItem('jotter.summonShortcut');
+      this.taskReminders = appStorage.getItem('jotter.taskReminders') !== 'false';
+      this.summonEnabled = appStorage.getItem('jotter.summonEnabled') === 'true';
+      const savedShortcut = appStorage.getItem('jotter.summonShortcut');
       if (savedShortcut) this.summonShortcut = savedShortcut;
       // The summon hotkey used to force tray residency and hide-on-close. Keep that behavior
       // for anyone who had it on before the two settings became independent.
-      const savedTray = localStorage.getItem('jotter.trayEnabled');
-      const savedCloseAction = localStorage.getItem('jotter.closeAction');
+      const savedTray = appStorage.getItem('jotter.trayEnabled');
+      const savedCloseAction = appStorage.getItem('jotter.closeAction');
       if (savedTray === null && savedCloseAction === null) {
         this.trayEnabled = this.summonEnabled;
         this.closeAction = this.summonEnabled ? 'tray' : 'quit';
@@ -609,7 +637,7 @@ export class SettingsStore {
       // Record defaults too, so enabling summon later never looks like a legacy install.
       this.persist('jotter.trayEnabled', String(this.trayEnabled));
       this.persist('jotter.closeAction', this.closeAction);
-      const savedPreFocus = localStorage.getItem('jotter.preFocusLayout');
+      const savedPreFocus = appStorage.getItem('jotter.preFocusLayout');
       if (savedPreFocus) {
         try {
           this.preFocusLayout = JSON.parse(savedPreFocus) as SavedPreFocusLayout;
@@ -617,7 +645,7 @@ export class SettingsStore {
           this.preFocusLayout = null;
         }
       }
-      const savedFocusMode = localStorage.getItem(
+      const savedFocusMode = appStorage.getItem(
         'jotter.focusMode'
       ) as FocusMode | null;
       if (

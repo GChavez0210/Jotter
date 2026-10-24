@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod app_settings;
 pub mod clipboard;
 pub mod fs_atomic;
 pub mod index;
@@ -7,6 +8,7 @@ pub mod media_export;
 pub mod pins;
 pub mod platform;
 pub mod recycle;
+pub mod reminders;
 pub mod search;
 pub mod snippets;
 pub mod spell;
@@ -26,6 +28,7 @@ use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use rusqlite::Connection;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_notification::NotificationExt;
 
 use crate::clipboard::{
     build_clipboard_payload, read_plain_from_system_clipboard, write_to_system_clipboard,
@@ -770,6 +773,127 @@ fn get_note_cards(state: State<'_, AppState>) -> Result<Vec<NoteCard>, String> {
     crate::index::query_note_cards(&conn)
 }
 
+/// The app data folder, beside the recent vaults list.
+fn app_data_dir(state: &State<'_, AppState>) -> PathBuf {
+    state
+        .recent_vaults_file
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(std::env::temp_dir)
+}
+
+/// Returns the saved app settings as JSON, or `None` before the first save.
+#[tauri::command]
+fn load_app_settings(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    crate::app_settings::load(&crate::app_settings::settings_path(&app_data_dir(&state)))
+}
+
+#[tauri::command]
+fn save_app_settings(state: State<'_, AppState>, json: String) -> Result<(), String> {
+    crate::app_settings::save(&crate::app_settings::settings_path(&app_data_dir(&state)), &json)
+}
+
+/// Asks where to save the settings export and writes `json` there. Returns `None` on cancel.
+#[tauri::command]
+async fn export_settings_file(
+    app: AppHandle,
+    json: String,
+    labels: Option<DialogLabels>,
+) -> Result<Option<String>, crate::app_settings::SettingsFileError> {
+    let labels = labels.unwrap_or_else(|| DialogLabels::new("Export settings", "Jotter settings"));
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(path) = app.dialog().file().set_title(labels.title)
+            .set_file_name("jotter-settings.json").add_filter(labels.filter, &["json"])
+            .blocking_save_file() else { return Ok(None); };
+        let path = path.into_path().map_err(|e| crate::app_settings::SettingsFileError::new("invalid_path", Path::new(""), e))?;
+        crate::app_settings::save(&path, &json).map_err(|e| crate::app_settings::SettingsFileError::new("write", &path, e))?;
+        Ok(Some(path.to_string_lossy().into_owned()))
+    }).await.map_err(|e| crate::app_settings::SettingsFileError::new("operation", Path::new(""), e))?
+}
+
+/// Asks for a settings file and returns its text. Returns `None` on cancel.
+#[tauri::command]
+async fn import_settings_file(
+    app: AppHandle,
+    labels: Option<DialogLabels>,
+) -> Result<Option<String>, crate::app_settings::SettingsFileError> {
+    let labels = labels.unwrap_or_else(|| DialogLabels::new("Import settings", "Jotter settings"));
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(path) = app.dialog().file().set_title(labels.title)
+            .add_filter(labels.filter, &["json"]).blocking_pick_file() else { return Ok(None); };
+        let path = path.into_path().map_err(|e| crate::app_settings::SettingsFileError::new("invalid_path", Path::new(""), e))?;
+        crate::app_settings::read_import(&path).map(Some)
+    }).await.map_err(|e| crate::app_settings::SettingsFileError::new("operation", Path::new(""), e))?
+}
+
+/// Turns task reminders on or off.
+#[tauri::command]
+fn configure_task_reminders(
+    state: State<'_, crate::reminders::ReminderState>,
+    enabled: bool,
+) {
+    state.enabled.store(enabled, Ordering::SeqCst);
+}
+
+/// Checks the open vault's tasks every 30 seconds and shows a notification for each one that
+/// has come due. Runs for the life of the app, so reminders still fire while Jotter sits in
+/// the tray.
+fn spawn_reminder_loop(app: AppHandle) {
+    std::thread::spawn(move || {
+        let state = app.state::<AppState>();
+        let reminders = app.state::<crate::reminders::ReminderState>();
+        let file = crate::reminders::reminders_path(&app_data_dir(&state));
+        let mut announced = crate::reminders::load_announced(&file);
+        let mut history_dirty = file.exists();
+        crate::reminders::prune_announced(&mut announced, chrono::Utc::now());
+        loop {
+            std::thread::sleep(Duration::from_secs(30));
+            let now = chrono::Local::now();
+            history_dirty |= crate::reminders::prune_announced(&mut announced, now.with_timezone(&chrono::Utc));
+            if history_dirty {
+                match crate::reminders::save_announced(&file, &mut announced, now.with_timezone(&chrono::Utc)) {
+                    Ok(()) => history_dirty = false,
+                    Err(err) => eprintln!("Cannot save task reminders: {err}"),
+                }
+            }
+            if !reminders.enabled.load(Ordering::SeqCst) {
+                continue;
+            }
+            // Serialize with vault open/close so the database and vault identity belong together.
+            // Keep this guard through notification submission; SQLite is released after the query.
+            let Ok(_operation) = state.vault_operation.lock() else { continue };
+            let Ok(root) = state.active_vault.lock().map(|root| root.clone()) else { continue };
+            let Some(root) = root else { continue };
+            let tasks = match crate::reminders::query_tasks(&state.sqlite_conn, &root) {
+                Ok(tasks) => tasks,
+                Err(err) => { eprintln!("Cannot query task reminders: {err}"); continue; }
+            };
+            let vault_key = crate::platform::vault_key(&root);
+            let due = crate::reminders::due_reminders(Some(&vault_key), &tasks, now, &announced);
+            if due.is_empty() {
+                continue;
+            }
+            for reminder in due {
+                let shown = app.notification().builder()
+                    .title(&reminder.title)
+                    .body(&reminder.body)
+                    .show();
+                // Keep an unshown reminder for the next pass, since the system may be busy.
+                if shown.is_ok() {
+                    announced.insert(reminder.key, reminder.due);
+                    history_dirty = true;
+                }
+            }
+            if history_dirty {
+                match crate::reminders::save_announced(&file, &mut announced, now.with_timezone(&chrono::Utc)) {
+                    Ok(()) => history_dirty = false,
+                    Err(err) => eprintln!("Cannot save task reminders: {err}"),
+                }
+            }
+        }
+    });
+}
+
 /// Asks where to keep the task calendar file. Returns `None` when the user cancels.
 #[tauri::command]
 async fn pick_task_calendar_path(
@@ -1117,6 +1241,8 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        .manage(crate::reminders::ReminderState::default())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(crate::tray::BackgroundState::default())
         .manage(Arc::new(crate::spell::SpellState::default()))
@@ -1133,6 +1259,7 @@ pub fn run() {
         })
         .setup(|app| {
             crate::tray::create_tray(app)?;
+            spawn_reminder_loop(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -1174,7 +1301,12 @@ pub fn run() {
             query_due_tasks,
             get_note_cards,
             pick_task_calendar_path,
+            load_app_settings,
+            save_app_settings,
+            export_settings_file,
+            import_settings_file,
             write_task_calendar,
+            configure_task_reminders,
             list_pinned_notes,
             set_note_pinned,
             list_deleted_entries,

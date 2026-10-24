@@ -17,6 +17,7 @@ import {
   renameEntry,
 } from '../ipc';
 import type { RecentVault, VaultNode, VaultSnapshot } from '../types';
+import { appStorage } from '../appStorage';
 import { clipboardStore } from './clipboard.svelte';
 import { settingsStore } from './settings.svelte';
 import { tabsStore } from './tabs.svelte';
@@ -76,7 +77,7 @@ const DISMISSED_CONFLICTS_KEY = 'jotter.dismissedConflicts';
 
 function loadDismissedConflicts(): Record<string, string[]> {
   try {
-    const saved = JSON.parse(localStorage.getItem(DISMISSED_CONFLICTS_KEY) ?? '{}');
+    const saved = JSON.parse(appStorage.getItem(DISMISSED_CONFLICTS_KEY) ?? '{}');
     return saved && typeof saved === 'object' ? saved : {};
   } catch {
     return {};
@@ -135,7 +136,7 @@ class VaultStore {
     if (list.includes(copyPath)) return;
     this.dismissedConflicts = { ...this.dismissedConflicts, [root]: [...list, copyPath] };
     try {
-      localStorage.setItem(DISMISSED_CONFLICTS_KEY, JSON.stringify(this.dismissedConflicts));
+      appStorage.setItem(DISMISSED_CONFLICTS_KEY, JSON.stringify(this.dismissedConflicts));
     } catch {
       // The choice lasts for this session only.
     }
@@ -216,7 +217,7 @@ class VaultStore {
       tabsStore.scratchpadMode = false;
       tabsStore.resetTabs();
       try {
-        localStorage.setItem('jotter.lastVaultPath', snap.rootPath);
+        appStorage.setItem('jotter.lastVaultPath', snap.rootPath);
       } catch {
         // ignore
       }
@@ -248,7 +249,7 @@ class VaultStore {
       tabsStore.scratchpadMode = false;
       tabsStore.resetTabs();
       try {
-        localStorage.setItem('jotter.lastVaultPath', snap.rootPath);
+        appStorage.setItem('jotter.lastVaultPath', snap.rootPath);
       } catch {
         // ignore
       }
@@ -280,7 +281,7 @@ class VaultStore {
     tabsStore.scratchpadMode = false;
     tabsStore.resetTabs();
     try {
-      localStorage.removeItem('jotter.lastVaultPath');
+      appStorage.removeItem('jotter.lastVaultPath');
     } catch {
       // ignore
     }
