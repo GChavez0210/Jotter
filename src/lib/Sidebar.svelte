@@ -254,6 +254,14 @@
     return creatingParentRel ? m.sidebar_new_note_in({ folder: creatingParentRel }) : m.sidebar_new_note_in_root();
   });
   const deleteConfirmParts = $derived(splitSlots(m.sidebar_confirm_move_to_trash({ name: SLOT, trash: trashName() })));
+
+  /** Pinned notes keep their pin order; the label is the file name without its extension. */
+  let pinnedNotes = $derived(
+    vaultStore.pinnedPaths.map((relPath) => ({
+      relPath,
+      title: relPath.slice(relPath.lastIndexOf('/') + 1).replace(/\.md$/i, ''),
+    }))
+  );
 </script>
 
 <svelte:window
@@ -472,6 +480,34 @@
         </div>
       {/if}
 
+      {#if pinnedNotes.length > 0}
+        <div class="pinned" aria-label={m.sidebar_pinned()}>
+          <div class="pinned-label">{m.sidebar_pinned()}</div>
+          <ul class="pinned-list">
+            {#each pinnedNotes as pin (pin.relPath)}
+              <li>
+                <button
+                  type="button"
+                  class="pinned-item"
+                  class:active={activeRelPath === pin.relPath}
+                  title={pin.relPath}
+                  onclick={() => onSelectFile(pin.relPath)}
+                >
+                  <Icon name="push-pin" size={14} />
+                  <span class="pinned-title">{pin.title}</span>
+                </button>
+                <IconButton
+                  icon="push-pin-slash"
+                  size="sm"
+                  label={m.sidebar_unpin_named({ title: pin.title })}
+                  onclick={() => void vaultStore.togglePin(pin.relPath)}
+                />
+              </li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
+
       <div class="tree-scroll">
         {#if snapshot.tree.length === 0}
           <div class="empty-tree">
@@ -590,6 +626,22 @@
     </button>
     {#if targetNode}
       <div class="ctx-sep" role="separator"></div>
+      {#if targetNode.kind === 'file'}
+        {@const pinned = vaultStore.isPinned(targetNode.relPath)}
+        <button
+          type="button"
+          class="ctx-item"
+          role="menuitem"
+          onclick={() => {
+            const target = targetNode.relPath;
+            contextMenu = null;
+            void vaultStore.togglePin(target);
+          }}
+        >
+          <Icon name={pinned ? 'push-pin-slash' : 'push-pin'} />
+          <span>{pinned ? m.sidebar_ctx_unpin() : m.sidebar_ctx_pin()}</span>
+        </button>
+      {/if}
       <button
         type="button"
         class="ctx-item"
@@ -744,6 +796,68 @@
 
   .section-label > span {
     flex: 1;
+  }
+
+  /* Pinned notes sit above the tree and never scroll with it, so they stay one click away. */
+  .pinned {
+    flex: none;
+    max-height: 40%;
+    overflow-y: auto;
+    border-bottom: 1px solid var(--line-subtle);
+    padding-bottom: var(--space-1);
+  }
+
+  .pinned-label {
+    padding: var(--space-2) var(--space-2) var(--space-1) var(--space-4);
+    color: var(--text-muted);
+    font: 600 var(--fs-11) / 1 var(--font-ui);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .pinned-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .pinned-list li {
+    display: flex;
+    align-items: center;
+    padding-right: var(--space-2);
+  }
+
+  .pinned-list li:hover {
+    background: var(--surface-hover);
+  }
+
+  .pinned-item {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 0 var(--space-2) 0 var(--space-4);
+    height: var(--row-height);
+    border: 0;
+    background: transparent;
+    color: var(--text-primary);
+    font: var(--fs-13) / 1 var(--font-ui);
+    text-align: left;
+    cursor: default;
+  }
+
+  .pinned-item.active {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  .pinned-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .nav-switch {

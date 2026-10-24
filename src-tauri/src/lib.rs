@@ -4,6 +4,7 @@ pub mod fs_atomic;
 pub mod index;
 pub mod links;
 pub mod media_export;
+pub mod pins;
 pub mod platform;
 pub mod recycle;
 pub mod search;
@@ -59,26 +60,12 @@ pub struct AppState {
     pub vault_operation: Arc<Mutex<()>>,
 }
 
-/// Stable 64-bit FNV-1a hash used to name per-vault index databases.
-fn fnv1a_64(input: &str) -> u64 {
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in input.as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    hash
-}
-
 /// Path of the SQLite index cache for `vault_root`: one database per vault, so edit history
 /// and index rows from one vault never leak into another vault with the same relative paths.
 fn vault_index_db_path(app_data_dir: &Path, vault_root: &Path) -> PathBuf {
-    let key = vault_root.to_string_lossy().into_owned();
-    #[cfg(target_os = "windows")]
-    let key = key.to_lowercase().replace('\\', "/");
-    app_data_dir.join("indexes").join(format!(
-        "{:016x}.sqlite",
-        fnv1a_64(key.trim_end_matches('/'))
-    ))
+    app_data_dir
+        .join("indexes")
+        .join(format!("{}.sqlite", crate::platform::vault_key(vault_root)))
 }
 
 fn require_active_vault(state: &State<'_, AppState>) -> Result<PathBuf, String> {
@@ -598,6 +585,14 @@ fn rename_entry(
         state.search_index.upsert_batch(scanned_list)?;
     }
 
+    // A pinned note keeps its pin through a rename or a move, including inside a renamed folder.
+    let file = pins_file(&state, &vault_root);
+    let pins = crate::pins::load_pins(&file);
+    let moved = crate::pins::rename_pins(&pins, &res.old_rel_path, &res.new_rel_path);
+    if moved != pins {
+        crate::pins::save_pins(&file, &vault_root, &moved)?;
+    }
+
     Ok(res)
 }
 
@@ -917,6 +912,41 @@ fn spell_paths(app_handle: &AppHandle, state: &State<'_, AppState>) -> crate::sp
     }
 }
 
+/// Pins file for the open vault, beside the recent vaults list in the app data folder.
+fn pins_file(state: &State<'_, AppState>, vault_root: &Path) -> PathBuf {
+    let app_data = state
+        .recent_vaults_file
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(std::env::temp_dir);
+    crate::pins::pins_path(&app_data, vault_root)
+}
+
+#[tauri::command]
+fn list_pinned_notes(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let vault_root = require_active_vault(&state)?;
+    let stored = crate::pins::load_pins(&pins_file(&state, &vault_root));
+    Ok(crate::pins::existing_pins(&stored, &vault_root))
+}
+
+/// Pins or unpins one note and returns the whole list, so the sidebar never guesses the order.
+#[tauri::command]
+fn set_note_pinned(
+    state: State<'_, AppState>,
+    rel_path: String,
+    pinned: bool,
+) -> Result<Vec<String>, String> {
+    let vault_root = require_active_vault(&state)?;
+    let clean = crate::vault::normalize_rel_path(&rel_path);
+    if pinned && !vault_root.join(&clean).is_file() {
+        return Err(format!("Cannot pin {clean}: the note no longer exists"));
+    }
+    let file = pins_file(&state, &vault_root);
+    let next = crate::pins::set_pinned(&crate::pins::load_pins(&file), &clean, pinned);
+    crate::pins::save_pins(&file, &vault_root, &next)?;
+    Ok(crate::pins::existing_pins(&next, &vault_root))
+}
+
 #[tauri::command]
 fn list_spell_dictionaries(
     app_handle: AppHandle,
@@ -1143,6 +1173,8 @@ pub fn run() {
             get_note_cards,
             pick_task_calendar_path,
             write_task_calendar,
+            list_pinned_notes,
+            set_note_pinned,
             list_deleted_entries,
             restore_deleted_entry,
             list_css_snippets,
