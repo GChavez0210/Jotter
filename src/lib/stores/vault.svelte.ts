@@ -23,6 +23,11 @@ import { tabsStore } from './tabs.svelte';
 import { invalidateImagePreviews } from '../imagePreviewCache';
 import { noteMoveDestination } from '../noteMove';
 import { m, trashName } from '../i18n.svelte';
+import { isMac, isWindows } from '../platform';
+
+function pinPathKey(path: string): string {
+  return isMac || isWindows ? path.replace(/[A-Z]/g, (letter) => letter.toLowerCase()) : path;
+}
 
 function findFirstFileNode(nodes: VaultNode[]): VaultNode | null {
   for (const node of nodes) {
@@ -96,6 +101,15 @@ class VaultStore {
   allFiles = $derived<VaultNode[]>(
     this.vaultSnapshot ? collectAllFiles(this.vaultSnapshot.tree) : []
   );
+
+  /** Keep saved pins for restoration, but never offer missing notes as navigation targets. */
+  visiblePinnedPaths = $derived.by(() => {
+    const existing = new Map(this.allFiles.map((file) => [pinPathKey(file.relPath), file.relPath]));
+    return this.pinnedPaths.flatMap((pin) => {
+      const path = existing.get(pinPathKey(pin));
+      return path === undefined ? [] : [path];
+    });
+  });
 
   /** The cloud client syncing the vault folder, guessed from its path. */
   syncProvider = $derived(
@@ -401,7 +415,7 @@ class VaultStore {
   }
 
   isPinned(relPath: string): boolean {
-    return this.pinnedPaths.some((pin) => pin === relPath);
+    return this.pinnedPaths.some((pin) => pinPathKey(pin) === pinPathKey(relPath));
   }
 
   /** Restores a note or folder from the OS trash and opens it if it is a note. */

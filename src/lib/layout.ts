@@ -15,16 +15,16 @@ export function sidebarFitsWindow(windowWidth: number, sidebarWidth: number): bo
 
 /**
  * True while the window has room for the right panel beside the text column, counting the
- * sidebar when it is on screen. The right panel yields first, so a narrowing window keeps the
- * file tree longer than the backlinks and outline beside it.
+ * sidebar whenever the user wants it open, including while it is automatically hidden.
+ * The right panel yields first, so a narrowing window keeps the file tree longer.
  */
 export function rightPanelFitsWindow(
   windowWidth: number,
   sidebarWidth: number,
-  sidebarVisible: boolean
+  sidebarRequested: boolean
 ): boolean {
   const { rightPanelWidth, editorMinWidth } = designTokens.layout;
-  const taken = sidebarVisible ? Math.round(sidebarWidth) : 0;
+  const taken = sidebarRequested ? Math.round(sidebarWidth) : 0;
   return windowWidth >= taken + rightPanelWidth + editorMinWidth;
 }
 

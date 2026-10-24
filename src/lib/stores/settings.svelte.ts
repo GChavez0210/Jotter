@@ -33,7 +33,7 @@ interface SavedPreFocusLayout {
 type AccentMode = 'preset' | 'system' | 'custom';
 export type WritingFont = 'serif' | 'sans' | 'mono';
 
-class SettingsStore {
+export class SettingsStore {
   copyMode = $state<CopyMode>('markdown_source');
   themePref = $state<ThemePreference>('system');
   systemIsDark = $state(false);
@@ -110,7 +110,7 @@ class SettingsStore {
 
   /** The right panel yields its width before the sidebar does. */
   rightPanelAutoHidden = $derived(
-    !rightPanelFitsWindow(this.windowWidth, this.sidebarWidth, this.sidebarVisible)
+    !rightPanelFitsWindow(this.windowWidth, this.sidebarWidth, !this.sidebarCollapsed)
   );
 
   /** True while the right panel belongs on screen, whoever hid it. */
@@ -462,7 +462,7 @@ class SettingsStore {
   private async widenWindowForRightPanel() {
     const { rightPanelWidth, editorMinWidth } = designTokens.layout;
     const target =
-      (this.sidebarVisible ? Math.round(this.sidebarWidth) : 0) + rightPanelWidth + editorMinWidth;
+      (!this.sidebarCollapsed ? Math.round(this.sidebarWidth) : 0) + rightPanelWidth + editorMinWidth;
     await this.widenWindowTo(target);
   }
 
@@ -604,8 +604,11 @@ class SettingsStore {
         this.closeAction = this.summonEnabled ? 'tray' : 'quit';
       } else {
         this.trayEnabled = savedTray === 'true';
-        if (savedCloseAction === 'tray' && this.trayEnabled) this.closeAction = 'tray';
+        this.closeAction = savedCloseAction === 'tray' && this.trayEnabled ? 'tray' : 'quit';
       }
+      // Record defaults too, so enabling summon later never looks like a legacy install.
+      this.persist('jotter.trayEnabled', String(this.trayEnabled));
+      this.persist('jotter.closeAction', this.closeAction);
       const savedPreFocus = localStorage.getItem('jotter.preFocusLayout');
       if (savedPreFocus) {
         try {

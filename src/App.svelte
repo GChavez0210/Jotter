@@ -63,12 +63,12 @@
       editorRef
     ) {
       requestAnimationFrame(() => {
+        if (!tabsStore.consumeScrollTarget(target)) return;
         if (target.heading) {
           editorRef?.scrollToHeading(target.heading);
         } else if (target.lineNumber) {
           editorRef?.scrollToLine(target.lineNumber);
         }
-        tabsStore.clearPendingScrollTarget();
       });
     }
   });

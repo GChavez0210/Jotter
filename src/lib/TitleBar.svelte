@@ -170,7 +170,7 @@
     {#if vaultStore.vaultSnapshot && settingsStore.focusMode === 'off'}
       <IconButton
         icon="sidebar"
-        label={m.titlebar_backlinks_panel()}
+        label={m.right_panel()}
         pressed={settingsStore.showRightPanel}
         onclick={() => settingsStore.toggleRightPanel()}
       />

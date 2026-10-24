@@ -1,7 +1,7 @@
 import { systemStore } from '../src/lib/stores/system.svelte';
 import { settingsStore } from '../src/lib/stores/settings.svelte';
 import { systemControl } from './ipc.mock';
-import { isMac, isMacPlatform, shortcutLabel } from '../src/lib/platform';
+import { isMac, isWindows, isMacPlatform, shortcutLabel } from '../src/lib/platform';
 import { designTokens } from '../src/lib/designTokens';
 import { maxSidebarWidth, rightPanelFitsWindow, sidebarFitsWindow, titleBarIsCompact, widthForSidebar } from '../src/lib/layout';
 import { validateEntryName } from '../src/lib/validation';
@@ -770,6 +770,58 @@ test('the outline highlights the heading the cursor sits in', () => {
   assert.equal(activeHeadingIndex([], 5), -1);
 });
 
+test('outline fences follow Markdown marker length, trailing text, and container rules', () => {
+  for (const note of [
+    '~~~~\n~~~\n# hidden\n~~~~\n# shown',
+    '~~~\n~~~ trailing text\n# hidden\n~~~\n# shown',
+    '````\n```\n# hidden\n````\n# shown',
+    '> ~~~\n> # hidden\n> ~~~\n# shown',
+    '    ~~~\n    # hidden\n    ~~~\n# shown',
+  ]) assert.deepEqual(parseOutline(note).map((heading) => heading.text), ['shown']);
+});
+
+test('outline distinguishes thematic breaks from YAML and preserves CRLF line numbers', () => {
+  assert.deepEqual(parseOutline('---\n# Visible\n---\n# End').map((heading) => heading.text), ['Visible', 'End']);
+  assert.deepEqual(parseOutline('---\r\ntitle: Note\r\n# YAML comment\r\n...\r\n## Shown ###\r\n'), [
+    { level: 2, text: 'Shown', line: 5 },
+  ]);
+});
+
+test('outline jumps cancel on a tab switch and do not consume a newer request', () => {
+  tabsStore.resetTabs();
+  tabsStore.activeTabPath = 'A.md';
+  tabsStore.requestScrollToLine(10);
+  const old = tabsStore.pendingScrollTarget!;
+  tabsStore.activeTabPath = 'B.md';
+  tabsStore.activeTabPath = 'A.md';
+  assert.equal(tabsStore.consumeScrollTarget(old), false);
+  assert.equal(tabsStore.pendingScrollTarget, null);
+  tabsStore.activeTabPath = 'B.md';
+  tabsStore.requestScrollToLine(10);
+  const first = tabsStore.pendingScrollTarget!;
+  tabsStore.requestScrollToLine(10);
+  const second = tabsStore.pendingScrollTarget!;
+  assert.notEqual(first.seq, second.seq);
+  assert.equal(tabsStore.consumeScrollTarget(first), false);
+  assert.equal(tabsStore.pendingScrollTarget?.seq, second.seq);
+  assert.equal(tabsStore.consumeScrollTarget(second), true);
+});
+
+test('external tree updates hide missing pins and restore them without losing saved order', () => {
+  const file = (relPath: string): VaultNode => ({ kind: 'file', name: relPath, relPath, modifiedMs: 0, createdMs: 0, children: [] });
+  vaultStore.vaultSnapshot = { rootPath: 'B', name: 'B', tree: [file('Keep.md'), file('Gone.md')], noteCount: 2 };
+  vaultStore.pinnedPaths = ['Gone.md', 'Keep.md'];
+  assert.deepEqual(vaultStore.visiblePinnedPaths, ['Gone.md', 'Keep.md']);
+  vaultStore.vaultSnapshot = { ...vaultStore.vaultSnapshot, tree: [file('Keep.md')], noteCount: 1 };
+  assert.deepEqual(vaultStore.visiblePinnedPaths, ['Keep.md']);
+  assert.deepEqual(vaultStore.pinnedPaths, ['Gone.md', 'Keep.md']);
+  vaultStore.vaultSnapshot = { ...vaultStore.vaultSnapshot, tree: [file('Keep.md'), file('Gone.md')], noteCount: 2 };
+  assert.deepEqual(vaultStore.visiblePinnedPaths, ['Gone.md', 'Keep.md']);
+  vaultStore.vaultSnapshot = { ...vaultStore.vaultSnapshot, tree: [file('keep.md'), file('Gone.md')], noteCount: 2 };
+  assert.deepEqual(vaultStore.visiblePinnedPaths, isMac || isWindows ? ['Gone.md', 'keep.md'] : ['Gone.md']);
+  assert.equal(vaultStore.isPinned('keep.md'), isMac || isWindows);
+});
+
 test('outline indents are relative to the shallowest heading in the note', () => {
   assert.deepEqual(outlineDepths(parseOutline('## A\n### B\n## C')), [0, 1, 0]);
   assert.deepEqual(outlineDepths(parseOutline('# A\n## B')), [0, 1]);
@@ -832,13 +884,13 @@ test('the right panel yields its width before the sidebar does', () => {
   assert.equal(rightPanelFitsWindow(bothFit, sidebarDefaultWidth, true), true);
   assert.equal(rightPanelFitsWindow(bothFit - 1, sidebarDefaultWidth, true), false);
 
-  // Once the sidebar is gone, the panel needs only its own width beside the text.
+  // A user-collapsed sidebar lets the panel use its space.
   assert.equal(rightPanelFitsWindow(rightPanelWidth + editorMinWidth, sidebarDefaultWidth, false), true);
 
   // At every width, the panel goes no later than the sidebar does.
   for (const width of [480, 560, 608, 700, 856, 1120]) {
     const sidebarFits = sidebarFitsWindow(width, sidebarDefaultWidth);
-    const panelFits = rightPanelFitsWindow(width, sidebarDefaultWidth, sidebarFits);
+    const panelFits = rightPanelFitsWindow(width, sidebarDefaultWidth, true);
     if (panelFits) assert.ok(sidebarFits, `panel outlived the sidebar at ${width}`);
   }
 });
@@ -868,6 +920,8 @@ test('tray and close-button settings reach the backend once per change', async (
   await systemStore.syncWindowBehavior();
   assert.deepEqual(calls, ['true:false', 'true:true']);
   assert.equal(systemStore.trayError, 'Cannot change the tray icon');
+  assert.equal(settingsStore.trayEnabled, true);
+  assert.equal(settingsStore.closeAction, 'quit');
 
   // A failed change is not recorded as applied, so the next sync retries it.
   settingsStore.trayEnabled = false;
