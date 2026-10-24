@@ -3,7 +3,7 @@
   import { onMount, onDestroy, tick, untrack } from 'svelte';
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import AiPanel from './lib/AiPanel.svelte';
-  import BacklinksPanel from './lib/BacklinksPanel.svelte';
+  import RightPanel from './lib/RightPanel.svelte';
   import ClipboardInspector from './lib/ClipboardInspector.svelte';
   import CommandPalette from './lib/CommandPalette.svelte';
   import Editor from './lib/Editor.svelte';
@@ -613,7 +613,7 @@
         </section>
 
         {#if vaultStore.vaultSnapshot && settingsStore.focusMode === 'off'}
-          <BacklinksPanel />
+          <RightPanel />
         {/if}
       </div>
 

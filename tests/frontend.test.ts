@@ -3,7 +3,7 @@ import { settingsStore } from '../src/lib/stores/settings.svelte';
 import { systemControl } from './ipc.mock';
 import { isMac, isMacPlatform, shortcutLabel } from '../src/lib/platform';
 import { designTokens } from '../src/lib/designTokens';
-import { maxSidebarWidth, sidebarFitsWindow, titleBarIsCompact, widthForSidebar } from '../src/lib/layout';
+import { maxSidebarWidth, rightPanelFitsWindow, sidebarFitsWindow, titleBarIsCompact, widthForSidebar } from '../src/lib/layout';
 import { validateEntryName } from '../src/lib/validation';
 import { mock, test } from 'node:test';
 import { i18n, m, matchSystemLocale, SLOT, splitSlots } from '../src/lib/i18n.svelte';
@@ -15,6 +15,7 @@ import { tabsStore } from '../src/lib/stores/tabs.svelte';
 import { vaultStore, fillDailyTemplate } from '../src/lib/stores/vault.svelte';
 import { control } from './ipc.mock';
 import { pinControl } from './ipc.mock';
+import { activeHeadingIndex, outlineDepths, parseOutline } from '../src/lib/outline';
 import { captureEditorOperation } from '../src/lib/editorOperations';
 import { findRichBlocks } from '../src/lib/livePreviewBlocks';
 import { CalcError, evaluate, evaluateCalcBlock, formatNumber, inlineCalculation } from '../src/lib/calc';
@@ -730,6 +731,51 @@ test('failed summon changes restore the last working setting and keep the error'
   assert.equal(systemStore.summonError, '');
 });
 
+test('the outline reads ATX headings and ignores frontmatter and fenced code', () => {
+  const note = [
+    '---',
+    'title: Notes',
+    'tags: [a]',
+    '---',
+    '# Top',
+    'text',
+    '## Second',
+    '```bash',
+    '# not a heading',
+    '```',
+    '    # indented code, not a heading',
+    '### Third ###',
+    '#no-space-is-a-tag',
+    '   ## Three spaces still counts',
+  ].join('\n');
+  assert.deepEqual(parseOutline(note), [
+    { level: 1, text: 'Top', line: 5 },
+    { level: 2, text: 'Second', line: 7 },
+    { level: 3, text: 'Third', line: 12 },
+    { level: 2, text: 'Three spaces still counts', line: 14 },
+  ]);
+  // A tilde fence does not close a backtick fence.
+  assert.deepEqual(parseOutline('```\n~~~\n# hidden\n```\n# shown'), [
+    { level: 1, text: 'shown', line: 5 },
+  ]);
+});
+
+test('the outline highlights the heading the cursor sits in', () => {
+  const headings = parseOutline('intro\n# One\na\n## Two\nb');
+  assert.equal(activeHeadingIndex(headings, 1), -1);
+  assert.equal(activeHeadingIndex(headings, 2), 0);
+  assert.equal(activeHeadingIndex(headings, 3), 0);
+  assert.equal(activeHeadingIndex(headings, 4), 1);
+  assert.equal(activeHeadingIndex(headings, 99), 1);
+  assert.equal(activeHeadingIndex([], 5), -1);
+});
+
+test('outline indents are relative to the shallowest heading in the note', () => {
+  assert.deepEqual(outlineDepths(parseOutline('## A\n### B\n## C')), [0, 1, 0]);
+  assert.deepEqual(outlineDepths(parseOutline('# A\n## B')), [0, 1]);
+  assert.deepEqual(outlineDepths([]), []);
+});
+
 test('pinning a note keeps the backend order and unpinning removes it', async () => {
   pinControl.pinned = [];
   await vaultStore.openVaultByPath('B');
@@ -778,6 +824,23 @@ test('the sidebar cannot be dragged wider than the window can hold', () => {
   }
   // The floor wins in a window too narrow for any sidebar at all.
   assert.equal(maxSidebarWidth(windowMinWidth), sidebarMinWidth);
+});
+
+test('the right panel yields its width before the sidebar does', () => {
+  const { sidebarDefaultWidth, editorMinWidth, rightPanelWidth } = designTokens.layout;
+  const bothFit = sidebarDefaultWidth + rightPanelWidth + editorMinWidth;
+  assert.equal(rightPanelFitsWindow(bothFit, sidebarDefaultWidth, true), true);
+  assert.equal(rightPanelFitsWindow(bothFit - 1, sidebarDefaultWidth, true), false);
+
+  // Once the sidebar is gone, the panel needs only its own width beside the text.
+  assert.equal(rightPanelFitsWindow(rightPanelWidth + editorMinWidth, sidebarDefaultWidth, false), true);
+
+  // At every width, the panel goes no later than the sidebar does.
+  for (const width of [480, 560, 608, 700, 856, 1120]) {
+    const sidebarFits = sidebarFitsWindow(width, sidebarDefaultWidth);
+    const panelFits = rightPanelFitsWindow(width, sidebarDefaultWidth, sidebarFits);
+    if (panelFits) assert.ok(sidebarFits, `panel outlived the sidebar at ${width}`);
+  }
 });
 
 test('the title bar gives up its labels below the compact width', () => {

@@ -68,6 +68,7 @@ class TabsStore {
     chars: 0,
     selectedChars: 0,
     selectedLines: 0,
+    cursorLine: 1,
   });
 
   onNoteSaved: (() => void) | null = null;
@@ -90,6 +91,14 @@ class TabsStore {
 
   clearPendingScrollTarget() {
     this.pendingScrollTarget = null;
+  }
+
+  /** Scrolls the open note to a line, for panels that have no handle on the editor. */
+  requestScrollToLine(lineNumber: number) {
+    const relPath = this.activeTabPath;
+    if (!relPath) return;
+    // The sequence makes a repeat jump to the same line a fresh request.
+    this.pendingScrollTarget = { relPath, lineNumber, seq: ++this.scrollSeq };
   }
 
   clearAllTimers() {

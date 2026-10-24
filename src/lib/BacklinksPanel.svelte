@@ -1,8 +1,6 @@
 <script lang="ts">
   import Icon from './ui/Icon.svelte';
-  import IconButton from './ui/IconButton.svelte';
   import { getBacklinks } from './ipc';
-  import { settingsStore } from './stores/settings.svelte';
   import { tabsStore } from './stores/tabs.svelte';
   import { vaultStore } from './stores/vault.svelte';
   import type { BacklinkEntry } from './types';
@@ -50,75 +48,62 @@
   }
 </script>
 
-{#if settingsStore.showRightPanel}
-  <aside class="right-panel" aria-label={m.titlebar_backlinks_panel()}>
-    <div class="panel-header">
-      <div class="panel-title-wrap">
-        <span class="panel-icon"><Icon name="arrow-bend-up-left" /></span>
-        <span class="panel-title">{m.backlinks_title()}</span>
-        <span class="count-badge">{backlinks.length}</span>
-      </div>
-      <IconButton
-        icon="x"
-        label={m.backlinks_close()}
-        onclick={() => settingsStore.toggleRightPanel()}
-      />
+<section class="panel-section" aria-label={m.backlinks_title()}>
+  <div class="panel-header">
+    <div class="panel-title-wrap">
+      <span class="panel-icon"><Icon name="arrow-bend-up-left" /></span>
+      <span class="panel-title">{m.backlinks_title()}</span>
+      <span class="count-badge">{backlinks.length}</span>
     </div>
+  </div>
 
-    <div class="panel-body">
-      {#if !tabsStore.activeTab}
-        <div class="empty-state">
-          {m.backlinks_no_note()}
+  <div class="panel-body">
+    {#if !tabsStore.activeTab}
+      <div class="empty-state">
+        {m.backlinks_no_note()}
+      </div>
+    {:else if loading && backlinks.length === 0}
+      <div class="empty-state">{m.backlinks_loading()}</div>
+    {:else if backlinks.length === 0}
+      <div class="empty-state">
+        <div>{noBacklinksParts[0]}<strong>{tabsStore.activeTab.title}</strong>{noBacklinksParts[1]}</div>
+        <div class="empty-hint">
+          {linkHintParts[0]}<code>[[{tabsStore.activeTab.title}]]</code>{linkHintParts[1]}
         </div>
-      {:else if loading && backlinks.length === 0}
-        <div class="empty-state">{m.backlinks_loading()}</div>
-      {:else if backlinks.length === 0}
-        <div class="empty-state">
-          <div>{noBacklinksParts[0]}<strong>{tabsStore.activeTab.title}</strong>{noBacklinksParts[1]}</div>
-          <div class="empty-hint">
-            {linkHintParts[0]}<code>[[{tabsStore.activeTab.title}]]</code>{linkHintParts[1]}
-          </div>
-        </div>
-      {:else}
-        <ul class="backlink-list" aria-label={m.backlinks_list()}>
-          {#each backlinks as item (`${item.sourcePath}:${item.lineNumber}:${item.target}`)}
-            <li>
-              <button
-                type="button"
-                class="backlink-card"
-                title={m.backlinks_open_at({ path: item.sourcePath, line: item.lineNumber })}
-                onclick={() => handleOpenBacklink(item)}
-              >
-                <div class="backlink-top">
-                  <span class="source-icon"><Icon name="file-text" /></span>
-                  <span class="source-title">{item.sourceTitle}</span>
-                  <span class="line-pill">{m.backlinks_line_pill({ line: item.lineNumber })}</span>
-                </div>
-                {#if item.sourcePath !== `${item.sourceTitle}.md`}
-                  <div class="source-path">{item.sourcePath}</div>
-                {/if}
-                <div class="line-context">{item.lineContext}</div>
-              </button>
-            </li>
-          {/each}
-        </ul>
-      {/if}
-    </div>
-  </aside>
-{/if}
+      </div>
+    {:else}
+      <ul class="backlink-list" aria-label={m.backlinks_list()}>
+        {#each backlinks as item (`${item.sourcePath}:${item.lineNumber}:${item.target}`)}
+          <li>
+            <button
+              type="button"
+              class="backlink-card"
+              title={m.backlinks_open_at({ path: item.sourcePath, line: item.lineNumber })}
+              onclick={() => handleOpenBacklink(item)}
+            >
+              <div class="backlink-top">
+                <span class="source-icon"><Icon name="file-text" /></span>
+                <span class="source-title">{item.sourceTitle}</span>
+                <span class="line-pill">{m.backlinks_line_pill({ line: item.lineNumber })}</span>
+              </div>
+              {#if item.sourcePath !== `${item.sourceTitle}.md`}
+                <div class="source-path">{item.sourcePath}</div>
+              {/if}
+              <div class="line-context">{item.lineContext}</div>
+            </button>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  </div>
+</section>
 
 <style>
-  .right-panel {
-    width: 248px;
-    height: 100%;
-    flex-shrink: 0;
-    background: var(--surface-editor);
-    border-left: 1px solid var(--line-subtle);
+  .panel-section {
+    flex: 1;
+    min-height: 0;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
-    user-select: none;
-    transition: background-color var(--transition-fast);
   }
 
   .panel-header {

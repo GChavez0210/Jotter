@@ -73,6 +73,7 @@
       chars: number;
       selectedChars: number;
       selectedLines: number;
+      cursorLine: number;
     }) => void;
     onError?: (err: string) => void;
     /** Rendered above the text and scrolled with it, such as the note title. */
@@ -648,6 +649,7 @@
       ...totalStats,
       selectedChars,
       selectedLines,
+      cursorLine: state.doc.lineAt(mainSel.head).number,
     });
   }
 
