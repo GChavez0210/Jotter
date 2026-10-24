@@ -65,3 +65,4 @@ export const loadAppSettings = async () => settingsControl.stored;
 export const saveAppSettings = async (json: string) => {settingsControl.stored = json; settingsControl.saves.push(json);};
 export const exportSettingsFile = async () => null;
 export const importSettingsFile = async () => null;
+export const configureTaskReminders = async () => {};

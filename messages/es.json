@@ -608,6 +608,8 @@
   "settings_task_calendar": "Calendario de tareas",
   "settings_task_calendar_desc": "Exporta las tareas pendientes con fecha límite ({example}) a un archivo {ext} al que tu calendario se puede suscribir.",
   "settings_task_calendar_writing": "Escribiendo en",
+  "settings_task_reminders": "Recordatorios de tareas",
+  "settings_task_reminders_desc": "Muestra una notificación del sistema cuando vence una tarea con fecha límite. Las tareas con hora avisan a esa hora. Las que solo tienen fecha avisan a las 9:00. Los recordatorios necesitan una bóveda abierta y funcionan mientras Jotter está en la bandeja.",
   "settings_theme": "Tema",
   "settings_theme_desc": "Sistema usa el de tu sistema operativo.",
   "settings_title": "Ajustes",

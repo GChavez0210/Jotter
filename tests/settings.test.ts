@@ -171,3 +171,16 @@ test('the settings file takes over from local storage once and then persists cha
     else Reflect.deleteProperty(globalThis, 'localStorage');
   }
 });
+
+test('task reminders default to on and remember being turned off', () => {
+  const env = browser();
+  try {
+    const first = new SettingsStore();
+    first.initFromStorageAndSystem()();
+    assert.equal(first.taskReminders, true);
+    first.setTaskReminders(false);
+    const restarted = new SettingsStore();
+    restarted.initFromStorageAndSystem()();
+    assert.equal(restarted.taskReminders, false);
+  } finally { env.restore(); }
+});

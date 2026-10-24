@@ -4,6 +4,7 @@
   import type { UnlistenFn } from '@tauri-apps/api/event';
   import AiPanel from './lib/AiPanel.svelte';
   import { appStorage } from './lib/appStorage';
+  import { configureTaskReminders } from './lib/ipc';
   import RightPanel from './lib/RightPanel.svelte';
   import ClipboardInspector from './lib/ClipboardInspector.svelte';
   import CommandPalette from './lib/CommandPalette.svelte';
@@ -353,6 +354,13 @@
     void settingsStore.summonEnabled;
     void settingsStore.summonShortcut;
     void systemStore.syncSummon();
+  });
+
+  $effect(() => {
+    // Reminders run in the backend so they still fire while the window sits in the tray.
+    void configureTaskReminders(settingsStore.taskReminders).catch(() => {
+      // The backend is missing in a browser preview.
+    });
   });
 
   $effect(() => {

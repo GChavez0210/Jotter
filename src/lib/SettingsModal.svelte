@@ -713,6 +713,20 @@
               />
             </div>
 
+            <div class="setting-card">
+              <div class="setting-info">
+                <label for="toggle-task-reminders" class="setting-label">{m.settings_task_reminders()}</label>
+                <div class="setting-desc">{m.settings_task_reminders_desc()}</div>
+              </div>
+              <input
+                id="toggle-task-reminders"
+                type="checkbox"
+                class="fluent-toggle"
+                checked={settingsStore.taskReminders}
+                onchange={(e) => settingsStore.setTaskReminders((e.currentTarget as HTMLInputElement).checked)}
+              />
+            </div>
+
             {#if vaultStore.vaultSnapshot}
               <div class="setting-card">
                 <div class="setting-info">

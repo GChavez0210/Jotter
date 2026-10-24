@@ -608,6 +608,8 @@
   "settings_task_calendar": "Task calendar",
   "settings_task_calendar_desc": "Export open tasks with due dates ({example}) to an {ext} file your calendar can subscribe to.",
   "settings_task_calendar_writing": "Writing to",
+  "settings_task_reminders": "Task reminders",
+  "settings_task_reminders_desc": "Show a system notification when a task with a due date comes due. Tasks with a time remind at that time. Tasks with only a date remind at 9:00. Reminders need a vault open, and they work while Jotter sits in the tray.",
   "settings_theme": "Theme",
   "settings_theme_desc": "System matches your OS.",
   "settings_title": "Settings",

@@ -73,6 +73,8 @@ export class SettingsStore {
   summonShortcut = $state(defaultSummonShortcut);
   /** Keep a tray icon while Jotter runs. */
   trayEnabled = $state(false);
+  /** Notify when a task with a due date comes due. */
+  taskReminders = $state(true);
   /** Hiding to the tray needs the tray icon, so the two settings move together. */
   closeAction = $state<CloseAction>('quit');
 
@@ -292,6 +294,11 @@ export class SettingsStore {
     this.summonShortcut = shortcut.trim() || defaultSummonShortcut;
     this.persist('jotter.summonEnabled', String(enabled));
     this.persist('jotter.summonShortcut', this.summonShortcut);
+  }
+
+  setTaskReminders(enabled: boolean) {
+    this.taskReminders = enabled;
+    this.persist('jotter.taskReminders', String(enabled));
   }
 
   /** Turning the tray off sends the close button back to quitting. */
@@ -612,6 +619,7 @@ export class SettingsStore {
       if (savedDailyFolder !== null) this.dailyFolder = savedDailyFolder;
       const savedDailyTemplate = appStorage.getItem('jotter.dailyTemplatePath');
       if (savedDailyTemplate !== null) this.dailyTemplatePath = savedDailyTemplate;
+      this.taskReminders = appStorage.getItem('jotter.taskReminders') !== 'false';
       this.summonEnabled = appStorage.getItem('jotter.summonEnabled') === 'true';
       const savedShortcut = appStorage.getItem('jotter.summonShortcut');
       if (savedShortcut) this.summonShortcut = savedShortcut;

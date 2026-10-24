@@ -327,3 +327,8 @@ export async function exportSettingsFile(json: string, labels?: DialogLabels): P
 export async function importSettingsFile(labels?: DialogLabels): Promise<string | null> {
   return invoke<string | null>('import_settings_file', { labels: labels ?? null });
 }
+
+/** Turns task reminders on or off in the background loop. */
+export async function configureTaskReminders(enabled: boolean): Promise<void> {
+  return invoke<void>('configure_task_reminders', { enabled });
+}

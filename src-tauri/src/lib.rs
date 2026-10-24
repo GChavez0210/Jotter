@@ -8,6 +8,7 @@ pub mod media_export;
 pub mod pins;
 pub mod platform;
 pub mod recycle;
+pub mod reminders;
 pub mod search;
 pub mod snippets;
 pub mod spell;
@@ -27,6 +28,7 @@ use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use rusqlite::Connection;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_notification::NotificationExt;
 
 use crate::clipboard::{
     build_clipboard_payload, read_plain_from_system_clipboard, write_to_system_clipboard,
@@ -824,6 +826,53 @@ async fn import_settings_file(
     }).await.map_err(|e| e.to_string())?
 }
 
+/// Turns task reminders on or off.
+#[tauri::command]
+fn configure_task_reminders(
+    state: State<'_, crate::reminders::ReminderState>,
+    enabled: bool,
+) {
+    state.enabled.store(enabled, Ordering::SeqCst);
+}
+
+/// Checks the open vault's tasks every 30 seconds and shows a notification for each one that
+/// has come due. Runs for the life of the app, so reminders still fire while Jotter sits in
+/// the tray.
+fn spawn_reminder_loop(app: AppHandle) {
+    std::thread::spawn(move || {
+        let state = app.state::<AppState>();
+        let reminders = app.state::<crate::reminders::ReminderState>();
+        let file = crate::reminders::reminders_path(&app_data_dir(&state));
+        let mut announced = crate::reminders::load_announced(&file);
+        loop {
+            std::thread::sleep(Duration::from_secs(30));
+            if !reminders.enabled.load(Ordering::SeqCst) {
+                continue;
+            }
+            let Ok(tasks) = state.sqlite_conn.lock().map_err(|e| e.to_string())
+                .and_then(|conn| crate::index::query_due_tasks(&conn)) else { continue };
+            let now = chrono::Local::now().naive_local();
+            let due = crate::reminders::due_reminders(&tasks, now, &announced);
+            if due.is_empty() {
+                continue;
+            }
+            for reminder in due {
+                let shown = app.notification().builder()
+                    .title(&reminder.title)
+                    .body(&reminder.body)
+                    .show();
+                // Keep an unshown reminder for the next pass, since the system may be busy.
+                if shown.is_ok() {
+                    announced.insert(reminder.key, reminder.due);
+                }
+            }
+            if let Err(err) = crate::reminders::save_announced(&file, &mut announced, now) {
+                eprintln!("Cannot save task reminders: {err}");
+            }
+        }
+    });
+}
+
 /// Asks where to keep the task calendar file. Returns `None` when the user cancels.
 #[tauri::command]
 async fn pick_task_calendar_path(
@@ -1171,6 +1220,8 @@ pub fn run() {
 
     builder
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
+        .manage(crate::reminders::ReminderState::default())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(crate::tray::BackgroundState::default())
         .manage(Arc::new(crate::spell::SpellState::default()))
@@ -1187,6 +1238,7 @@ pub fn run() {
         })
         .setup(|app| {
             crate::tray::create_tray(app)?;
+            spawn_reminder_loop(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -1233,6 +1285,7 @@ pub fn run() {
             export_settings_file,
             import_settings_file,
             write_task_calendar,
+            configure_task_reminders,
             list_pinned_notes,
             set_note_pinned,
             list_deleted_entries,
