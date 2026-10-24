@@ -58,7 +58,12 @@ export interface PendingScrollTarget {
 
 class TabsStore {
   openTabs = $state<OpenTab[]>([]);
-  activeTabPath = $state<string | null>(null);
+  private activePath = $state<string | null>(null);
+  get activeTabPath(): string | null { return this.activePath; }
+  set activeTabPath(path: string | null) {
+    if (path !== this.activePath) this.pendingScrollTarget = null;
+    this.activePath = path;
+  }
   scratchpadMode = $state(false);
   scratchpadContent = $state(SAMPLE_NOTE);
   pendingScrollTarget = $state<PendingScrollTarget | null>(null);
@@ -91,6 +96,13 @@ class TabsStore {
 
   clearPendingScrollTarget() {
     this.pendingScrollTarget = null;
+  }
+
+  /** Recheck after the animation frame: a tab switch or newer request cancels this jump. */
+  consumeScrollTarget(target: PendingScrollTarget): boolean {
+    if (this.pendingScrollTarget?.seq !== target.seq) return false;
+    this.pendingScrollTarget = null;
+    return this.activeTabPath === target.relPath;
   }
 
   /** Scrolls the open note to a line, for panels that have no handle on the editor. */

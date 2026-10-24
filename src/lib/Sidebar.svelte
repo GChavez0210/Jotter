@@ -257,7 +257,7 @@
 
   /** Pinned notes keep their pin order; the label is the file name without its extension. */
   let pinnedNotes = $derived(
-    vaultStore.pinnedPaths.map((relPath) => ({
+    vaultStore.visiblePinnedPaths.map((relPath) => ({
       relPath,
       title: relPath.slice(relPath.lastIndexOf('/') + 1).replace(/\.md$/i, ''),
     }))

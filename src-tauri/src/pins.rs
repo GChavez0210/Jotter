@@ -105,7 +105,8 @@ fn strip_folder_prefix<'a>(pin: &'a str, folder: &str) -> Option<&'a str> {
     if pin.len() <= prefix_len {
         return None;
     }
-    let (head, rest) = pin.split_at(prefix_len);
+    let head = pin.get(..prefix_len)?;
+    let rest = pin.get(prefix_len..)?;
     if paths_equal(head, &format!("{folder}/")) {
         Some(rest)
     } else {
@@ -116,6 +117,13 @@ fn strip_folder_prefix<'a>(pin: &'a str, folder: &str) -> Option<&'a str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn renaming_leaves_unrelated_unicode_pins_alone() {
+        let pins = vec!["ééé.md".to_string(), "Work/日本語.md".to_string()];
+        assert_eq!(rename_pins(&pins, "Work", "Archive"), vec!["ééé.md", "Archive/日本語.md"]);
+        assert_eq!(rename_pins(&pins, "é", "Other"), pins);
+    }
 
     #[test]
     fn pinning_appends_and_unpinning_removes_without_reordering() {

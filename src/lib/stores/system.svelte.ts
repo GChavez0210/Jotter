@@ -91,6 +91,10 @@ class SystemStore {
         this.trayError = '';
       } catch (err) {
         this.trayError = err instanceof Error ? err.message : String(err);
+        if (settingsStore.trayEnabled === tray && (settingsStore.closeAction === 'tray') === hide) {
+          settingsStore.setCloseAction(this.appliedWindow.hide ? 'tray' : 'quit');
+          settingsStore.setTrayEnabled(this.appliedWindow.tray);
+        }
       }
     });
     return this.windowQueue;

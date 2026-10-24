@@ -924,6 +924,7 @@ fn pins_file(state: &State<'_, AppState>, vault_root: &Path) -> PathBuf {
 
 #[tauri::command]
 fn list_pinned_notes(state: State<'_, AppState>) -> Result<Vec<String>, String> {
+    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
     let vault_root = require_active_vault(&state)?;
     let stored = crate::pins::load_pins(&pins_file(&state, &vault_root));
     Ok(crate::pins::existing_pins(&stored, &vault_root))
@@ -936,6 +937,7 @@ fn set_note_pinned(
     rel_path: String,
     pinned: bool,
 ) -> Result<Vec<String>, String> {
+    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
     let vault_root = require_active_vault(&state)?;
     let clean = crate::vault::normalize_rel_path(&rel_path);
     if pinned && !vault_root.join(&clean).is_file() {

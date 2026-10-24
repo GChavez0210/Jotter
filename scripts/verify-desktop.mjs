@@ -1,6 +1,6 @@
 import { chromium, expect } from '@playwright/test';
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile, readFile, readdir, chmod, stat } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, rename, chmod, stat } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
 
@@ -54,10 +54,23 @@ try {
   page.on('console',(message)=>{if(message.type()==='error') errors.push(message.text());});
   await page.waitForLoadState('domcontentloaded');
   await expect(page.getByRole('button',{name:'Enter path…'})).toBeVisible();
-  await page.evaluate(()=>{
+  function installProbes() {
     window.__verifyCsp=[];
     document.addEventListener('securitypolicyviolation',(event)=>window.__verifyCsp.push(`${event.violatedDirective}: ${event.blockedURI}`));
-  });
+    window.__verifySettingsCalls=[];
+    // Tauri's invoke property is read-only. Observe successful native responses through fetch.
+    const fetch=window.fetch.bind(window);
+    window.fetch=async(input,options)=>{
+      const response=await fetch(input,options);
+      const command=new URL(typeof input==='string'?input:input.url).pathname.split('/').at(-1);
+      if((command==='configure_summon'||command==='configure_window_behavior')&&response.headers.get('Tauri-Response')==='ok') {
+        window.__verifySettingsCalls.push({command,args:JSON.parse(options.body)});
+      }
+      return response;
+    };
+  }
+  await page.addInitScript(installProbes);
+  await page.evaluate(installProbes);
   await page.getByRole('button',{name:'Enter path…'}).click();
   await page.getByLabel('Vault folder path').fill(vault);
   await page.getByRole('button',{name:'Open folder',exact:true}).click();
@@ -111,8 +124,13 @@ try {
   await page.getByRole('menuitem',{name:'Pin to top'}).click();
   await expect(page.locator('.pinned-item')).toHaveCount(1);
   await expect(page.locator('.pinned-item')).toHaveText(/Verification/);
-  expect(await readFile(join(root,'app-data/Jotter/vaults',(await readdir(join(root,'app-data/Jotter/vaults')))[0]),'utf8'))
-    .toContain('Verification.md');
+  const vaultRoot=(await page.evaluate(()=>window.__TAURI_INTERNALS__.invoke('get_vault_snapshot'))).rootPath;
+  let vaultHash=0xcbf29ce484222325n;
+  for(const byte of Buffer.from(vaultRoot.toLowerCase().replace(/\\/g,'/').replace(/\/+$/,''))) {
+    vaultHash=BigInt.asUintN(64,(vaultHash^BigInt(byte))*0x100000001b3n);
+  }
+  const pinsFile=join(root,'app-data/Jotter/vaults',`${vaultHash.toString(16).padStart(16,'0')}.pins.json`);
+  expect(JSON.parse(await readFile(pinsFile,'utf8')).pinned).toEqual(['Verification.md']);
   // Renaming through the sidebar carries the pin instead of dropping it.
   const renameTreeNote = async (from, to) => {
     await page.locator('.tree-root').getByRole('button',{name:from,exact:true}).click({button:'right'});
@@ -135,6 +153,17 @@ try {
   await expect(page.locator('.outline-row.active .outline-text')).toHaveText('Details');
   checks.push('Outline skips headings inside code fences, and clicking one moves the cursor there');
 
+  // The preceding app rename suppresses its own watcher events for 900 ms.
+  await pause(1000);
+  await rename(join(vault,'Verification.md'),join(root,'Verification-backup.md'));
+  await expect(page.locator('.tree-root').getByRole('button',{name:'Verification',exact:true})).toHaveCount(0);
+  await expect(page.locator('.pinned-item')).toHaveCount(0);
+  expect(JSON.parse(await readFile(pinsFile,'utf8')).pinned).toEqual(['Verification.md']);
+  await rename(join(root,'Verification-backup.md'),join(vault,'Verification.md'));
+  await expect(page.locator('.pinned-item')).toHaveText(/Verification/);
+  await page.locator('.pinned-item').click();
+  checks.push('External deletion hides a pin and external restoration makes it visible again');
+
   // A real window below the sidebar's width threshold, then the sidebar asked back.
   const setWindowWidth = (width) => page.evaluate(
     (w)=>window.__TAURI_INTERNALS__.invoke('plugin:window|set_size',{label:'main',value:{Logical:{width:w,height:760}}}),
@@ -147,6 +176,11 @@ try {
   await expect(sidebar).toBeHidden();
   // The right panel yields its width before the sidebar does.
   await expect(notePanel).toBeHidden();
+  await page.getByRole('button',{name:'Note panel',exact:true}).click();
+  await expect(notePanel).toBeVisible();
+  await expect(sidebar).toBeVisible();
+  expect(await page.evaluate(()=>window.innerWidth)).toBe(856);
+  await setWindowWidth(500);
   await page.getByRole('button',{name:'Show sidebar'}).click();
   await expect(sidebar).toBeVisible();
   // Just enough for the sidebar and the text column, not the width it started at.
@@ -158,6 +192,21 @@ try {
   await setWindowWidth(1120);
   await expect(sidebar).toBeVisible();
   checks.push('Narrow window hides the sidebar, showing it widens the window to fit, and widening restores it');
+
+  await page.evaluate(()=>localStorage.setItem('jotter.sidebarWidth','400'));
+  await page.reload();
+  await expect(page.getByRole('region',{name:'Home'})).toBeVisible();
+  await setWindowWidth(700);
+  await expect(sidebar).toBeHidden();
+  await expect(notePanel).toBeHidden();
+  await setWindowWidth(760);
+  await expect(sidebar).toBeVisible();
+  await expect(notePanel).toBeHidden();
+  await setWindowWidth(1008);
+  await expect(notePanel).toBeVisible();
+  await page.locator('.pinned-item').click();
+  await setWindowWidth(1120);
+  checks.push('A wide sidebar retains priority over the right panel at intermediate widths');
 
   await page.keyboard.press('Control+,');
   await page.getByRole('button',{name:'System',exact:true}).click();
@@ -175,11 +224,13 @@ try {
   await expect(page.getByText('Restyle Jotter with your own', {exact:false})).toBeVisible();
   await page.screenshot({path:join(root,'css-snippets-settings.png')});
   await page.getByLabel('Summon hotkey',{exact:true}).check();
+  await expect.poll(()=>page.evaluate(()=>window.__verifySettingsCalls.some(call=>call.command==='configure_summon'&&call.args.enabled))).toBe(true);
   await expect(page.getByRole('alert')).toHaveCount(0);
   checks.push('CSS snippet example applies, toggles off cleanly, and native summon shortcut registers');
   // Hiding to the tray needs the tray icon, so choosing it turns the icon on.
   await page.getByRole('radio',{name:'Hides to the tray',exact:true}).click();
   await expect(page.getByLabel('Keep Jotter in the tray',{exact:true})).toBeChecked();
+  await expect.poll(()=>page.evaluate(()=>window.__verifySettingsCalls.some(call=>call.command==='configure_window_behavior'&&call.args.trayResident&&call.args.hideOnClose))).toBe(true);
   await expect(page.getByRole('alert')).toHaveCount(0);
   checks.push('Close-to-tray turns on tray residency and the native tray icon accepts it');
   await page.keyboard.press('Escape');
