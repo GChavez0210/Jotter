@@ -193,7 +193,13 @@ try {
   await expect(sidebar).toBeVisible();
   checks.push('Narrow window hides the sidebar, showing it widens the window to fit, and widening restores it');
 
-  await page.evaluate(()=>localStorage.setItem('jotter.sidebarWidth','400'));
+  // Settings live in the app data folder and the page saves its own copy on reload, so change
+  // them through the UI. The resize handle sets the sidebar width to the pointer's position.
+  const handle = await page.getByRole('separator',{name:'Resize sidebar'}).boundingBox();
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(400, handle.y + handle.height / 2, {steps:5});
+  await page.mouse.up();
   await page.reload();
   await expect(page.getByRole('region',{name:'Home'})).toBeVisible();
   await setWindowWidth(700);
@@ -249,7 +255,10 @@ try {
   checks.push('Bundled en-US dictionary underlines a misspelling under the cursor, and its suggestion replaces it in one undo step');
 
   // Dark-mode print uses a light diagram palette, independent of screen colors.
-  await page.evaluate(()=>{localStorage.setItem('jotter.themePref','dark');});
+  await page.keyboard.press('Control+p');
+  await page.getByPlaceholder('Type a command').fill('Theme: Dark');
+  await page.keyboard.press('Enter');
+  await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
   await page.reload();
   // Reload reopens the last vault on Home with no tabs, so the note is reopened below.
   await expect(page.getByRole('region',{name:'Home'})).toBeVisible();
