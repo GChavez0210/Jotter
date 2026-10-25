@@ -10,6 +10,7 @@
   import IconButton from './ui/IconButton.svelte';
   import Segmented from './ui/Segmented.svelte';
   import { m } from './i18n.svelte';
+  import { noteStamp } from './templates';
 
   interface Props {
     /** True while the sidebar is on screen; the title bar then skips its own sidebar toggle. */
@@ -25,7 +26,7 @@
   let showTabs = $derived(Boolean(vaultStore.vaultSnapshot) && tabsStore.openTabs.length > 0);
 
   function createNote() {
-    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    const stamp = noteStamp();
     void vaultStore.createNoteInVault('', m.note_default_name({ stamp }));
   }
 

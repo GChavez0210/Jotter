@@ -236,6 +236,20 @@
   "copy_mode_rich": "Rich",
   "diagram_error": "Diagram error: {message}",
   "diagram_error_at": "Diagram error (line {line}): {message}",
+  "callout_note": "Note",
+  "callout_abstract": "Abstract",
+  "callout_info": "Info",
+  "callout_todo": "To do",
+  "callout_tip": "Tip",
+  "callout_success": "Success",
+  "callout_question": "Question",
+  "callout_warning": "Warning",
+  "callout_failure": "Failure",
+  "callout_danger": "Danger",
+  "callout_bug": "Bug",
+  "callout_example": "Example",
+  "callout_quote": "Quote",
+  "callout_toggle": "Fold or unfold callout",
   "dialog_export_html_filter": "HTML document",
   "dialog_export_html_title": "Export note to HTML",
   "dialog_settings_export_title": "Export settings",
@@ -420,6 +434,15 @@
   "quick_matches": "Matching notes",
   "quick_no_match": "No notes in this vault match “{query}”.",
   "quick_switcher": "Quick switcher",
+  "template_picker": "New note from template",
+  "template_find": "Find a template",
+  "template_none": "No templates found in “{folder}”. Add notes to that folder to use them as templates.",
+  "template_hint_choose": "to choose",
+  "template_note_name": "Note name",
+  "template_name_required": "Enter a name for the note.",
+  "template_back": "Choose another template",
+  "cmd_note_from_template": "New note from template…",
+  "settings_templates_folder": "Templates folder",
   "right_panel": "Note panel",
   "right_panel_close": "Close the note panel",
   "right_panel_tab_note": "Outline and backlinks",
@@ -603,6 +626,16 @@
   "settings_spellcheck_desc": "Underline misspelled words.",
   "settings_summon": "Summon hotkey",
   "settings_summon_desc": "Show or hide Jotter from anywhere, even when another app is in front.",
+  "settings_capture": "Quick capture",
+  "settings_capture_desc": "Open a small window from anywhere to jot a thought. It goes to the end of the note below, and Jotter does not need to be in front.",
+  "settings_capture_note": "Inbox note",
+  "capture_placeholder": "Jot something down…",
+  "capture_window_title": "Jotter quick capture",
+  "capture_hint": "Enter saves · Shift+Enter adds a line · Esc hides",
+  "capture_no_vault": "Open a vault in Jotter first.",
+  "capture_failed": "Could not save: {error}",
+  "capture_unsaved": "Could not save the open notes first, so the entry was not added. Save them in Jotter and try again.",
+  "capture_timeout": "Jotter did not answer. Open the main window and try again.",
   "settings_synced_by": "Synced by {provider}. Keep the folder available offline so search sees every note.",
   "settings_system_subtitle": "Global hotkey, tray, and custom CSS.",
   "settings_task_calendar": "Task calendar",
@@ -630,6 +663,7 @@
   "sidebar_ctx_move_to_trash": "Move to {trash} (Del)",
   "sidebar_ctx_new_folder_in": "New folder in {folder}",
   "sidebar_ctx_new_note_in": "New note in {folder}",
+  "sidebar_ctx_new_from_template_in": "New note from template in “{folder}”…",
   "sidebar_ctx_pin": "Pin to top",
   "sidebar_ctx_rename": "Rename (F2)",
   "sidebar_ctx_unpin": "Unpin",
@@ -660,6 +694,87 @@
   "sidebar_vault_root": "Vault root",
   "sidebar_view_calendar": "Calendar",
   "sidebar_view_conflicts": "Sync conflicts",
+  "sidebar_view_health": "Vault health",
+  "cmd_view_health": "Check vault health",
+  "link_update_title": "Update links to this note?",
+  "link_update_body": [
+    {
+      "declarations": [
+        "input count",
+        "input name",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{count} note links to “{name}”. Update its links so they keep working?",
+        "countPlural=*": "{count} notes link to “{name}”. Update their links so they keep working?"
+      }
+    }
+  ],
+  "link_update_apply": "Update links",
+  "link_update_skip": "Rename only",
+  "link_update_done": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "Updated links in {count} note.",
+        "countPlural=*": "Updated links in {count} notes."
+      }
+    }
+  ],
+  "link_update_skipped": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{count} link was left alone because its text had changed.",
+        "countPlural=*": "{count} links were left alone because their text had changed."
+      }
+    }
+  ],
+  "link_update_undone": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "Restored links in {count} note.",
+        "countPlural=*": "Restored links in {count} notes."
+      }
+    }
+  ],
+  "cmd_undo_link_update": "Undo last link update",
+  "health_intro": "Looks through every note and attachment in this vault. Nothing changes until you choose an action.",
+  "health_scan": "Scan again",
+  "health_scanning": "Scanning…",
+  "health_failed": "Could not scan the vault: {error}",
+  "health_all_clear": "No problems found.",
+  "health_broken": "Broken links",
+  "health_unused": "Unused attachments",
+  "health_empty": "Empty notes",
+  "health_duplicates": "Duplicate titles",
+  "health_more": "and {count} more",
+  "health_line": "line {line}",
+  "health_create_note": "Create the note “{name}”",
+  "health_confirm_move": "Move it to the {trash}?",
+  "health_move_named": "Move {name} to the {trash}",
   "sidebar_view_notes": "Notes",
   "sidebar_view_search": "Full-text search",
   "sidebar_view_tags": "Tags",

@@ -9,7 +9,7 @@ use std::sync::Mutex;
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutState};
 
 const TRAY_ID: &str = "jotter-tray";
@@ -24,7 +24,15 @@ pub struct BackgroundState {
     /// Closing the main window hides it while this is set.
     pub hide_on_close: AtomicBool,
     pub shortcut: Mutex<Option<Shortcut>>,
+    /// The quick capture hotkey, kept apart from the summon hotkey.
+    pub capture_shortcut: Mutex<Option<Shortcut>>,
 }
+
+/// Label of the small window quick capture opens.
+pub const CAPTURE_LABEL: &str = "capture";
+
+/// Event the capture window handles by focusing its text box.
+pub const CAPTURE_OPEN_EVENT: &str = "quick-capture-open";
 
 pub fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -46,6 +54,46 @@ fn toggle_main_window(app: &AppHandle) {
         let _ = window.hide();
     } else {
         show_main_window(app);
+    }
+}
+
+/// Shows the capture window, creating it on first use, or hides it when it is already in front.
+fn toggle_capture_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(CAPTURE_LABEL) {
+        let in_front = window.is_visible().unwrap_or(false) && window.is_focused().unwrap_or(false);
+        if in_front {
+            let _ = window.hide();
+        } else {
+            let _ = window.show();
+            let _ = window.set_focus();
+            let _ = window.emit(CAPTURE_OPEN_EVENT, ());
+        }
+        return;
+    }
+    // Windows deadlocks when a window is built on the event loop thread, which runs hotkeys.
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let built = WebviewWindowBuilder::new(&app, CAPTURE_LABEL, WebviewUrl::App("index.html".into()))
+            // The window sets its localized title once its page loads.
+            .title("Jotter")
+            .inner_size(520.0, 200.0)
+            .resizable(false)
+            .decorations(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .center()
+            .focused(true)
+            .build();
+        if let Err(err) = built {
+            eprintln!("Cannot open the quick capture window: {err}");
+        }
+    });
+}
+
+/// Hides the capture window. The window stays alive so the next hotkey press opens it at once.
+pub fn hide_capture_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(CAPTURE_LABEL) {
+        let _ = window.hide();
     }
 }
 
@@ -105,10 +153,25 @@ pub fn create_tray(app: &tauri::App) -> tauri::Result<()> {
 /// error when the shortcut text is invalid or another app already owns it.
 pub fn configure(app: &AppHandle, enabled: bool, shortcut_text: &str) -> Result<(), String> {
     let state = app.state::<BackgroundState>();
+    configure_slot(app, &state.shortcut, enabled, shortcut_text, toggle_main_window)
+}
+
+/// Turns the quick capture hotkey on or off, with the same rules as the summon hotkey.
+pub fn configure_capture(app: &AppHandle, enabled: bool, shortcut_text: &str) -> Result<(), String> {
+    let state = app.state::<BackgroundState>();
+    configure_slot(app, &state.capture_shortcut, enabled, shortcut_text, toggle_capture_window)
+}
+
+fn configure_slot(
+    app: &AppHandle,
+    slot: &Mutex<Option<Shortcut>>,
+    enabled: bool,
+    shortcut_text: &str,
+    on_press: fn(&AppHandle),
+) -> Result<(), String> {
     let global = app.global_shortcut();
 
-    let mut current = state
-        .shortcut
+    let mut current = slot
         .lock()
         .map_err(|e| format!("Failed to lock shortcut state: {e}"))?;
     let next = if enabled {
@@ -116,8 +179,8 @@ pub fn configure(app: &AppHandle, enabled: bool, shortcut_text: &str) -> Result<
             .map_err(|e| format!("'{shortcut_text}' is not a valid shortcut: {e}"))?)
     } else { None };
     replace_shortcut(&mut current, next,
-        |shortcut| global.on_shortcut(shortcut, |app, _, event| {
-            if event.state == ShortcutState::Pressed { toggle_main_window(app); }
+        |shortcut| global.on_shortcut(shortcut, move |app, _, event| {
+            if event.state == ShortcutState::Pressed { on_press(app); }
         }).map_err(|e| format!("Cannot register {shortcut_text}. Another app may already use it: {e}")),
         |shortcut| global.unregister(shortcut).map_err(|e| format!("Cannot unregister shortcut: {e}")),
     )?;

@@ -53,9 +53,7 @@ fn state_with(provider: AiProvider, base: &str) -> (tempfile::TempDir, AiState, 
     let dir = tempfile::tempdir().unwrap();
     let secrets = Arc::new(MemorySecretStore::default());
     let state = AiState::new(config::settings_path(dir.path()), secrets.clone());
-    let mut config = AiConfig::default();
-    config.enabled = true;
-    config.provider = provider;
+    let mut config = AiConfig { enabled: true, provider, ..AiConfig::default() };
     config.openai_compatible.base_url = base.into();
     config.anthropic.base_url = base.into();
     config.ollama.base_url = base.into();

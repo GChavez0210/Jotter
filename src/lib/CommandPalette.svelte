@@ -8,6 +8,7 @@
   import { tabsStore } from './stores/tabs.svelte';
   import { vaultStore } from './stores/vault.svelte';
   import { m } from './i18n.svelte';
+  import { noteStamp } from './templates';
 
   interface Props {
     onFormat: (cmd: MarkdownFormatCommandId) => void;
@@ -121,6 +122,12 @@
             label: m.cmd_quick_switcher(),
             shortcut: shortcutLabel('Ctrl+O'),
             action: () => (settingsStore.showQuickSwitcher = true),
+          },
+          {
+            id: 'view-health',
+            category: m.cmd_cat_navigation(),
+            label: m.cmd_view_health(),
+            action: () => settingsStore.setLeftSidebarView('health'),
           },
           {
             id: 'view-search',
@@ -363,12 +370,25 @@
             label: m.cmd_note_new(),
             shortcut: shortcutLabel('Ctrl+N'),
             action: () => {
-              const stamp = new Date()
-                .toISOString()
-                .slice(0, 19)
-                .replace(/[:T]/g, '-');
+              const stamp = noteStamp();
               void vaultStore.createNoteInVault('', m.note_default_name({ stamp }));
             },
+          },
+          ...(vaultStore.lastLinkUpdate
+            ? [
+                {
+                  id: 'undo-link-update',
+                  category: m.cmd_cat_vault(),
+                  label: m.cmd_undo_link_update(),
+                  action: () => void vaultStore.undoLinkUpdate(),
+                },
+              ]
+            : []),
+          {
+            id: 'note-from-template',
+            category: m.cmd_cat_vault(),
+            label: m.cmd_note_from_template(),
+            action: () => settingsStore.openTemplatePicker(),
           },
           {
             id: 'note-save',

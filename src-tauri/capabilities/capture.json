@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "capture",
+  "description": "Capabilities for the quick capture window",
+  "windows": [
+    "capture"
+  ],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-set-title",
+    "allow-load-app-settings",
+    "allow-hide-capture-window"
+  ]
+}

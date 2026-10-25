@@ -24,8 +24,10 @@
     keepAppOpen,
     setTrayLabels,
     renderNoteHtmlPreview,
+    listenCaptureRequests,
   } from './lib/ipc';
   import { enhanceRenderedHtml } from './lib/richBlocks';
+  import { setOpenNoteEditApplier } from './lib/linkUpdates';
   import type { MarkdownFormatCommandId } from './lib/markdownCommands';
   import { aiStore } from './lib/stores/ai.svelte';
   import { clipboardStore } from './lib/stores/clipboard.svelte';
@@ -37,10 +39,12 @@
   import { noteCardsStore } from './lib/stores/noteCards.svelte';
   import HomePage from './lib/HomePage.svelte';
   import { i18n, m, SLOT, splitSlots } from './lib/i18n.svelte';
+  import { noteStamp } from './lib/templates';
 
   let editorRef: Editor | undefined = $state();
   let unlistenFsEvents: UnlistenFn | null = null;
   let unlistenQuit: UnlistenFn | null = null;
+  let unlistenCapture: UnlistenFn | null = null;
   let missingWikiLinkPrompt = $state<{
     noteTarget: string;
     heading?: string;
@@ -280,6 +284,11 @@
         editorRef?.focusEditor();
         return;
       }
+      if (settingsStore.showTemplatePicker) {
+        settingsStore.showTemplatePicker = false;
+        editorRef?.focusEditor();
+        return;
+      }
       if (settingsStore.showQuickSwitcher) {
         settingsStore.showQuickSwitcher = false;
         editorRef?.focusEditor();
@@ -321,7 +330,7 @@
     } else if (isMod && keyLower === 'n') {
       if (vaultStore.vaultSnapshot) {
         e.preventDefault();
-        const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+        const stamp = noteStamp();
         void vaultStore.createNoteInVault('', m.note_default_name({ stamp }));
       }
     } else if (isMod && e.key === '\\') {
@@ -356,6 +365,12 @@
   });
 
   $effect(() => {
+    void settingsStore.quickCaptureEnabled;
+    void settingsStore.quickCaptureShortcut;
+    void systemStore.syncQuickCapture();
+  });
+
+  $effect(() => {
     // Reminders run in the backend so they still fire while the window sits in the tray.
     void configureTaskReminders(settingsStore.taskReminders).catch(() => {
       // The backend is missing in a browser preview.
@@ -369,7 +384,7 @@
   });
 
   function createUntitledNote() {
-    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    const stamp = noteStamp();
     void vaultStore.createNoteInVault('', m.note_default_name({ stamp }));
   }
 
@@ -386,6 +401,8 @@
   });
 
   onMount(() => {
+    setOpenNoteEditApplier((path, edits) =>
+      tabsStore.activeTabPath === path && (editorRef?.applyTextEdits(edits) ?? false));
     const cleanupSettings = settingsStore.initFromStorageAndSystem();
     void systemStore.reloadSnippets();
     void aiStore.ensureLoaded();
@@ -407,6 +424,15 @@
     })
       .then((unlisten) => {
         unlistenQuit = unlisten;
+      })
+      .catch(() => {
+        // ignore in browser preview
+      });
+
+    // The quick capture window sends its entries here, where the open notes live.
+    void listenCaptureRequests((request) => vaultStore.captureEntry(request.note, request.text))
+      .then((unlisten) => {
+        unlistenCapture = unlisten;
       })
       .catch(() => {
         // ignore in browser preview
@@ -443,6 +469,7 @@
   onDestroy(() => {
     unlistenFsEvents?.();
     unlistenQuit?.();
+    unlistenCapture?.();
     tabsStore.clearAllTimers();
   });
 
@@ -632,6 +659,31 @@
 
     <StatusBar />
   </div>
+
+  {#if vaultStore.linkUpdatePrompt}
+    {#await import('./lib/LinkUpdateDialog.svelte') then { default: LinkUpdateDialog }}
+      <LinkUpdateDialog />
+    {:catch}
+      <Dialog label={m.lazy_load_failed()} onClose={() => vaultStore.answerLinkUpdate('cancel')}>
+        <LazyLoadError onClose={() => vaultStore.answerLinkUpdate('cancel')} />
+      </Dialog>
+    {/await}
+  {/if}
+
+  {#if settingsStore.showTemplatePicker}
+    {#await import('./lib/TemplatePicker.svelte') then { default: TemplatePicker }}
+      <TemplatePicker
+        onClose={() => {
+          settingsStore.showTemplatePicker = false;
+          editorRef?.focusEditor();
+        }}
+      />
+    {:catch}
+      <Dialog label={m.lazy_load_failed()} onClose={() => { settingsStore.showTemplatePicker = false; editorRef?.focusEditor(); }}>
+        <LazyLoadError onClose={() => { settingsStore.showTemplatePicker = false; editorRef?.focusEditor(); }} />
+      </Dialog>
+    {/await}
+  {/if}
 
   {#if settingsStore.showQuickSwitcher}
     {#await import('./lib/QuickSwitcher.svelte') then { default: QuickSwitcher }}

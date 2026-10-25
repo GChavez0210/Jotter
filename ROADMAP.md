@@ -2,7 +2,7 @@
 
 Phases run from least to most effort. Each phase ships on its own, and items within a phase are independent unless noted.
 
-Desktop portability foundations are in place. Linux and Android are in Phase 3; macOS and iOS release work is in Phase 4. Keep platform-specific code behind adapters.
+Desktop portability foundations are in place. Linux is in Phase 2 and Android is in Phase 3; macOS and iOS release work is in Phase 4. Keep platform-specific code behind adapters.
 
 ## Already shipped
 
@@ -47,13 +47,12 @@ Desktop portability foundations are in place. Linux and Android are in Phase 3; 
 - [x] **Home page.** A start page of note cards in place of the empty "Nothing open" screen. Sections show recently opened, created, and modified notes, notes by tag, most and least linked notes, and a daily "Rediscover" pick of notes untouched for months. Each section has its own card count, sort order, and folder and tag filters, and a note appears only in the first section that matches it. Sections that filter by property depend on the properties editor. Data comes from the existing SQLite index.
 - [x] **Tags-and-links view.** Optional navigation with no folder tree. Files stay where they are on disk.
 - [x] **Task due dates with `.ics` export.** Parse a due-date syntax on checklist items and write a calendar file other apps can subscribe to.
-- [ ] **Callouts and footnotes.** Render Obsidian callouts (`> [!note]`, foldable with `+`/`-`) and Markdown footnotes in Live Preview and in export.
+- [ ] **Callouts and footnotes.** Render Obsidian callouts (`> [!note]`, foldable with `+`/`-`) and Markdown footnotes in Live Preview and in export. A `-` callout starts closed in HTML export only; the editor opens every callout expanded so its content stays editable.
 - [ ] **Update links on rename.** Renaming or moving a note offers to rewrite every `[[link]]` and Markdown link that points to it, using the index to find them. Show the number of affected notes first, and apply the change as one undoable batch per note.
-- [ ] **Automatic updates.** Check for new releases with `tauri-plugin-updater`, show what changed, and install on restart. Requires update signing keys and a release feed, such as GitHub Releases.
 - [ ] **Templates.** A template picker for new notes, fed by a templates folder. Variables cover date, time, title, and prompted values. This grows the daily-note template into a general feature.
-- [ ] **Scheduled vault backups.** Zip the vault to a folder the user picks, on a schedule, keeping a set number of copies. Show the last backup time in Settings.
 - [ ] **Vault health report.** List broken links, attachments no note uses, empty notes, and duplicate titles, with actions to fix or remove each.
 - [ ] **Quick capture.** A small window on a global hotkey appends text to an inbox note without opening the main window. Shares the single-instance and tray work in Phase 1.
+- [ ] **Linux desktop.** Ship AppImage and `.deb` builds. Add a Linux CI job, use the native title bar, verify the clipboard on GNOME Wayland, KDE Wayland, and X11, make the summon hotkey X11-only, and default the close button to quit where trays are hidden. About one to two weeks.
 - [ ] **Split view.** Show two notes side by side, or a note next to its rendered preview, with independent scrolling.
 - [ ] **Note version history.** Keep snapshots of each note in app data on save, thinned over time. A timeline with a diff view restores any earlier version. Protects against bad AI edits, sync mishaps, and accidental overwrites.
 - [ ] **Accessibility audit.** Check the app against WCAG 2.2 with screen readers (NVDA, VoiceOver) and keyboard-only use, then fix focus order, labels, and contrast.
@@ -61,7 +60,8 @@ Desktop portability foundations are in place. Linux and Android are in Phase 3; 
 
 ## Phase 3: Larger features (a month or more each)
 
-- [ ] **Linux desktop.** Ship AppImage and `.deb` builds. Add a Linux CI job, use the native title bar, verify the clipboard on GNOME Wayland, KDE Wayland, and X11, make the summon hotkey X11-only, and default the close button to quit where trays are hidden. About one to two weeks.
+- [ ] **Automatic updates.** Check for new releases with `tauri-plugin-updater`, show what changed, and install on restart. Requires update signing keys and a release feed, such as GitHub Releases.
+- [ ] **Scheduled vault backups.** Zip the vault to a folder the user picks, on a schedule, keeping a set number of copies. Show the last backup time in Settings.
 - [ ] **Dictation.** Record in the app and insert the text at the cursor. Transcription uses local Whisper, which works offline, or the configured provider's transcription endpoint. With an AI model configured, an optional cleanup pass removes filler words, adds punctuation, and formats lists and headings as Markdown. A setting keeps the recording in `attachments/` and embeds it in the note.
 - [ ] **Property queries and dashboards.** A query language over the SQLite index, with query blocks in notes that render as live tables, card galleries, and task boards. Query blocks reuse the Home page's section renderer, so any note can become a dashboard. Blocks are declarative and run no scripts. Builds on the properties editor and the Home page, both shipped.
 - [ ] **Ask your vault.** AI answers grounded in your notes through a semantic search index. Builds on bring-your-own AI, already shipped.

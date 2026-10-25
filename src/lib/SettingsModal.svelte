@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { defaultSummonShortcut, shortcutLabel } from './platform';
+  import { defaultCaptureShortcut, defaultSummonShortcut, shortcutLabel } from './platform';
   import { onMount } from 'svelte';
   import { getVersion } from '@tauri-apps/api/app';
   import aboutLogo from '../assets/about-jack.png';
@@ -801,6 +801,16 @@
                   />
                 </label>
                 <label class="text-field">
+                  <span>{m.settings_templates_folder()}</span>
+                  <input
+                    type="text"
+                    value={settingsStore.templatesFolder}
+                    placeholder={m.common_none()}
+                    onchange={(e) =>
+                      settingsStore.setTemplatesFolder((e.currentTarget as HTMLInputElement).value)}
+                  />
+                </label>
+                <label class="text-field">
                   <span>{m.settings_daily_template()}</span>
                   <input
                     type="text"
@@ -1014,6 +1024,48 @@
               </label>
               {#if systemStore.summonError}
                 <div class="field-error" role="alert">{systemStore.summonError}</div>
+              {/if}
+            </div>
+
+            <div class="setting-card column-card">
+              <div class="setting-row-top">
+                <div class="setting-info">
+                  <label for="toggle-capture" class="setting-label">{m.settings_capture()}</label>
+                  <div class="setting-desc">{m.settings_capture_desc()}</div>
+                </div>
+                <input
+                  id="toggle-capture"
+                  type="checkbox"
+                  class="fluent-toggle"
+                  checked={settingsStore.quickCaptureEnabled}
+                  onchange={(e) =>
+                    settingsStore.setQuickCapture((e.currentTarget as HTMLInputElement).checked)}
+                />
+              </div>
+              <label class="text-field">
+                <span>{m.settings_hotkey()}</span>
+                <input
+                  type="text"
+                  value={settingsStore.quickCaptureShortcut}
+                  placeholder={defaultCaptureShortcut}
+                  onchange={(e) =>
+                    settingsStore.setQuickCapture(
+                      settingsStore.quickCaptureEnabled,
+                      (e.currentTarget as HTMLInputElement).value
+                    )}
+                />
+              </label>
+              <label class="text-field">
+                <span>{m.settings_capture_note()}</span>
+                <input
+                  type="text"
+                  value={settingsStore.quickCaptureNote}
+                  onchange={(e) =>
+                    settingsStore.setQuickCaptureNote((e.currentTarget as HTMLInputElement).value)}
+                />
+              </label>
+              {#if systemStore.quickCaptureError}
+                <div class="field-error" role="alert">{systemStore.quickCaptureError}</div>
               {/if}
             </div>
 
