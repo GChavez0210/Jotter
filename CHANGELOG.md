@@ -6,7 +6,7 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 
 ## [0.5.0] - 2026-10-24
 
-Roadmap Phase 2. Windows builds now ship for both x64 and ARM64.
+Windows builds now ship for both x64 and ARM64.
 
 ### Changed
 
@@ -36,7 +36,7 @@ Roadmap Phase 2. Windows builds now ship for both x64 and ARM64.
 - **Spanish interface.** **Settings → Appearance → Language** switches menus, dialogs, and messages between English and Spanish without restarting. **System**, the default, follows the OS language and falls back to English. Dates, month names, the tray menu, and native save dialogs follow the chosen language. Error text from the Rust backend stays in English.
 - **Bring-your-own AI.** Settings → AI connects an OpenAI-compatible endpoint, Anthropic, or a local Ollama model. It is off by default and needs no Jotter account. The command palette and the selection toolbar open an AI panel that summarizes, rewrites, or translates the selection or the whole note. The panel previews the result, then replaces the text or inserts the result below it as one undo step. API keys stay in the OS credential store and go only to the address they were saved for. Code, links, math, tags, and frontmatter pass through unchanged. A **Writing style** box holds your own style instructions, prefilled with an example, and the **Polish** rewrite applies them.
 
-- Track pending desktop verification and Mac release work in the roadmap. Expand Settings → System → CSS snippets with setup steps, a working CSS example, scope, and undo instructions.
+- Expand Settings → System → CSS snippets with setup steps, a working CSS example, scope, and undo instructions.
 
 - Prepare desktop portability: native cross-platform dialogs, persistent OS data paths, Mac shortcut hints, opaque native Mac frame, app icon, and macOS CI. Preserve shared-vault filename safety. Fix spelling reload/persistence and case-sensitive rename protection.
 
@@ -66,15 +66,13 @@ Roadmap Phase 2. Windows builds now ship for both x64 and ARM64.
 - Batch index updates resolve links once per transaction. Rich-block reparsing and tag/statistics scans defer work while typing; selection-only changes reuse document statistics.
 - Recycle Bin enumeration runs off the UI thread and refreshes independently of autosaves.
 - Production bundles use minification and a Content Security Policy. Tantivy 0.27 removes the affected `lru` dependency version.
+- Closing the window saves pending edits before the window closes.
+- HTML export renders the note on the frontend before saving, so `export_active_note_html` takes finished HTML instead of Markdown.
+- The Markdown export renderer (comrak) enables its `math_dollars` extension.
 
 ### Added
 
 - Frontend regression tests, filesystem/index regressions, and an isolated WebView2 desktop verification script.
-
-Roadmap Phase 1.
-
-### Added
-
 - **Math.** Live Preview renders `$…$` inline math and `$$…$$` display math with KaTeX. Placing the cursor in a block shows its source with a rendered preview below.
 - **Mermaid diagrams.** ```` ```mermaid ```` blocks render as themed SVG through Pele. Invalid diagrams show the error message and line number.
 - **Math and diagrams in export.** HTML export and Print to PDF render math and diagrams. HTML files use MathML, so they need no fonts or stylesheets.
@@ -85,12 +83,6 @@ Roadmap Phase 1.
 - **Summon hotkey and tray icon.** An opt-in global hotkey (default `Ctrl+Alt+J`) shows or hides Jotter from any app. While it is on, Jotter stays in the tray, and closing the window hides it.
 - **CSS snippets.** `.css` files in `%LOCALAPPDATA%\Jotter\snippets` load on top of the theme, each with its own toggle in the new Settings → System page.
 - **License.** Jotter is licensed under MIT (`LICENSE-MIT`).
-
-### Changed
-
-- Closing the window saves pending edits before the window closes.
-- HTML export renders the note on the frontend before saving, so `export_active_note_html` takes finished HTML instead of Markdown.
-- The Markdown export renderer (comrak) enables its `math_dollars` extension.
 
 ## [0.1.0]
 

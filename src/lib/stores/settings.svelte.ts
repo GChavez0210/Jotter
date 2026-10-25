@@ -67,7 +67,6 @@ export class SettingsStore {
   imageLinkFormat = $state<'wikilink' | 'markdown'>('wikilink');
   writingFont = $state<WritingFont>('serif');
 
-  // Roadmap phase 1
   spellCheck = $state(true);
   showLineNumbers = $state(false);
   enabledSnippets = $state<string[]>([]);
@@ -87,7 +86,6 @@ export class SettingsStore {
   /** Hiding to the tray needs the tray icon, so the two settings move together. */
   closeAction = $state<CloseAction>('quit');
 
-  // Roadmap phase 2
   /** The Notes sidebar view lists folders, or tags with each note's links. */
   notesNavigation = $state<'folders' | 'tags'>('folders');
   /** Show note cards instead of an empty screen when no note is open. */

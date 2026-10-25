@@ -372,7 +372,7 @@ test('home sections skip notes already shown and honor filters', () => {
   assert.deepEqual(tagged[0].cards.map((c) => c.path), ['Work/A.md']);
 });
 
-// Regression tests for the Phase 2 review findings.
+// Regression tests for earlier review findings.
 
 test('fold keys leave Ctrl+Alt free, since Windows reports AltGr as Ctrl+Alt', () => {
   assert.ok(outlinerKeymap.some((b) => b.key === 'Ctrl-Shift-['));
@@ -460,7 +460,7 @@ test('note cards load a new vault at once and coalesce reloads while editing', a
   }
 });
 
-// Regression tests for the low-severity Phase 2 review findings.
+// Regression tests for low-severity review findings.
 
 test('inline calculation subtracts whenever the line ends with =', () => {
   assert.equal(inlineCalculation('4-7=')?.result, '-3');

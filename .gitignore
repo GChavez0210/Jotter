@@ -22,11 +22,14 @@ Thumbs.db
 
 # Internal documents: plans, reviews, manual test runs, and design work
 /CODE_REVIEW.md
+/DECISIONS.md
+/ROADMAP.md
 /REVIEW_PROMPT.md
 /MANUAL_TESTS.md
 /docs/
 /design/
 /internal/
+/examples/
 *.plan.md
 
 # Local test data and scratch files
