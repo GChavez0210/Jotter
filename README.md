@@ -270,6 +270,16 @@ The main run leaves the window set to hide on close, so the close button's defau
 
 See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
+## Support Jotter
+
+<p align="center">
+  <a href="https://buymeacoffee.com/gchavez0210">
+    <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" width="220">
+  </a>
+</p>
+
+Your support helps fund ongoing development, testing, documentation, and new features.
+
 ## License
 
 Jotter is licensed under the [MIT License](LICENSE-MIT).
