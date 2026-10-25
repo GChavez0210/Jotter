@@ -46,6 +46,9 @@ const VALIDATORS: Record<string, (value: string) => boolean> = {
   'jotter.aiTargetLanguage': (value) => text(value) && value.trim().length > 0 && value.length <= 100,
   'jotter.dailyFolder': text,
   'jotter.dailyTemplatePath': text,
+  'jotter.templatesFolder': text,
+  'jotter.quickCaptureShortcut': (value) => text(value) && value.length > 0 && value.length <= 100,
+  'jotter.quickCaptureNote': (value) => text(value) && value.trim().length > 0 && value.length <= 300,
   'jotter.summonShortcut': (value) => text(value) && value.length > 0 && value.length <= 100,
   'jotter.enabledSnippets': json(strings),
   'jotter.spellLanguages': json((value) => object(value) && Object.values(value).every(strings)),
@@ -58,7 +61,7 @@ const VALIDATORS: Record<string, (value: string) => boolean> = {
       && (section.hidden === undefined || typeof section.hidden === 'boolean')))),
 };
 for (const name of ['typewriterScrolling', 'dimInactiveParagraphs', 'showHiddenFiles', 'showHomePage',
-  'showLineNumbers', 'spellCheck', 'summonEnabled', 'taskReminders', 'trayEnabled', 'sidebarCollapsed', 'showRightPanel']) {
+  'showLineNumbers', 'spellCheck', 'summonEnabled', 'quickCaptureEnabled', 'taskReminders', 'trayEnabled', 'sidebarCollapsed', 'showRightPanel']) {
   VALIDATORS[`jotter.${name}`] = boolean;
 }
 

@@ -20,6 +20,7 @@
     spellCheckWords,
     spellSuggest,
   } from './ipc';
+  import { CALLOUT_COLORS, CALLOUT_TITLE_COLOR } from './callouts';
   import {
     createLivePreviewExtension,
     findInlineCodeSpansInLine,
@@ -54,6 +55,8 @@
   import { positionAfterFrontmatter } from './frontmatterPreview';
   import { createOutlinerExtension, outlinerKeymap } from './outliner';
   import type { TextChange } from './frontmatter';
+  import { editsMatch } from './linkUpdates';
+  import type { TextEdit } from './types';
 
   interface Props {
     docId: string;
@@ -521,6 +524,55 @@
       paddingLeft: 'var(--space-4)',
       color: 'var(--syn-quote)',
       fontStyle: 'italic',
+    },
+    ...Object.fromEntries(
+      Object.entries(CALLOUT_COLORS).map(([kind, color]) => [
+        `.cm-line.cm-live-callout-${kind}`,
+        { '--callout': color },
+      ])
+    ),
+    '.cm-line.cm-live-callout': {
+      borderLeft: '3px solid var(--callout)',
+      paddingLeft: 'var(--space-4)',
+      backgroundColor: 'color-mix(in srgb, var(--callout) 10%, transparent)',
+      fontStyle: 'normal',
+    },
+    '.cm-line.cm-live-callout-first': {
+      borderTopLeftRadius: 'var(--radius-card)',
+      borderTopRightRadius: 'var(--radius-card)',
+      paddingTop: 'var(--space-2)',
+      fontWeight: '600',
+      color: CALLOUT_TITLE_COLOR,
+    },
+    '.cm-line.cm-live-callout-quote': {
+      color: 'var(--syn-quote)',
+      fontStyle: 'italic',
+    },
+    '.cm-line.cm-live-callout-last': {
+      borderBottomLeftRadius: 'var(--radius-card)',
+      borderBottomRightRadius: 'var(--radius-card)',
+      paddingBottom: 'var(--space-2)',
+    },
+    '.cm-live-callout-chevron': {
+      border: '0',
+      background: 'transparent',
+      color: 'inherit',
+      font: 'inherit',
+      cursor: 'pointer',
+      padding: '0 var(--space-2) 0 0',
+    },
+    '.cm-live-footnote-ref': {
+      color: 'var(--accent)',
+      fontSize: '0.75em',
+      cursor: 'pointer',
+    },
+    '.cm-line.cm-live-footnote-def': {
+      fontSize: 'var(--fs-13)',
+      color: 'var(--text-secondary)',
+    },
+    '.cm-live-footnote-label': {
+      color: 'var(--accent)',
+      fontWeight: '600',
     },
     '.cm-line.cm-live-codeblock-line': {
       fontFamily: 'var(--font-mono)',
@@ -1025,6 +1077,16 @@
     });
     suppressChangeEmit = false;
     emitStats(view.state);
+  }
+
+  /** Applies planned link edits as one undo step. Applies nothing when the text has moved on. */
+  export function applyTextEdits(edits: TextEdit[]): boolean {
+    if (!view || !editsMatch(view.state.doc, edits)) return false;
+    view.dispatch({
+      changes: edits.map((e) => ({ from: e.from, to: e.to, insert: e.insert })),
+      userEvent: 'input.linkupdate',
+    });
+    return true;
   }
 
   /** Applies an edit made outside the editor, such as from the properties form, as one undo step. */

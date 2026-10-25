@@ -353,6 +353,7 @@ pub fn build_self_contained_html(
     options.extension.table = true;
     options.extension.autolink = true;
     options.extension.tasklist = true;
+    options.extension.footnotes = true;
     // Emits `<span data-math-style>` for `$…$` and `$$…$$`; the frontend renders them with KaTeX.
     options.extension.math_dollars = true;
     options.render.unsafe_ = false;
@@ -573,6 +574,24 @@ mod tests {
         // Read back as data URL via wiki-link target name
         let data_url = read_vault_image_as_data_url(root, &name).unwrap();
         assert!(data_url.starts_with("data:image/png;base64,"));
+    }
+
+    #[test]
+    fn renders_footnotes_and_leaves_callout_markers_for_the_frontend() {
+        let html = build_self_contained_html(
+            "Notes",
+            "Claim[^1].
+
+> [!note] Heads up
+> body
+
+[^1]: The source.",
+            None,
+            false,
+        );
+        assert!(html.contains("data-footnotes"));
+        assert!(html.contains("The source."));
+        assert!(html.contains("[!note] Heads up"));
     }
 
     #[test]

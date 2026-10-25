@@ -137,12 +137,17 @@
     { id: 'tags', label: m.sidebar_view_tags(), icon: 'tag' },
   ]);
 
-  // The conflicts view appears only while the vault has conflict copies to resolve.
-  let VIEWS = $derived(
-    vaultStore.syncConflicts.length > 0 || settingsStore.leftSidebarView === 'conflicts'
-      ? [...BASE_VIEWS, { id: 'conflicts' as const, label: m.sidebar_view_conflicts(), icon: 'warning' as const }]
-      : BASE_VIEWS
-  );
+  // The conflicts view appears only while the vault has conflict copies to resolve, and the
+  // health view only while it is open. The command palette opens it.
+  let VIEWS = $derived([
+    ...BASE_VIEWS,
+    ...(vaultStore.syncConflicts.length > 0 || settingsStore.leftSidebarView === 'conflicts'
+      ? [{ id: 'conflicts' as const, label: m.sidebar_view_conflicts(), icon: 'warning' as const }]
+      : []),
+    ...(settingsStore.leftSidebarView === 'health'
+      ? [{ id: 'health' as const, label: m.sidebar_view_health(), icon: 'list-checks' as const }]
+      : []),
+  ]);
 
   function samePath(a: string, b: string): boolean {
     const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
@@ -562,6 +567,12 @@
       {:catch}
         <LazyLoadError onClose={() => settingsStore.setLeftSidebarView('files')} />
       {/await}
+    {:else if settingsStore.leftSidebarView === 'health'}
+      {#await import('./HealthPanel.svelte') then { default: HealthPanel }}
+        <HealthPanel />
+      {:catch}
+        <LazyLoadError onClose={() => settingsStore.setLeftSidebarView('files')} />
+      {/await}
     {:else if settingsStore.leftSidebarView === 'conflicts'}
       {#await import('./SyncConflictsPanel.svelte') then { default: SyncConflictsPanel }}
         <SyncConflictsPanel />
@@ -616,6 +627,20 @@
     >
       <Icon name="file-plus" />
       <span>{folderTarget ? m.sidebar_ctx_new_note_in({ folder: folderTarget }) : m.common_new_note()}</span>
+    </button>
+    <button
+      type="button"
+      class="ctx-item"
+      role="menuitem"
+      onclick={() => {
+        // Read before clearing: folderTarget derives from contextMenu.
+        const folder = folderTarget;
+        contextMenu = null;
+        settingsStore.openTemplatePicker(folder);
+      }}
+    >
+      <Icon name="file-text" />
+      <span>{folderTarget ? m.sidebar_ctx_new_from_template_in({ folder: folderTarget }) : m.cmd_note_from_template()}</span>
     </button>
     <button
       type="button"

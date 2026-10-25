@@ -45,7 +45,10 @@ import { noteCardsStore } from '../src/lib/stores/noteCards.svelte';
 import { detectSyncProvider, findConflictCopies } from '../src/lib/syncConflicts';
 import { describeDueDate, findDueDate } from '../src/lib/dueDates';
 import { buildHomeSections, buildTagTree, type HomeSection } from '../src/lib/noteGraph';
-import type { NoteCard } from '../src/lib/types';
+import type { NoteCard, VaultNode } from '../src/lib/types';
+import { fillTemplate, findTemplatePrompts, listTemplates, noteStamp } from '../src/lib/templates';
+import { captureEdit, normalizeCaptureNote } from '../src/lib/quickCapture';
+import { editsMatch, reverseEdits } from '../src/lib/linkUpdates';
 import { collectCheckableWords, findCheckableWords, matchDictionaries, resolveNoteLanguages } from '../src/lib/spellcheck';
 import { invalidateImagePreviews, cachedImage, rememberImage, imagePreviewEpoch } from '../src/lib/imagePreviewCache';
 import { aiResultChange, aiTargetRange } from '../src/lib/aiText';
@@ -57,9 +60,12 @@ import { history, undo, undoDepth } from '@codemirror/commands';
 import { EditorView, ViewPlugin } from '@codemirror/view';
 import { refreshEditorLocale } from '../src/lib/editorLocale';
 import { searchPhrases } from '../src/lib/editorSearch';
-import { createLivePreviewExtension } from '../src/lib/livePreview';
+import { createLivePreviewExtension, indexFootnotes } from '../src/lib/livePreview';
 import { createCalcExtension } from '../src/lib/calcPreview';
 import { cachedDiagram, renderDiagram } from '../src/lib/richBlocks';
+import { calloutTitle, parseCalloutMarker } from '../src/lib/callouts';
+import { calloutFoldRange } from '../src/lib/calloutPreview';
+import { findFootnoteRefs, parseFootnoteDefinition } from '../src/lib/footnotes';
 import { foldedRanges } from '@codemirror/language';
 import type { AiConfig, AiResult, AiStatus, VaultNode, VaultSnapshot } from '../src/lib/types';
 
@@ -145,8 +151,26 @@ test('rich blocks respect indented code and render quote/list Mermaid and math',
 });
 
 test('daily template uses the local date and fills placeholders', () => {
-  const result = fillDailyTemplate('{{date}} {{title}} {{time}}', new Date(2026, 9, 19, 23, 7));
-  assert.equal(result, '2026-10-19 2026-10-19 23:07');
+  const result = fillDailyTemplate('{{date}} {{title}} {{time}} {{prompt:Mood}}', new Date(2026, 9, 19, 23, 7));
+  // The daily note has no form to ask, so prompts stay as written.
+  assert.equal(result, '2026-10-19 2026-10-19 23:07 {{prompt:Mood}}');
+});
+
+test('default note names use a local-time stamp', () => {
+  assert.equal(noteStamp(new Date(2026, 9, 19, 23, 7, 5)), '2026-10-19-23-07-05');
+});
+
+test('quick capture appends after one blank line, like the backend', () => {
+  assert.deepEqual(captureEdit('# Inbox\n\nfirst  \n\n', '  second \n'), {
+    from: 14,
+    to: 18,
+    expected: '  \n\n',
+    insert: '\n\nsecond\n',
+  });
+  assert.deepEqual(captureEdit('', 'idea'), { from: 0, to: 0, expected: '', insert: 'idea\n' });
+  assert.equal(captureEdit('x', ' \n '), null);
+  assert.equal(normalizeCaptureNote(' \\Capture\\Quick '), 'Capture/Quick.md');
+  assert.equal(normalizeCaptureNote(''), 'Inbox.md');
 });
 
 test('calculator evaluates expressions, percentages, and functions', () => {
@@ -348,7 +372,7 @@ test('home sections skip notes already shown and honor filters', () => {
   assert.deepEqual(tagged[0].cards.map((c) => c.path), ['Work/A.md']);
 });
 
-// Regression tests for the Phase 2 review findings.
+// Regression tests for earlier review findings.
 
 test('fold keys leave Ctrl+Alt free, since Windows reports AltGr as Ctrl+Alt', () => {
   assert.ok(outlinerKeymap.some((b) => b.key === 'Ctrl-Shift-['));
@@ -436,7 +460,7 @@ test('note cards load a new vault at once and coalesce reloads while editing', a
   }
 });
 
-// Regression tests for the low-severity Phase 2 review findings.
+// Regression tests for low-severity review findings.
 
 test('inline calculation subtracts whenever the line ends with =', () => {
   assert.equal(inlineCalculation('4-7=')?.result, '-3');
@@ -1425,4 +1449,113 @@ test('find and replace labels translate and keep the $ placeholders', () => {
     assert.ok(spanish['replaced $ matches'].includes('$'));
     assert.ok(spanish['replaced match on line $'].includes('$'));
   } finally { i18n.setPreference('system'); }
+});
+
+test('callout markers parse type, fold sign, and title', () => {
+  assert.deepEqual(
+    { ...parseCalloutMarker('> [!warning]- Careful here')!, markerEnd: 0 },
+    { type: 'warning', kind: 'warning', fold: '-', title: 'Careful here', markerEnd: 0 }
+  );
+  assert.equal(parseCalloutMarker('> [!NOTE]')?.kind, 'note');
+  assert.equal(parseCalloutMarker('> [!summary]+')?.kind, 'abstract');
+  assert.equal(parseCalloutMarker('> [!custom] Mine')?.kind, 'note');
+  assert.equal(parseCalloutMarker('> [!note]no space'), null);
+  assert.equal(parseCalloutMarker('> plain quote'), null);
+  assert.equal(parseCalloutMarker('[!note] not quoted'), null);
+});
+
+test('callout titles use the localized default and fall back to the written type', () => {
+  try {
+    assert.equal(calloutTitle(parseCalloutMarker('> [!tip]')!), 'Tip');
+    assert.equal(calloutTitle(parseCalloutMarker('> [!hint]')!), 'Tip');
+    assert.equal(calloutTitle(parseCalloutMarker('> [!custom]')!), 'Custom');
+    assert.equal(calloutTitle(parseCalloutMarker('> [!tip] Mine')!), 'Mine');
+    i18n.setPreference('es');
+    assert.equal(calloutTitle(parseCalloutMarker('> [!tip]')!), 'Consejo');
+  } finally { i18n.setPreference('system'); }
+});
+
+test('callout fold range spans the quote lines after the title', () => {
+  const state = EditorState.create({ doc: '> [!note]- Title\n> body\n> more\n\nafter' });
+  assert.deepEqual(calloutFoldRange(state, 1), { from: 16, to: 30 });
+  assert.equal(calloutFoldRange(EditorState.create({ doc: '> [!note]\n\nx' }), 1), null);
+  assert.equal(calloutFoldRange(EditorState.create({ doc: '> a\n> [!note]\n> b' }), 2), null);
+});
+
+test('footnote references and definitions are told apart', () => {
+  assert.deepEqual(findFootnoteRefs('Text[^1] and[^note].'), [
+    { from: 4, to: 8, id: '1' },
+    { from: 12, to: 19, id: 'note' },
+  ]);
+  assert.deepEqual(findFootnoteRefs('[^1]: the definition'), []);
+  assert.deepEqual(findFootnoteRefs('escaped \\[^1]'), []);
+  assert.deepEqual(findFootnoteRefs('slash \\\\[^1]'), [{ from: 8, to: 12, id: '1' }]);
+  assert.deepEqual(findFootnoteRefs('see [^1]: later'), [{ from: 4, to: 8, id: '1' }]);
+  assert.deepEqual(parseFootnoteDefinition('[^1]: the definition'), { id: '1', labelEnd: 5 });
+  assert.equal(parseFootnoteDefinition('see [^1]: later'), null);
+});
+
+test('footnotes are numbered by first reference and skip code', () => {
+  const doc = 'b[^B] a[^a] `[^z]` [^none] b[^b]\n\n```\n[^a]: fake\n```\n\n[^z]: z\n[^a]: A\n[^b]: B';
+  const state = EditorState.create({ doc, extensions: markdown({ base: markdownLanguage }) });
+  const { numbers, definitions } = indexFootnotes(state);
+  assert.deepEqual([...numbers], [['b', 1], ['a', 2]]);
+  assert.equal(definitions.get('a'), doc.indexOf('[^a]: A'));
+  assert.equal(indexFootnotes(state), indexFootnotes(state));
+});
+
+test('templates fill date, time, title, and prompts in one pass', () => {
+  const now = new Date(2026, 9, 19, 8, 5);
+  const template = '{{title}} {{ date }} {{time}} {{prompt:Client}} {{prompt: Client }} {{prompt:Missing}}';
+  assert.equal(
+    fillTemplate(template, { now, title: 'Plan', prompts: { Client: 'Acme {{date}}' } }),
+    'Plan 2026-10-19 08:05 Acme {{date}} Acme {{date}} '
+  );
+});
+
+test('template prompts list each label once, in order of first use', () => {
+  assert.deepEqual(
+    findTemplatePrompts('{{prompt:Client}} {{date}} {{prompt:Topic}} {{prompt: Client}} {{prompt:}}'),
+    ['Client', 'Topic']
+  );
+});
+
+test('templates come from the templates folder and its subfolders only', () => {
+  const file = (relPath: string) => ({
+    name: relPath.split('/').pop()!, relPath, kind: 'file', modifiedMs: 0, createdMs: 0, children: [],
+  }) as VaultNode;
+  const files = [
+    file('Templates/Meeting.md'), file('templates/Sub/Idea.md'), file('Templates/pic.png'),
+    file('Templates.md'), file('Notes/Templates/Other.md'),
+  ];
+  assert.deepEqual(listTemplates(files, ' /Templates/ ').map((f) => f.relPath), [
+    'Templates/Meeting.md', 'templates/Sub/Idea.md',
+  ]);
+  assert.deepEqual(listTemplates(files, ''), []);
+});
+
+test('reversing link edits restores the text and numbers positions in the new text', () => {
+  const original = 'a [[Old]] b [[Old|x]]';
+  const edits = [
+    { from: 4, to: 7, expected: 'Old', insert: 'Newer name' },
+    { from: 14, to: 17, expected: 'Old', insert: 'Newer name' },
+  ];
+  const apply = (text: string, list: typeof edits) => [...list].sort((a, b) => b.from - a.from)
+    .reduce((out, e) => out.slice(0, e.from) + e.insert + out.slice(e.to), text);
+  const updated = apply(original, edits);
+  assert.equal(updated, 'a [[Newer name]] b [[Newer name|x]]');
+  const reverse = reverseEdits(edits);
+  assert.deepEqual(reverse.map((e) => [e.from, e.to]), [[4, 14], [21, 31]]);
+  assert.equal(apply(updated, reverse), original);
+});
+
+test('link edits apply only while the text still matches', () => {
+  const doc = EditorState.create({ doc: 'x [[Old]] y' }).doc;
+  assert.equal(editsMatch(doc, [{ from: 4, to: 7, expected: 'Old', insert: 'New' }]), true);
+  assert.equal(editsMatch(doc, [{ from: 4, to: 7, expected: 'Odd', insert: 'New' }]), false);
+  assert.equal(editsMatch(doc, [{ from: 4, to: 50, expected: 'Old', insert: 'New' }]), false);
+  assert.equal(editsMatch(doc, [
+    { from: 4, to: 7, expected: 'Old', insert: 'a' },
+    { from: 5, to: 6, expected: 'l', insert: 'b' },
+  ]), false);
 });

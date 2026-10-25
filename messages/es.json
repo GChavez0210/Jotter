@@ -236,6 +236,20 @@
   "copy_mode_rich": "Enriquecido",
   "diagram_error": "Error en el diagrama: {message}",
   "diagram_error_at": "Error en el diagrama (línea {line}): {message}",
+  "callout_note": "Nota",
+  "callout_abstract": "Resumen",
+  "callout_info": "Información",
+  "callout_todo": "Por hacer",
+  "callout_tip": "Consejo",
+  "callout_success": "Éxito",
+  "callout_question": "Pregunta",
+  "callout_warning": "Advertencia",
+  "callout_failure": "Fallo",
+  "callout_danger": "Peligro",
+  "callout_bug": "Error",
+  "callout_example": "Ejemplo",
+  "callout_quote": "Cita",
+  "callout_toggle": "Plegar o desplegar el aviso",
   "dialog_export_html_filter": "Documento HTML",
   "dialog_export_html_title": "Exportar nota a HTML",
   "dialog_settings_export_title": "Exportar la configuración",
@@ -420,6 +434,15 @@
   "quick_matches": "Notas que coinciden",
   "quick_no_match": "Ninguna nota de esta bóveda coincide con «{query}».",
   "quick_switcher": "Selector rápido",
+  "template_picker": "Nueva nota desde plantilla",
+  "template_find": "Buscar una plantilla",
+  "template_none": "No hay plantillas en «{folder}». Añade notas a esa carpeta para usarlas como plantillas.",
+  "template_hint_choose": "para elegir",
+  "template_note_name": "Nombre de la nota",
+  "template_name_required": "Escribe un nombre para la nota.",
+  "template_back": "Elegir otra plantilla",
+  "cmd_note_from_template": "Nueva nota desde plantilla…",
+  "settings_templates_folder": "Carpeta de plantillas",
   "right_panel": "Panel de la nota",
   "right_panel_close": "Cerrar el panel de la nota",
   "right_panel_tab_note": "Esquema y vínculos entrantes",
@@ -603,6 +626,16 @@
   "settings_spellcheck_desc": "Subraya las palabras mal escritas.",
   "settings_summon": "Atajo para mostrar Jotter",
   "settings_summon_desc": "Muestra u oculta Jotter desde cualquier lugar, incluso con otra app en primer plano.",
+  "settings_capture": "Captura rápida",
+  "settings_capture_desc": "Abre una ventana pequeña desde cualquier lugar para anotar una idea. Se añade al final de la nota indicada, y Jotter no necesita estar al frente.",
+  "settings_capture_note": "Bandeja de entrada",
+  "capture_placeholder": "Anota algo…",
+  "capture_window_title": "Captura rápida de Jotter",
+  "capture_hint": "Intro guarda · Mayús+Intro añade una línea · Esc oculta",
+  "capture_no_vault": "Abre primero una bóveda en Jotter.",
+  "capture_failed": "No se pudo guardar: {error}",
+  "capture_unsaved": "No se pudieron guardar antes las notas abiertas, así que la entrada no se añadió. Guárdalas en Jotter y vuelve a intentarlo.",
+  "capture_timeout": "Jotter no respondió. Abre la ventana principal y vuelve a intentarlo.",
   "settings_synced_by": "Sincronizada con {provider}. Mantén la carpeta disponible sin conexión para que la búsqueda vea todas las notas.",
   "settings_system_subtitle": "Atajo global, bandeja del sistema y CSS propio.",
   "settings_task_calendar": "Calendario de tareas",
@@ -630,6 +663,7 @@
   "sidebar_ctx_move_to_trash": "Mover a la {trash} (Supr)",
   "sidebar_ctx_new_folder_in": "Nueva carpeta en {folder}",
   "sidebar_ctx_new_note_in": "Nueva nota en {folder}",
+  "sidebar_ctx_new_from_template_in": "Nueva nota desde plantilla en «{folder}»…",
   "sidebar_ctx_pin": "Fijar arriba",
   "sidebar_ctx_rename": "Cambiar nombre (F2)",
   "sidebar_ctx_unpin": "Dejar de fijar",
@@ -660,6 +694,87 @@
   "sidebar_vault_root": "Raíz de la bóveda",
   "sidebar_view_calendar": "Calendario",
   "sidebar_view_conflicts": "Conflictos de sincronización",
+  "sidebar_view_health": "Salud de la bóveda",
+  "cmd_view_health": "Revisar la salud de la bóveda",
+  "link_update_title": "¿Actualizar los enlaces a esta nota?",
+  "link_update_body": [
+    {
+      "declarations": [
+        "input count",
+        "input name",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{count} nota enlaza con «{name}». ¿Actualizar sus enlaces para que sigan funcionando?",
+        "countPlural=*": "{count} notas enlazan con «{name}». ¿Actualizar sus enlaces para que sigan funcionando?"
+      }
+    }
+  ],
+  "link_update_apply": "Actualizar enlaces",
+  "link_update_skip": "Solo renombrar",
+  "link_update_done": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "Enlaces actualizados en {count} nota.",
+        "countPlural=*": "Enlaces actualizados en {count} notas."
+      }
+    }
+  ],
+  "link_update_skipped": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "Se dejó {count} enlace sin cambiar porque su texto había cambiado.",
+        "countPlural=*": "Se dejaron {count} enlaces sin cambiar porque su texto había cambiado."
+      }
+    }
+  ],
+  "link_update_undone": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "Enlaces restaurados en {count} nota.",
+        "countPlural=*": "Enlaces restaurados en {count} notas."
+      }
+    }
+  ],
+  "cmd_undo_link_update": "Deshacer la última actualización de enlaces",
+  "health_intro": "Revisa todas las notas y los archivos adjuntos de esta bóveda. No cambia nada hasta que elijas una acción.",
+  "health_scan": "Volver a analizar",
+  "health_scanning": "Analizando…",
+  "health_failed": "No se pudo analizar la bóveda: {error}",
+  "health_all_clear": "No se encontraron problemas.",
+  "health_broken": "Enlaces rotos",
+  "health_unused": "Adjuntos sin usar",
+  "health_empty": "Notas vacías",
+  "health_duplicates": "Títulos duplicados",
+  "health_more": "y {count} más",
+  "health_line": "línea {line}",
+  "health_create_note": "Crear la nota «{name}»",
+  "health_confirm_move": "¿Moverlo a {trash}?",
+  "health_move_named": "Mover {name} a {trash}",
   "sidebar_view_notes": "Notas",
   "sidebar_view_search": "Búsqueda de texto completo",
   "sidebar_view_tags": "Etiquetas",

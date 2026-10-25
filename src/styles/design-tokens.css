@@ -1,7 +1,6 @@
 /**
  * Jotter design tokens: warm paper surfaces, one ink accent, bundled type.
  * Single source of truth for color, type, spacing, radii and motion.
- * Visual reference: design/README.md.
  */
 :root {
   /* Type families (bundled through @fontsource-variable in main.ts) */

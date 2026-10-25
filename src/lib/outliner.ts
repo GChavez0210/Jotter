@@ -551,7 +551,7 @@ const listFolding = foldService.of((state, lineStart) => {
   return { from: line.to, to: state.doc.line(item.end).to };
 });
 
-function isFolded(state: EditorState, from: number, to: number): boolean {
+export function isFolded(state: EditorState, from: number, to: number): boolean {
   let found = false;
   foldedRanges(state).between(from, to, (a, b) => {
     if (a === from && b === to) found = true;

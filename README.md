@@ -236,6 +236,15 @@ Build native desktop bundles under `src-tauri/target/release/bundle/` (Windows i
 npm run tauri build
 ```
 
+### Releases and Code Signing
+
+Pushing a tag such as `v0.5.0` runs `.github/workflows/release.yml`. It builds the x64 and ARM64 Windows installers (an `.exe` per-user setup and an `.msi` for each) and attaches them to a draft GitHub release, which you review and publish. The tag must match the version in `src-tauri/tauri.conf.json`. A pull request that edits the workflow builds the same installers as workflow artifacts, with no release.
+
+The installers are unsigned until signing is set up, so Windows SmartScreen warns on first launch. The workflow signs every executable and installer with [Azure Trusted Signing](https://learn.microsoft.com/azure/trusted-signing/) once these exist in the repository settings:
+
+- Secrets `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, and `AZURE_TENANT_ID` for an app registration with the *Trusted Signing Certificate Profile Signer* role.
+- Variables `TRUSTED_SIGNING_ENDPOINT` (such as `https://eus.codesigning.azure.net`), `TRUSTED_SIGNING_ACCOUNT`, and `TRUSTED_SIGNING_PROFILE`.
+
 Application data lives outside vaults: `%LOCALAPPDATA%\Jotter` on Windows and `~/Library/Application Support/Jotter` on macOS. The macOS config keeps native traffic lights and uses an opaque window. Shared-vault filename checks retain conservative rules so files can move between systems. On macOS, restore deleted notes through Finder Trash.
 
 ## Verification & Quality Checks
@@ -259,7 +268,17 @@ After building on Windows, run the isolated desktop checks with `node scripts/ve
 
 The main run leaves the window set to hide on close, so the close button's default quit path needs its own run: `JOTTER_CLOSE_ONLY=1 node scripts/verify-desktop.mjs` starts a fresh profile and confirms a native close saves a last-moment edit and then exits.
 
-See [DECISIONS.md](DECISIONS.md) for architecture and accessibility decisions, [ROADMAP.md](ROADMAP.md) for planned features, and [CHANGELOG.md](CHANGELOG.md) for release notes.
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
+
+## Support Jotter
+
+<p align="center">
+  <a href="https://buymeacoffee.com/gchavez0210">
+    <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" width="220">
+  </a>
+</p>
+
+Your support helps fund ongoing development, testing, documentation, and new features.
 
 ## License
 

@@ -3,6 +3,8 @@
  * export. Both libraries load on first use, so notes without math or diagrams pay nothing.
  */
 
+import { EXPORT_CALLOUT_CSS, enhanceCallouts } from './callouts';
+import { EXPORT_FOOTNOTE_CSS } from './footnotes';
 import { evaluateCalcBlock } from './calc';
 import { i18n, m } from './i18n.svelte';
 
@@ -123,7 +125,9 @@ export async function enhanceRenderedHtml(
   const hasMath = html.includes('data-math-style');
   const hasDiagram = html.includes('language-mermaid');
   const hasCalc = html.includes('language-calc');
-  if (!hasMath && !hasDiagram && !hasCalc) return html;
+  const hasCallout = html.includes('[!');
+  const hasFootnotes = html.includes('data-footnotes');
+  if (!hasMath && !hasDiagram && !hasCalc && !hasCallout && !hasFootnotes) return html;
 
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const output: MathOutput = target === 'file' ? 'mathml' : 'html';
@@ -159,8 +163,10 @@ export async function enhanceRenderedHtml(
       .join('\n');
   }
 
+  if (hasCallout) enhanceCallouts(doc, target);
+
   const style = doc.createElement('style');
-  style.textContent = exportDiagramCss(dark);
+  style.textContent = `${exportDiagramCss(dark)}\n${EXPORT_CALLOUT_CSS}\n${EXPORT_FOOTNOTE_CSS}`;
   doc.head.appendChild(style);
 
   return html.trimStart().toLowerCase().startsWith('<!doctype')

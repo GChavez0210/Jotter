@@ -1,6 +1,7 @@
 import { appStorage } from '../appStorage';
-import { defaultSummonShortcut } from '../platform';
+import { defaultCaptureShortcut, defaultSummonShortcut } from '../platform';
 import { m } from '../i18n.svelte';
+import { normalizeTemplatesFolder } from '../templates';
 import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
 import { rightPanelFitsWindow, sidebarFitsWindow, titleBarIsCompact, widthForSidebar } from '../layout';
 import { designTokens, isAccentPresetId, type AccentPresetId } from '../designTokens';
@@ -46,6 +47,9 @@ export class SettingsStore {
   dimInactiveParagraphs = $state(false);
   showCommandPalette = $state(false);
   showQuickSwitcher = $state(false);
+  showTemplatePicker = $state(false);
+  /** The folder a note made from the template picker goes into. */
+  templatePickerFolder = $state('');
   topHoverReveal = $state(false);
 
   // Milestone 4: Left Sidebar Views & Right Backlinks Panel
@@ -63,12 +67,16 @@ export class SettingsStore {
   imageLinkFormat = $state<'wikilink' | 'markdown'>('wikilink');
   writingFont = $state<WritingFont>('serif');
 
-  // Roadmap phase 1
   spellCheck = $state(true);
   showLineNumbers = $state(false);
   enabledSnippets = $state<string[]>([]);
   dailyFolder = $state('Daily');
   dailyTemplatePath = $state('Templates/Daily.md');
+  templatesFolder = $state('Templates');
+  quickCaptureEnabled = $state(false);
+  quickCaptureShortcut = $state(defaultCaptureShortcut);
+  /** The note quick capture appends to, relative to the vault. */
+  quickCaptureNote = $state('Inbox.md');
   summonEnabled = $state(false);
   summonShortcut = $state(defaultSummonShortcut);
   /** Keep a tray icon while Jotter runs. */
@@ -78,7 +86,6 @@ export class SettingsStore {
   /** Hiding to the tray needs the tray icon, so the two settings move together. */
   closeAction = $state<CloseAction>('quit');
 
-  // Roadmap phase 2
   /** The Notes sidebar view lists folders, or tags with each note's links. */
   notesNavigation = $state<'folders' | 'tags'>('folders');
   /** Show note cards instead of an empty screen when no note is open. */
@@ -250,6 +257,7 @@ export class SettingsStore {
     this.settingsSectionRequest = section ?? null;
     this.showCommandPalette = false;
     this.showQuickSwitcher = false;
+    this.showTemplatePicker = false;
     this.showSettings = true;
   }
 
@@ -289,12 +297,63 @@ export class SettingsStore {
     this.persist('jotter.dailyTemplatePath', this.dailyTemplatePath);
   }
 
+  openTemplatePicker(folder = '') {
+    this.templatePickerFolder = folder;
+    this.showTemplatePicker = true;
+  }
+
+  setTemplatesFolder(folder: string) {
+    this.templatesFolder = normalizeTemplatesFolder(folder);
+    this.persist('jotter.templatesFolder', this.templatesFolder);
+  }
+
   setSummon(enabled: boolean, shortcut = this.summonShortcut) {
     this.summonEnabled = enabled;
     this.summonShortcut = shortcut.trim() || defaultSummonShortcut;
     this.persist('jotter.summonEnabled', String(enabled));
     this.persist('jotter.summonShortcut', this.summonShortcut);
   }
+
+  setQuickCapture(enabled: boolean, shortcut = this.quickCaptureShortcut) {
+    this.quickCaptureEnabled = enabled;
+    this.quickCaptureShortcut = shortcut.trim() || defaultCaptureShortcut;
+    this.persist('jotter.quickCaptureEnabled', String(enabled));
+    this.persist('jotter.quickCaptureShortcut', this.quickCaptureShortcut);
+  }
+
+  setQuickCaptureNote(path: string) {
+    this.quickCaptureNote = path.trim().replace(/\\/g, '/').replace(/^\/+/, '') || 'Inbox.md';
+    this.persist('jotter.quickCaptureNote', this.quickCaptureNote);
+  }
+
+  /** Loads and applies only the look of the app, for secondary windows that must not touch the window. */
+  initAppearance() {
+    const theme = appStorage.getItem('jotter.themePref');
+    if (theme === 'system' || theme === 'light' || theme === 'dark' || theme === 'high-contrast') {
+      this.themePref = theme;
+    }
+    const mode = appStorage.getItem('jotter.accentMode');
+    if (mode === 'preset' || mode === 'system' || mode === 'custom') this.accentColorMode = mode;
+    const preset = appStorage.getItem('jotter.accentPreset');
+    if (isAccentPresetId(preset)) this.accentPreset = preset;
+    const hex = appStorage.getItem('jotter.customAccentColor');
+    if (hex && /^#[0-9a-fA-F]{6}$/.test(hex)) this.customAccentColor = hex;
+    const font = appStorage.getItem('jotter.writingFont');
+    if (font === 'serif' || font === 'sans' || font === 'mono') this.writingFont = font;
+    this.applyThemeToDocument(this.themePref);
+    this.applyAccentToDocument();
+    this.applyWritingFontToDocument();
+    const dark = window.matchMedia('(prefers-color-scheme: dark)');
+    this.systemIsDark = dark.matches;
+    if (!this.watchingSystemTheme) {
+      this.watchingSystemTheme = true;
+      dark.addEventListener('change', (e) => {
+        this.systemIsDark = e.matches;
+        this.applyThemeToDocument(this.themePref);
+      });
+    }
+  }
+  private watchingSystemTheme = false;
 
   setTaskReminders(enabled: boolean) {
     this.taskReminders = enabled;
@@ -619,7 +678,14 @@ export class SettingsStore {
       if (savedDailyFolder !== null) this.dailyFolder = savedDailyFolder;
       const savedDailyTemplate = appStorage.getItem('jotter.dailyTemplatePath');
       if (savedDailyTemplate !== null) this.dailyTemplatePath = savedDailyTemplate;
+      const savedTemplatesFolder = appStorage.getItem('jotter.templatesFolder');
+      if (savedTemplatesFolder !== null) this.templatesFolder = savedTemplatesFolder;
       this.taskReminders = appStorage.getItem('jotter.taskReminders') !== 'false';
+      this.quickCaptureEnabled = appStorage.getItem('jotter.quickCaptureEnabled') === 'true';
+      const savedCaptureShortcut = appStorage.getItem('jotter.quickCaptureShortcut');
+      if (savedCaptureShortcut) this.quickCaptureShortcut = savedCaptureShortcut;
+      const savedCaptureNote = appStorage.getItem('jotter.quickCaptureNote');
+      if (savedCaptureNote) this.quickCaptureNote = savedCaptureNote;
       this.summonEnabled = appStorage.getItem('jotter.summonEnabled') === 'true';
       const savedShortcut = appStorage.getItem('jotter.summonShortcut');
       if (savedShortcut) this.summonShortcut = savedShortcut;

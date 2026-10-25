@@ -106,7 +106,53 @@ export interface SearchHit {
   matchCount: number;
 }
 
-export type LeftSidebarView = 'files' | 'search' | 'tags' | 'conflicts';
+export type LeftSidebarView = 'files' | 'search' | 'tags' | 'conflicts' | 'health';
+
+export interface TextEdit {
+  from: number;
+  to: number;
+  /** The text expected at `from..to`; the edit is skipped when the note no longer has it. */
+  expected: string;
+  insert: string;
+}
+
+export interface NoteEdits {
+  /** The note's path after the rename. */
+  path: string;
+  edits: TextEdit[];
+}
+
+export interface LinkUpdatePlan {
+  notes: NoteEdits[];
+  linkCount: number;
+}
+
+export interface AppliedEdits {
+  applied: number;
+  skipped: number;
+  reverse: TextEdit[];
+}
+
+export interface BrokenLink {
+  sourcePath: string;
+  lineNumber: number;
+  target: string;
+  kind: 'wiki' | 'markdown';
+  lineContext: string;
+}
+
+export interface HealthList<T> {
+  /** The true count; `items` stops at a fixed limit. */
+  total: number;
+  items: T[];
+}
+
+export interface VaultHealthReport {
+  brokenLinks: HealthList<BrokenLink>;
+  unusedAttachments: HealthList<string>;
+  emptyNotes: HealthList<string>;
+  duplicateTitles: HealthList<{ title: string; paths: string[] }>;
+}
 export type RightPanelTab = 'note' | 'calendar' | 'trash';
 
 /** A vault note or folder in the OS trash. */

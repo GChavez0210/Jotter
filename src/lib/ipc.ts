@@ -1,5 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { emitTo, listen, type UnlistenFn } from '@tauri-apps/api/event';
+import {
+  CAPTURE_REQUEST_EVENT,
+  CAPTURE_RESULT_EVENT,
+  type CaptureRequest,
+  type CaptureResult,
+} from './quickCapture';
 import type {
   AiConfig,
   AiProvider,
@@ -7,6 +13,10 @@ import type {
   AiResult,
   AiStatus,
   BacklinkEntry,
+  VaultHealthReport,
+  LinkUpdatePlan,
+  TextEdit,
+  AppliedEdits,
   CalendarDateField,
   CalendarDaySummary,
   CalendarNoteEntry,
@@ -125,6 +135,22 @@ export async function queryCalendarDateNotes(
   return invoke<CalendarNoteEntry[]>('query_calendar_date_notes', { date, field });
 }
 
+export async function planLinkUpdates(
+  oldRelPath: string,
+  newRelPath: string
+): Promise<LinkUpdatePlan> {
+  return invoke<LinkUpdatePlan>('plan_link_updates', { oldRelPath, newRelPath });
+}
+
+export async function applyLinkEdits(relPath: string, edits: TextEdit[]): Promise<AppliedEdits> {
+  return invoke<AppliedEdits>('apply_link_edits', { relPath, edits });
+}
+
+/** Scans the vault. Notes in `templatesFolder` count only for attachment use. */
+export async function getVaultHealth(templatesFolder: string): Promise<VaultHealthReport> {
+  return invoke<VaultHealthReport>('get_vault_health', { templatesFolder });
+}
+
 export async function getBacklinks(relPath: string): Promise<BacklinkEntry[]> {
   return invoke<BacklinkEntry[]>('get_backlinks', { relPath });
 }
@@ -216,6 +242,69 @@ export async function openDictionariesFolder(): Promise<void> {
 
 export async function configureSummon(enabled: boolean, shortcut: string): Promise<void> {
   return invoke<void>('configure_summon', { enabled, shortcut });
+}
+
+export async function configureQuickCapture(enabled: boolean, shortcut: string): Promise<void> {
+  return invoke<void>('configure_quick_capture', { enabled, shortcut });
+}
+
+/** Appends text to the inbox note and returns the note's path. */
+export async function quickCaptureAppend(relPath: string, text: string): Promise<string> {
+  return invoke<string>('quick_capture_append', { relPath, text });
+}
+
+export async function hideCaptureWindow(): Promise<void> {
+  return invoke<void>('hide_capture_window');
+}
+
+export async function listenQuickCaptureOpen(handler: () => void): Promise<UnlistenFn> {
+  return listen<null>('quick-capture-open', () => handler());
+}
+
+/** The main window takes capture entries from the capture window and answers each one. */
+export async function listenCaptureRequests(
+  handler: (request: CaptureRequest) => Promise<string>
+): Promise<UnlistenFn> {
+  return listen<CaptureRequest>(CAPTURE_REQUEST_EVENT, async ({ payload }) => {
+    let result: CaptureResult;
+    try {
+      result = { id: payload.id, path: await handler(payload) };
+    } catch (err) {
+      result = { id: payload.id, error: err instanceof Error ? err.message : String(err) };
+    }
+    await emitTo('capture', CAPTURE_RESULT_EVENT, result);
+  });
+}
+
+/** The error text `requestCapture` rejects with when the main window does not answer. */
+export const CAPTURE_TIMEOUT_ERROR = 'capture-timeout';
+
+/** How long the capture window waits for the main window before it gives up. */
+const CAPTURE_TIMEOUT_MS = 10_000;
+
+/** Sends an entry to the main window and resolves with the note's path once it is saved. */
+export async function requestCapture(note: string, text: string): Promise<string> {
+  const id = crypto.randomUUID();
+  let unlisten: UnlistenFn | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await new Promise<string>((resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(CAPTURE_TIMEOUT_ERROR)), CAPTURE_TIMEOUT_MS);
+      void listen<CaptureResult>(CAPTURE_RESULT_EVENT, ({ payload }) => {
+        if (payload.id !== id) return;
+        if ('path' in payload) resolve(payload.path);
+        else reject(new Error(payload.error));
+      })
+        .then((fn) => {
+          unlisten = fn;
+          return emitTo('main', CAPTURE_REQUEST_EVENT, { id, note, text } satisfies CaptureRequest);
+        })
+        .catch(reject);
+    });
+  } finally {
+    clearTimeout(timer);
+    unlisten?.();
+  }
 }
 
 export async function configureWindowBehavior(

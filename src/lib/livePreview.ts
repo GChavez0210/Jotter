@@ -8,6 +8,7 @@ import {
   StateEffect,
   EditorState,
   Range,
+  type Text,
   type Extension,
 } from '@codemirror/state';
 import {
@@ -24,6 +25,16 @@ import {
   findInlineMath,
   inlineMathDecoration,
 } from './livePreviewBlocks';
+import { calloutFolding, calloutTitleDecoration } from './calloutPreview';
+import { parseCalloutMarker } from './callouts';
+import {
+  findFootnoteRefs,
+  footnoteKey,
+  footnoteRefDecoration,
+  parseFootnoteDefinition,
+} from './footnotes';
+import { foldEffect, unfoldEffect } from '@codemirror/language';
+import type { SyntaxNode } from '@lezer/common';
 import type { EditingMode } from './types';
 import { cachedImage, rememberImage, imagePreviewEpoch, IMAGE_REFRESH_EVENT } from './imagePreviewCache';
 const refreshImages = StateEffect.define<void>();
@@ -45,6 +56,52 @@ interface VisibleLineWindow {
 }
 
 const INLINE_TAG_RE = /(?<=^|\s)#([\p{L}\p{N}_/-]+)/gu;
+
+/** True when a quote sits inside a callout, so it keeps the callout box instead of its own border. */
+function isInsideCallout(state: EditorState, node: SyntaxNode): boolean {
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    if (parent.name === 'Blockquote' && parseCalloutMarker(state.doc.lineAt(parent.from).text)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+interface FootnoteIndex {
+  /** Number shown for each defined id, in order of first reference, as comrak numbers them. */
+  numbers: Map<string, number>;
+  /** Start of each id's definition line. */
+  definitions: Map<string, number>;
+}
+
+const footnoteIndexCache = new WeakMap<Text, FootnoteIndex>();
+
+/** Scans the note for footnotes outside code. Cached per document, so cursor moves cost nothing. */
+export function indexFootnotes(state: EditorState): FootnoteIndex {
+  const cached = footnoteIndexCache.get(state.doc);
+  if (cached) return cached;
+  const definitions = new Map<string, number>();
+  const order: string[] = [];
+  for (let n = 1; n <= state.doc.lines; n++) {
+    const line = state.doc.line(n);
+    if (!line.text.includes('[^') || lineIsInsideFence(state, line.from)) continue;
+    const definition = parseFootnoteDefinition(line.text);
+    if (definition && !definitions.has(footnoteKey(definition.id))) {
+      definitions.set(footnoteKey(definition.id), line.from);
+    }
+    const spans = findInlineCodeSpansInLine(line.text);
+    for (const ref of findFootnoteRefs(line.text)) {
+      if (!spans.some((sp) => ref.from < sp.to && ref.to > sp.from)) order.push(footnoteKey(ref.id));
+    }
+  }
+  const numbers = new Map<string, number>();
+  for (const key of order) {
+    if (definitions.has(key) && !numbers.has(key)) numbers.set(key, numbers.size + 1);
+  }
+  const index = { numbers, definitions };
+  footnoteIndexCache.set(state.doc, index);
+  return index;
+}
 
 function lineIsInsideFence(state: EditorState, pos: number): boolean {
   let inside = false;
@@ -584,17 +641,29 @@ function buildLivePreviewDecorations(
 
           // Blockquotes (> ) — clamped to visible window lines
           if (name === 'Blockquote') {
-            const startLine = Math.max(
-              win.startLine,
-              state.doc.lineAt(node.from).number
-            );
-            const endLine = Math.min(
-              win.endLine,
-              state.doc.lineAt(node.to).number
-            );
+            const quoteFirst = state.doc.lineAt(node.from);
+            const quoteLast = state.doc.lineAt(node.to);
+            const callout = parseCalloutMarker(quoteFirst.text);
+            const nestedInCallout = !callout && isInsideCallout(state, node.node);
+            const startLine = Math.max(win.startLine, quoteFirst.number);
+            const endLine = Math.min(win.endLine, quoteLast.number);
             for (let ln = startLine; ln <= endLine; ln++) {
               const line = state.doc.line(ln);
-              addLineClass(line.from, 'cm-live-blockquote-line');
+              if (callout) {
+                addLineClass(line.from, `cm-live-callout cm-live-callout-${callout.kind}`);
+                if (ln === quoteFirst.number) addLineClass(line.from, 'cm-live-callout-first');
+                if (ln === quoteLast.number) addLineClass(line.from, 'cm-live-callout-last');
+              } else if (nestedInCallout) {
+                addLineClass(line.from, 'cm-live-callout-quote');
+              } else {
+                addLineClass(line.from, 'cm-live-blockquote-line');
+              }
+              if (callout && ln === quoteFirst.number) {
+                if (!isLineTouchedBySelection(state, line.from, line.to)) {
+                  decorations.push(calloutTitleDecoration(state, line, callout));
+                }
+                continue;
+              }
               if (!isLineTouchedBySelection(state, line.from, line.to)) {
                 const m = /^(\s*>+\s?)/.exec(line.text);
                 if (m) {
@@ -1084,6 +1153,41 @@ function buildLivePreviewDecorations(
     }
   }
 
+  // 6. Footnotes: `[^id]` references become superscripts, `[^id]: text` lines get a label.
+  if (config.editingMode === 'live') {
+    const footnotes = indexFootnotes(state);
+    for (const win of windows) {
+      for (let ln = win.startLine; ln <= win.endLine; ln++) {
+        const line = state.doc.line(ln);
+        if (!line.text.includes('[^')) continue;
+        if (lineIsInsideFence(state, line.from)) continue;
+        const definition = parseFootnoteDefinition(line.text);
+        if (definition) {
+          addLineClass(line.from, 'cm-live-footnote-def');
+          decorations.push(
+            Decoration.mark({ class: 'cm-live-footnote-label' }).range(
+              line.from,
+              line.from + definition.labelEnd
+            )
+          );
+        }
+        const inlineSpans = findInlineCodeSpansInLine(line.text);
+        for (const ref of findFootnoteRefs(line.text)) {
+          if (inlineSpans.some((sp) => ref.from < sp.to && ref.to > sp.from)) continue;
+          const from = line.from + ref.from;
+          const to = line.from + ref.to;
+          const key = footnoteKey(ref.id);
+          const number = footnotes.numbers.get(key);
+          // Undefined references stay as text, matching the export.
+          if (number === undefined || isRangeTouchedBySelection(state, from, to)) continue;
+          decorations.push(
+            footnoteRefDecoration(ref.id, number, footnotes.definitions.get(key)!, from, to)
+          );
+        }
+      }
+    }
+  }
+
   // Push accumulated line decorations
   for (const [lineFrom, classes] of lineClasses.entries()) {
     decorations.push(
@@ -1125,7 +1229,7 @@ export function createLivePreviewExtension(
             update.transactions.some(editorLocaleChanged) ||
             update.selectionSet ||
             update.viewportChanged ||
-            treeChanged || update.transactions.some((tr) => tr.effects.some((effect) => effect.is(refreshImages)))
+            treeChanged || update.transactions.some((tr) => tr.effects.some((effect) => effect.is(refreshImages) || effect.is(foldEffect) || effect.is(unfoldEffect)))
           ) {
             this.decorations = buildLivePreviewDecorations(update.view, config);
           }
@@ -1139,7 +1243,7 @@ export function createLivePreviewExtension(
   }
 
   if (config.editingMode === 'live') {
-    extensions.push(createRichBlockExtension(), createFrontmatterHideExtension(), createDueDateExtension());
+    extensions.push(createRichBlockExtension(), createFrontmatterHideExtension(), createDueDateExtension(), calloutFolding);
   }
 
   if (config.typewriterScrolling) {

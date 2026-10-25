@@ -23,6 +23,13 @@ export const rebuildVaultIndex = async () => 0;
 export const restoreDeletedEntry = async () => {};
 export const removeRecentVaultEntry = async () => [];
 export const renameEntry = (oldPath: string, newPath: string) => control.rename(oldPath, newPath);
+export const linkControl = {
+  plan: async (_oldPath: string, _newPath: string): Promise<import('../src/lib/types').LinkUpdatePlan> => ({ notes: [], linkCount: 0 }),
+  apply: async (_path: string, _edits: import('../src/lib/types').TextEdit[]): Promise<import('../src/lib/types').AppliedEdits> => ({ applied: 0, skipped: 0, reverse: [] }),
+};
+export const planLinkUpdates = (oldPath: string, newPath: string) => linkControl.plan(oldPath, newPath);
+export const applyLinkEdits = (path: string, edits: import('../src/lib/types').TextEdit[]) => linkControl.apply(path, edits);
+export const quickCaptureAppend = async (relPath: string, _text: string) => relPath;
 
 export const pinControl = { pinned: [] as string[] };
 export const listPinnedNotes = async () => pinControl.pinned;
@@ -37,6 +44,7 @@ export const systemControl = {
   configureWindow: async (_trayResident: boolean, _hideOnClose: boolean): Promise<void> => {},
 };
 export const configureSummon = (enabled: boolean, shortcut: string) => systemControl.configure(enabled, shortcut);
+export const configureQuickCapture = async (_enabled: boolean, _shortcut: string): Promise<void> => {};
 export const configureWindowBehavior = (trayResident: boolean, hideOnClose: boolean) =>
   systemControl.configureWindow(trayResident, hideOnClose);
 export const listCssSnippets = async () => [];

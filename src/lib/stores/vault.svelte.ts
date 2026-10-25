@@ -15,14 +15,20 @@ import {
   setNotePinned,
   removeRecentVaultEntry,
   renameEntry,
+  planLinkUpdates,
+  applyLinkEdits,
+  quickCaptureAppend,
 } from '../ipc';
-import type { RecentVault, VaultNode, VaultSnapshot } from '../types';
+import type { LinkUpdatePlan, RecentVault, TextEdit, VaultNode, VaultSnapshot } from '../types';
 import { appStorage } from '../appStorage';
 import { clipboardStore } from './clipboard.svelte';
 import { settingsStore } from './settings.svelte';
 import { tabsStore } from './tabs.svelte';
 import { invalidateImagePreviews } from '../imagePreviewCache';
 import { noteMoveDestination } from '../noteMove';
+import { fillTemplate, formatIsoDate } from '../templates';
+import { applyToOpenNote, reverseEdits } from '../linkUpdates';
+import { captureEdit, normalizeCaptureNote } from '../quickCapture';
 import { m, trashName } from '../i18n.svelte';
 import { isMac, isWindows } from '../platform';
 
@@ -54,19 +60,8 @@ function collectAllFiles(nodes: VaultNode[], out: VaultNode[] = []): VaultNode[]
 
 const DEFAULT_DAILY_TEMPLATE = '## Today\n\n- [ ] \n\n## Log\n\n';
 
-function formatIsoDate(d: Date): string {
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  return `${d.getFullYear()}-${mm}-${dd}`;
-}
-
 export function fillDailyTemplate(template: string, now: Date): string {
-  const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-  const date = formatIsoDate(now);
-  return template
-    .replace(/\{\{\s*date\s*\}\}/gi, date)
-    .replace(/\{\{\s*title\s*\}\}/gi, date)
-    .replace(/\{\{\s*time\s*\}\}/gi, time);
+  return fillTemplate(template, { now, title: formatIsoDate(now) });
 }
 
 export function stripMdExt(pathOrName: string): string {
@@ -84,7 +79,24 @@ function loadDismissedConflicts(): Record<string, string[]> {
   }
 }
 
+export type LinkUpdateChoice = 'update' | 'rename' | 'cancel';
+
+interface ChangedNote {
+  path: string;
+  /** Edits that put the note's links back as they were. */
+  reverse: TextEdit[];
+}
+
 class VaultStore {
+  /** The question shown before a rename that would break links. */
+  linkUpdatePrompt = $state<{
+    oldRel: string;
+    noteCount: number;
+    resolve: (choice: LinkUpdateChoice) => void;
+  } | null>(null);
+  /** The last link update, kept so it can be undone. */
+  lastLinkUpdate = $state<ChangedNote[] | null>(null);
+
   vaultSnapshot = $state<VaultSnapshot | null>(null);
   recentVaults = $state<RecentVault[]>([]);
   onboardingError = $state('');
@@ -296,13 +308,37 @@ class VaultStore {
     }
   }
 
-  async createNoteInVault(parentFolderRel: string, noteName: string): Promise<string | null> {
+  /** Creates a note from a template note, filling in its variables. Returns the new note's path. */
+  async createNoteFromTemplate(
+    templateRelPath: string,
+    parentFolderRel: string,
+    noteName: string,
+    prompts: Record<string, string>
+  ): Promise<string | null> {
+    try {
+      const template = (await readNote(templateRelPath)).content;
+      const title = noteName.replace(/\.md$/i, '');
+      const content = fillTemplate(template, { now: new Date(), title, prompts });
+      return await this.createNoteInVault(parentFolderRel, noteName, content);
+    } catch (err) {
+      clipboardStore.setStatus(
+        m.status_create_note_failed({ error: err instanceof Error ? err.message : String(err) })
+      );
+      return null;
+    }
+  }
+
+  async createNoteInVault(
+    parentFolderRel: string,
+    noteName: string,
+    content?: string
+  ): Promise<string | null> {
     const targetRel = parentFolderRel
       ? `${parentFolderRel}/${noteName}`
       : noteName;
     try {
       const titleBase = noteName.replace(/\.md$/i, '');
-      const [snap, doc] = await createNote(targetRel, `# ${titleBase}\n\n`);
+      const [snap, doc] = await createNote(targetRel, content ?? `# ${titleBase}\n\n`);
       this.vaultSnapshot = snap;
       this.bumpIndexVersion();
       tabsStore.addOrActivateCreatedDoc(doc.relPath, doc.title, doc.content);
@@ -335,6 +371,18 @@ class VaultStore {
     const root = this.vaultSnapshot?.rootPath;
     if (!(await tabsStore.flushAllAutosaves())) return false;
     if (!root || this.vaultSnapshot?.rootPath !== root) return false;
+    let plan: LinkUpdatePlan | null = null;
+    try {
+      const found = await planLinkUpdates(oldRelPath, newRelPath);
+      if (found.linkCount > 0) {
+        const choice = await this.askLinkUpdate(oldRelPath, found.notes.length);
+        if (choice === 'cancel') return false;
+        if (choice === 'update') plan = found;
+      }
+    } catch {
+      // Without a plan the rename still goes ahead, as it did before links were followed.
+    }
+    if (this.vaultSnapshot?.rootPath !== root) return false;
     try {
       const res = await renameEntry(oldRelPath, newRelPath);
       if (this.vaultSnapshot?.rootPath !== root) return false;
@@ -346,6 +394,7 @@ class VaultStore {
       clipboardStore.setStatus(
         (action === 'move' ? m.status_moved : m.status_renamed)({ from: res.oldRelPath, to: res.newRelPath })
       );
+      if (plan) await this.updateLinks(plan);
       return true;
     } catch (err) {
       clipboardStore.setStatus(
@@ -353,6 +402,90 @@ class VaultStore {
       );
       return false;
     }
+  }
+
+  private askLinkUpdate(oldRel: string, noteCount: number): Promise<LinkUpdateChoice> {
+    return new Promise((resolve) => {
+      this.linkUpdatePrompt = { oldRel, noteCount, resolve };
+    });
+  }
+
+  answerLinkUpdate(choice: LinkUpdateChoice) {
+    const prompt = this.linkUpdatePrompt;
+    this.linkUpdatePrompt = null;
+    prompt?.resolve(choice);
+  }
+
+  /**
+   * Applies edits to each note. The note on screen changes in one editor step, so Ctrl+Z undoes
+   * it. Other notes are saved directly. `lastLinkUpdate` keeps what undoing all of them needs.
+   */
+  private async applyEdits(
+    notes: { path: string; edits: TextEdit[] }[]
+  ): Promise<{ changed: ChangedNote[]; skipped: number }> {
+    const changed: ChangedNote[] = [];
+    const savedOnDisk: string[] = [];
+    let skipped = 0;
+    for (const note of notes) {
+      if (applyToOpenNote(note.path, note.edits)) {
+        changed.push({ path: note.path, reverse: reverseEdits(note.edits) });
+        continue;
+      }
+      // Saving under the open editor would leave it showing text the file no longer has.
+      if (note.path === tabsStore.activeTabPath) {
+        skipped += note.edits.length;
+        continue;
+      }
+      try {
+        const result = await applyLinkEdits(note.path, note.edits);
+        skipped += result.skipped;
+        if (result.applied > 0) {
+          changed.push({ path: note.path, reverse: result.reverse });
+          savedOnDisk.push(note.path);
+        }
+      } catch {
+        skipped += note.edits.length;
+      }
+    }
+    if (savedOnDisk.length > 0) await tabsStore.handleExternalPathsChanged(savedOnDisk);
+    this.bumpIndexVersion();
+    return { changed, skipped };
+  }
+
+  private async updateLinks(plan: LinkUpdatePlan) {
+    const { changed, skipped } = await this.applyEdits(plan.notes);
+    this.lastLinkUpdate = changed.length > 0 ? changed : null;
+    const done = m.link_update_done({ count: changed.length });
+    clipboardStore.setStatus(skipped > 0 ? `${done} ${m.link_update_skipped({ count: skipped })}` : done);
+  }
+
+  /**
+   * Adds a quick capture entry to the inbox note and returns its path. The note on screen takes
+   * the entry in the editor, keeping any unsaved typing; otherwise open tabs are saved first so
+   * the write on disk cannot clash with them.
+   */
+  async captureEntry(note: string, text: string): Promise<string> {
+    const path = normalizeCaptureNote(note);
+    const tab = tabsStore.openTabs.find((t) => t.relPath.toLowerCase() === path.toLowerCase());
+    if (tab && tab.relPath === tabsStore.activeTabPath) {
+      const edit = captureEdit(tab.content, text);
+      if (edit && applyToOpenNote(tab.relPath, [edit])) return tab.relPath;
+    }
+    if (!(await tabsStore.flushAllAutosaves())) throw new Error(m.capture_unsaved());
+    const saved = await quickCaptureAppend(path, text);
+    this.bumpIndexVersion();
+    return saved;
+  }
+
+  /** Puts the links changed by the last rename back as they were. */
+  async undoLinkUpdate() {
+    const last = this.lastLinkUpdate;
+    if (!last) return;
+    this.lastLinkUpdate = null;
+    const { changed } = await this.applyEdits(
+      last.map((note) => ({ path: note.path, edits: note.reverse }))
+    );
+    clipboardStore.setStatus(m.link_update_undone({ count: changed.length }));
   }
 
   async moveNoteIntoFolder(source: string, folder: string, vaultRoot: string): Promise<boolean> {

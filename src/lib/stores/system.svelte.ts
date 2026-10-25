@@ -1,4 +1,5 @@
 import {
+  configureQuickCapture,
   configureSummon,
   configureWindowBehavior,
   listCssSnippets,
@@ -74,6 +75,30 @@ class SystemStore {
       }
     });
     return this.summonQueue;
+  }
+
+  quickCaptureError = $state('');
+  private captureQueue: Promise<void> = Promise.resolve();
+  private appliedCapture = { enabled: false, shortcut: '' };
+
+  /** Registers the quick capture hotkey, one call at a time, keeping the last working choice. */
+  syncQuickCapture(): Promise<void> {
+    const enabled = settingsStore.quickCaptureEnabled;
+    const shortcut = settingsStore.quickCaptureShortcut;
+    this.captureQueue = this.captureQueue.then(async () => {
+      if (enabled === this.appliedCapture.enabled && shortcut === this.appliedCapture.shortcut) return;
+      try {
+        await configureQuickCapture(enabled, shortcut);
+        this.appliedCapture = { enabled, shortcut };
+        this.quickCaptureError = '';
+      } catch (err) {
+        this.quickCaptureError = err instanceof Error ? err.message : String(err);
+        if (settingsStore.quickCaptureEnabled === enabled && settingsStore.quickCaptureShortcut === shortcut) {
+          settingsStore.setQuickCapture(this.appliedCapture.enabled, this.appliedCapture.shortcut || undefined);
+        }
+      }
+    });
+    return this.captureQueue;
   }
 
   private windowQueue: Promise<void> = Promise.resolve();

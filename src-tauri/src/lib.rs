@@ -1,9 +1,13 @@
 pub mod ai;
 pub mod app_settings;
+pub mod capture;
 pub mod clipboard;
 pub mod fs_atomic;
+pub mod health;
 pub mod index;
+pub mod link_update;
 pub mod links;
+pub mod md_scan;
 pub mod media_export;
 pub mod pins;
 pub mod platform;
@@ -764,6 +768,63 @@ fn query_due_tasks(state: State<'_, AppState>) -> Result<Vec<TaskEntry>, String>
     crate::index::query_due_tasks(&conn)
 }
 
+/// Finds the links that a rename or move of a note would break and says how to rewrite them.
+#[tauri::command]
+async fn plan_link_updates(
+    state: State<'_, AppState>,
+    old_rel_path: String,
+    new_rel_path: String,
+) -> Result<crate::link_update::LinkUpdatePlan, String> {
+    let vault_root = require_active_vault(&state)?;
+    let operation = Arc::clone(&state.vault_operation);
+    tauri::async_runtime::spawn_blocking(move || {
+        let _operation = operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+        crate::link_update::plan_link_updates(&vault_root, &old_rel_path, &new_rel_path)
+    })
+    .await
+    .map_err(|e| format!("Link scan failed: {e}"))?
+}
+
+/// Applies planned link edits to a note that is not open in the editor. The write is not marked
+/// as the app's own, so the file watcher refreshes the note if a tab has it open.
+#[tauri::command]
+fn apply_link_edits(
+    state: State<'_, AppState>,
+    rel_path: String,
+    edits: Vec<crate::link_update::TextEdit>,
+) -> Result<crate::link_update::AppliedEdits, String> {
+    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let vault_root = require_active_vault(&state)?;
+    let applied = crate::link_update::apply_edits_to_note(&vault_root, &rel_path, &edits)?;
+    if applied.applied > 0 {
+        let rel = crate::vault::ensure_md_extension(&rel_path);
+        let scanned = scan_single_file_from_disk(&vault_root, &vault_root.join(&rel))?;
+        {
+            let conn = state
+                .sqlite_conn
+                .lock()
+                .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+            upsert_scanned_note(&conn, &scanned, None)?;
+        }
+        state.search_index.upsert_scanned_note(&scanned)?;
+    }
+    Ok(applied)
+}
+
+/// Scans the open vault for broken links, unused attachments, empty notes, and duplicate titles.
+#[tauri::command]
+async fn get_vault_health(
+    state: State<'_, AppState>,
+    templates_folder: String,
+) -> Result<crate::health::HealthReport, String> {
+    let vault_root = require_active_vault(&state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::health::scan_vault_health(&vault_root, &templates_folder)
+    })
+    .await
+    .map_err(|e| format!("Vault health scan failed: {e}"))?
+}
+
 #[tauri::command]
 fn get_note_cards(state: State<'_, AppState>) -> Result<Vec<NoteCard>, String> {
     let conn = state
@@ -1130,6 +1191,39 @@ fn open_dictionaries_folder(app_handle: AppHandle, state: State<'_, AppState>) -
     crate::snippets::reveal_folder(&spell_paths(&app_handle, &state).user)
 }
 
+/// Appends text from the quick capture window to the inbox note. The write is not marked as the
+/// app's own, so the file watcher tells the main window to reload the note if it has it open.
+#[tauri::command]
+fn quick_capture_append(
+    state: State<'_, AppState>,
+    rel_path: String,
+    text: String,
+) -> Result<String, String> {
+    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let vault_root = require_active_vault(&state)?;
+    let rel = crate::capture::append_to_note(&vault_root, &rel_path, &text)?;
+    let scanned = scan_single_file_from_disk(&vault_root, &vault_root.join(&rel))?;
+    {
+        let conn = state
+            .sqlite_conn
+            .lock()
+            .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+        upsert_scanned_note(&conn, &scanned, None)?;
+    }
+    state.search_index.upsert_scanned_note(&scanned)?;
+    Ok(rel)
+}
+
+#[tauri::command]
+fn configure_quick_capture(app_handle: AppHandle, enabled: bool, shortcut: String) -> Result<(), String> {
+    crate::tray::configure_capture(&app_handle, enabled, &shortcut)
+}
+
+#[tauri::command]
+fn hide_capture_window(app_handle: AppHandle) {
+    crate::tray::hide_capture_window(&app_handle);
+}
+
 #[tauri::command]
 fn configure_summon(app_handle: AppHandle, enabled: bool, shortcut: String) -> Result<(), String> {
     crate::tray::configure(&app_handle, enabled, &shortcut)
@@ -1300,6 +1394,9 @@ pub fn run() {
             render_note_html_preview,
             query_due_tasks,
             get_note_cards,
+            get_vault_health,
+            plan_link_updates,
+            apply_link_edits,
             pick_task_calendar_path,
             load_app_settings,
             save_app_settings,
@@ -1319,6 +1416,9 @@ pub fn run() {
             spell_add_word,
             open_dictionaries_folder,
             configure_summon,
+            configure_quick_capture,
+            quick_capture_append,
+            hide_capture_window,
             configure_window_behavior,
             quit_app,
             keep_app_open,
@@ -1363,4 +1463,54 @@ mod vault_index_path_tests {
                    vault_index_db_path(data, Path::new("/notes/work")));
     }
 
+}
+
+#[cfg(test)]
+mod command_permission_tests {
+    use std::collections::BTreeSet;
+
+    /// The quoted names in `build.rs`'s `COMMANDS` list.
+    fn manifest_commands() -> BTreeSet<String> {
+        let source = include_str!("../build.rs");
+        let list = source.split("= &[").nth(1).unwrap().split("];").next().unwrap();
+        list.split('"').skip(1).step_by(2).map(str::to_string).collect()
+    }
+
+    /// The names inside `generate_handler![…]` in this file.
+    fn handler_commands() -> BTreeSet<String> {
+        let source = include_str!("lib.rs");
+        let start = source.find(concat!("generate_handler", "![")).unwrap();
+        let list = source[start..].split('[').nth(1).unwrap().split(']').next().unwrap();
+        list.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect()
+    }
+
+    fn capability_permissions(json: &str) -> BTreeSet<String> {
+        let value: serde_json::Value = serde_json::from_str(json).unwrap();
+        value["permissions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|p| p.as_str())
+            .filter(|p| p.starts_with("allow-"))
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[test]
+    fn every_command_is_listed_and_allowed_for_the_main_window() {
+        let handlers = handler_commands();
+        assert_eq!(manifest_commands(), handlers, "build.rs COMMANDS must match generate_handler");
+        let allowed: BTreeSet<String> =
+            handlers.iter().map(|c| format!("allow-{}", c.replace('_', "-"))).collect();
+        assert_eq!(capability_permissions(include_str!("../capabilities/default.json")), allowed);
+    }
+
+    #[test]
+    fn the_capture_window_reaches_only_what_it_needs() {
+        let expected: BTreeSet<String> =
+            ["allow-hide-capture-window", "allow-load-app-settings"]
+                .map(str::to_string)
+                .into();
+        assert_eq!(capability_permissions(include_str!("../capabilities/capture.json")), expected);
+    }
 }

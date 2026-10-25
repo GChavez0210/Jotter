@@ -52,6 +52,11 @@ class I18nStore {
     this.preference === 'system' ? matchSystemLocale(systemLanguages()) : this.preference
   );
 
+  /** Rereads the saved language, for a window that outlives changes made in another one. */
+  reloadPreference() {
+    this.preference = loadPreference();
+  }
+
   setPreference(next: LanguagePreference) {
     this.preference = next;
     try {
