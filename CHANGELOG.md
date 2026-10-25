@@ -4,7 +4,14 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 
 ## [Unreleased]
 
-Roadmap Phase 2.
+## [0.5.0] - 2026-10-24
+
+Roadmap Phase 2. Windows builds now ship for both x64 and ARM64.
+
+### Changed
+
+- Default note names use local time instead of UTC, so a note made in the evening no longer carries tomorrow's date.
+- Each window may call only the backend commands it needs. The quick capture window can read settings and hide itself, and nothing else.
 
 ### Removed
 
@@ -12,6 +19,14 @@ Roadmap Phase 2.
 
 ### Added
 
+- **Callouts and footnotes.** Obsidian callouts (`> [!note]`, `> [!warning]-`, and the other 11 types and their aliases) render as colored boxes in Live Preview and in HTML and PDF export, with custom titles and a fold chevron for `+` and `-` callouts. Footnote references show as numbered superscripts that jump to their definition, numbered the same way as in export. A `-` callout starts closed only in HTML export; the editor keeps every callout open so it stays editable.
+- **Templates.** Any note in the templates folder (**Settings → Vault**, default `Templates`) can start a new note from the command palette or a folder's right-click menu. `{{date}}`, `{{time}}`, `{{title}}`, and `{{prompt:Label}}` fill in, and each prompt gets its own field.
+- **Vault health report.** **Check vault health** in the command palette lists broken links, attachments no note uses, empty notes, and duplicate titles. Broken wiki links offer to create the missing note, and unused files and empty notes move to the Recycle Bin after a confirmation. Notes in the templates folder are left out.
+- **Quick capture.** A global hotkey (default `Ctrl+Alt+N`, set in **Settings → System**) opens a small window that appends text to an inbox note without bringing up the main window. When the inbox note is open, the entry goes into the editor, so unsaved typing is kept.
+- **Update links on rename.** Renaming or moving a note that other notes link to asks whether to rewrite those `[[wiki links]]` and Markdown links. Aliases, headings, and embeds are kept, and a moved note's own relative links follow it to the new folder. **Undo last link update** in the command palette puts the links back.
+- **Right panel.** The calendar and Recently deleted moved from the sidebar to the right panel, and the editor gained find and replace.
+- **Settings file.** Settings live in the app data folder, and **Settings → System** exports and imports them, leaving out this computer's own entries such as the last vault.
+- **Task reminders.** Jotter shows a notification when a task comes due, even while the window sits in the tray.
 - **Outline panel.** The note panel on the right lists the open note's headings above its backlinks. Click one to jump to it, and the heading your cursor sits in stays highlighted as you move through the note. Headings inside code fences and YAML frontmatter are left out, and indentation is relative to the note's own shallowest heading, so a note written entirely in `##` does not start indented.
 - **Pinned notes.** Right-click a note and choose **Pin to top** to keep it in a Pinned section above the file tree. Pins keep the order you made them, follow a note through a rename or a move, and survive a trip to the Recycle Bin and back. They are stored per vault in the app data folder, so they never appear in the vault or travel to another computer through a sync folder.
 - **Narrow windows.** The window now resizes down to 480 px wide, so Jotter fits beside another app. Below 608 px the sidebar steps aside to keep the text column readable, and showing it again widens the window by just enough to fit both. Widening the window brings the sidebar back on its own, unless you collapsed it yourself. Below 600 px the title bar trades its text labels for icons so the window controls stay reachable. The note panel on the right yields its width before the sidebar does, so a narrowing window keeps the file tree longest.

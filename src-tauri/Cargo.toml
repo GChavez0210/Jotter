@@ -1,6 +1,6 @@
 [package]
 name = "jotter"
-version = "0.1.1"
+version = "0.5.0"
 description = "Desktop Markdown notes app compatible with Obsidian vaults"
 authors = ["Jotter Contributors"]
 license = "MIT"
