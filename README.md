@@ -107,6 +107,14 @@ To use a vault on several computers, keep the vault folder inside a folder your 
 
 When two computers change a note before syncing, the sync client keeps both versions and names one as a conflict copy, such as `Plan (Alex's conflicted copy 2026-10-19).md` (Dropbox), `Plan-DESKTOP-4F2K9.md` (OneDrive), `Plan (1).md` (Google Drive and Box), or `Plan.sync-conflict-20261019-101500-ABCDEFG.md` (Syncthing). Jotter lists these copies in the **Sync conflicts** sidebar view and in the status bar. Open the copy and the original, move the changes you want into the original, and move the copy to the Recycle Bin. **Settings → Vault → Cloud sync** shows which client Jotter detected. Jotter guesses the client from the vault path, and it matches the OneDrive, Google Drive, Box, and iCloud names only in vaults inside those folders, so a note named `Plan (1).md` in a local vault is not flagged. Those names are ambiguous even inside a sync folder, since `Lecture 2.md` can be a real note. Select **Mark as not a conflict** (the check mark) to stop listing it.
 
+### Split View
+`Ctrl+Shift+\` puts a second note beside the one you are reading. The split button in the title bar does the same, and **Open on the right** in a note's context menu opens that note there. Each pane has its own cursor, scroll position and undo history, and the pane you typed in last takes the next note you open; its tab is marked in the tab strip. Drag the bar between the panes to resize them, or double-click it to even them out. To see the open note as it will export instead of a second note, run **Show Rendered Preview Beside the Note** from the command palette. A window too narrow for two text columns hides the second pane until you widen it again.
+
+### Version History
+Jotter periodically keeps the previous saved text of a note so you can recover from unwanted edits. Select **Version history** in the note's header, or run **Version History of This Note** from the command palette, to see the stored versions newest first. Each one shows what restoring it would change, line by line, or the full text it held. **Restore this version** writes it back to the note and keeps the text it replaced as another version, so a restore can itself be undone.
+
+Versions live in Jotter's application data folder, never in the vault, so a sync client never copies them between computers. A save stores a version only when the newest one is at least five minutes old, and older versions are thinned as they age: everything from the last day, one a day for a month, then one a week for a year. A missing note keeps its history for at least a month after Jotter first detects its absence, so restoring it from the Recycle Bin brings the history back. Turn the whole feature off in **Settings → Vault → Keep version history**.
+
 ### Daily Notes
 `Ctrl+Shift+D` opens today's note, `Daily/YYYY-MM-DD.md`. If the note does not exist, Jotter creates it from the template note `Templates/Daily.md`, replacing `{{date}}`, `{{title}}` and `{{time}}`. Without a template note, Jotter uses a built-in one. Set the folder and template in **Settings → Vault**.
 
@@ -148,6 +156,12 @@ Put `.css` files in the app data `snippets` folder, then turn each one on in **S
 
 ---
 
+## Accessibility
+
+Jotter targets WCAG 2.2 AA. Automated checks cover labels, contrast, and keyboard behavior; screen-reader and operating-system checks remain pending. The shortcuts below reach every view, a dialog keeps Tab inside it until you close it with Escape, and the two draggable edges — the sidebar's and split view's — also move with the arrow keys, reset with Home, and have a double-click shortcut, so neither needs a drag. The editor reports itself to a screen reader as a text box with a name, panels and regions are labelled, and the status bar announces saves and errors as they happen.
+
+`npm run test:review-ui` runs the interface checks, which include an [axe](https://github.com/dequelabs/axe-core) audit of the main screens in the light, dark and high-contrast themes. Screen-reader passes with NVDA and VoiceOver are manual and still to do.
+
 ## Keyboard Shortcuts
 
 Shortcut labels use Ctrl on Windows/Linux and Cmd on macOS. Folding uses Cmd+Option+[ and Cmd+Option+] on macOS.
@@ -161,8 +175,11 @@ Shortcut labels use Ctrl on Windows/Linux and Cmd on macOS. Folding uses Cmd+Opt
 | `Ctrl+Shift+F` | Open full-text Vault Search (`tantivy` with highlighted snippets, tolerates typos) |
 | `Ctrl+Shift+D` | Open today's daily note, creating it from the template if needed |
 | `Ctrl+S` | Flush autosave for the active note immediately |
-| `Ctrl+W` | Close active note tab |
+| `Ctrl+W` | Close the focused pane's note tab; on a focused tab, close that tab |
+| `Delete` | Close the focused tab in the tab strip |
 | `Ctrl+\` | Toggle left sidebar (or exit Focus Mode) |
+| `Ctrl+Shift+\` | Open or close the second editor pane (split view) |
+| `Arrow keys` | On a focused window divider, move it; `Home` resets it |
 | `Ctrl+,` | Open Settings (`Editor`, `Copy`, `Appearance`, `Vault`, `AI`, `System`) |
 | `Ctrl+Alt+J` | Summon hotkey: show or hide Jotter from any app (off by default; set in Settings > System) |
 | `Ctrl+Shift+P` | Print / Export active note to PDF (`Microsoft Print to PDF`) |
@@ -215,6 +232,14 @@ To fold or unfold everything, use **Fold All** and **Unfold All** in the command
 - **Node.js** (v20+ and `npm`)
 - **Windows:** Microsoft C++ build tools and the Edge WebView2 Runtime.
 - **macOS preparation:** Xcode command-line tools and the system WKWebView. A native Mac build and release smoke test are still required.
+- **Linux:** WebKitGTK and the bundling tools. On Debian and Ubuntu:
+
+  ```sh
+  sudo apt install libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev \
+    libxdo-dev libssl-dev patchelf build-essential curl file
+  ```
+
+  Fedora uses `webkit2gtk4.1-devel`, `libappindicator-gtk3-devel`, `librsvg2-devel`, `libxdo-devel`, `openssl-devel` and `patchelf`; Arch uses `webkit2gtk-4.1`, `libappindicator-gtk3`, `librsvg`, `xdotool`, `openssl` and `patchelf`.
 
 ## Build & Run Instructions
 
@@ -230,22 +255,32 @@ Run in development mode:
 npm run tauri dev
 ```
 
-Build native desktop bundles under `src-tauri/target/release/bundle/` (Windows installers on Windows; app and DMG on macOS):
+Build native desktop bundles under `src-tauri/target/release/bundle/` (Windows installers on Windows; app and DMG on macOS; AppImage and `.deb` on Linux):
 
 ```sh
 npm run tauri build
 ```
 
+### Linux
+
+Linux support is groundwork awaiting a native build, package installation, and desktop smoke tests. The Linux configuration uses native window decorations. Desktop behavior depends on the session:
+
+- **Clipboard.** Native Wayland support requires a compositor with a supported data-control protocol. Enable XWayland when those protocols are unavailable. GNOME, KDE, and X11 copy/paste checks remain pending.
+- **Global shortcuts.** The summon hotkey and quick capture need X11. Wayland lets no application claim a system-wide shortcut, so Jotter refuses to register one and says so in **Settings → System**. Logging in with X11 (Xorg), or starting Jotter with `GDK_BACKEND=x11`, makes them work.
+- **The tray icon.** It needs a StatusNotifier host. KDE Plasma has one; GNOME needs the AppIndicator extension. Without it the icon never appears, so leave the close button on **Quits Jotter**, which is the default.
+
+The AppImage needs no installation: make it executable and run it. The `.deb` installs with `sudo apt install ./jotter_<version>_amd64.deb`. Application data lives in `~/.local/share/Jotter`, outside your vault. Deleted notes go to the freedesktop trash, and the **Recently deleted** view restores them.
+
 ### Releases and Code Signing
 
-Pushing a tag such as `v0.5.0` runs `.github/workflows/release.yml`. It builds the x64 and ARM64 Windows installers (an `.exe` per-user setup and an `.msi` for each) and attaches them to a draft GitHub release, which you review and publish. The tag must match the version in `src-tauri/tauri.conf.json`. A pull request that edits the workflow builds the same installers as workflow artifacts, with no release.
+Pushing a tag such as `v0.5.0` runs `.github/workflows/release.yml`. It builds the x64 and ARM64 Windows installers (an `.exe` per-user setup and an `.msi` for each) and the Linux x86_64 AppImage and `.deb`, and attaches them to a draft GitHub release, which you review and publish. The tag must match the version in `src-tauri/tauri.conf.json`. A pull request that edits the workflow builds the same packages as workflow artifacts, with no release.
 
 The installers are unsigned until signing is set up, so Windows SmartScreen warns on first launch. The workflow signs every executable and installer with [Azure Trusted Signing](https://learn.microsoft.com/azure/trusted-signing/) once these exist in the repository settings:
 
 - Secrets `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, and `AZURE_TENANT_ID` for an app registration with the *Trusted Signing Certificate Profile Signer* role.
 - Variables `TRUSTED_SIGNING_ENDPOINT` (such as `https://eus.codesigning.azure.net`), `TRUSTED_SIGNING_ACCOUNT`, and `TRUSTED_SIGNING_PROFILE`.
 
-Application data lives outside vaults: `%LOCALAPPDATA%\Jotter` on Windows and `~/Library/Application Support/Jotter` on macOS. The macOS config keeps native traffic lights and uses an opaque window. Shared-vault filename checks retain conservative rules so files can move between systems. On macOS, restore deleted notes through Finder Trash.
+Application data lives outside vaults: `%LOCALAPPDATA%\Jotter` on Windows, `~/Library/Application Support/Jotter` on macOS, and `~/.local/share/Jotter` on Linux. The macOS config keeps native traffic lights and uses an opaque window. Shared-vault filename checks retain conservative rules so files can move between systems. On macOS, restore deleted notes through Finder Trash.
 
 ## Verification & Quality Checks
 

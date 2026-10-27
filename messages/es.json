@@ -187,6 +187,9 @@
   "cmd_placeholder": "Escribe un comando",
   "cmd_quick_switcher": "Selector rápido: abrir una nota por nombre",
   "cmd_search_label": "Buscar comandos",
+  "cmd_split_close": "Cerrar el segundo panel",
+  "cmd_split_note": "Abrir una nota en un segundo panel",
+  "cmd_split_preview": "Mostrar la vista renderizada junto a la nota",
   "cmd_theme_dark": "Tema: oscuro",
   "cmd_theme_high_contrast": "Tema: oscuro de alto contraste",
   "cmd_theme_light": "Tema: claro",
@@ -196,6 +199,7 @@
   "cmd_typewriter_on": "Activar el desplazamiento de máquina de escribir (línea activa centrada)",
   "cmd_vault_rebuild": "Reconstruir el índice SQLite y Tantivy de la bóveda",
   "cmd_vault_switch": "Cambiar o cerrar la bóveda",
+  "cmd_version_history": "Historial de versiones de esta nota",
   "cmd_view_calendar": "Abrir la vista de calendario",
   "cmd_view_files": "Abrir el árbol de archivos",
   "cmd_view_search": "Abrir la búsqueda de texto completo",
@@ -434,6 +438,18 @@
   "quick_matches": "Notas que coinciden",
   "quick_no_match": "Ninguna nota de esta bóveda coincide con «{query}».",
   "quick_switcher": "Selector rápido",
+  "settings_version_history": "Guardar el historial de versiones",
+  "settings_version_history_desc": "Guarda una copia del texto de la nota antes de cada guardado, para leer y restaurar versiones anteriores. Las copias viven fuera de la bóveda y se reducen con el tiempo.",
+  "sidebar_ctx_open_in_split": "Abrir a la derecha",
+  "split_close": "Cerrar el segundo panel",
+  "split_pick_note": "Elige una nota para este panel o haz clic derecho en una de la barra lateral.",
+  "split_preview_empty": "Abre una nota para verla renderizada aquí.",
+  "split_preview_failed": "No se pudo renderizar la vista: {error}",
+  "split_preview_label": "Vista renderizada",
+  "split_resize": "Cambiar el ancho de los paneles",
+  "split_second_pane": "Segundo panel",
+  "split_toggle": "Vista dividida",
+  "split_toggle_tooltip": "Mostrar dos notas una al lado de la otra ({shortcut})",
   "template_picker": "Nueva nota desde plantilla",
   "template_find": "Buscar una plantilla",
   "template_none": "No hay plantillas en «{folder}». Añade notas a esa carpeta para usarlas como plantillas.",
@@ -911,6 +927,7 @@
   "titlebar_show_sidebar": "Mostrar la barra lateral",
   "titlebar_show_sidebar_tooltip": "Mostrar la barra lateral ({shortcut})",
   "titlebar_source_title": "Markdown sin formato ({shortcut})",
+  "titlebar_tab_in_split": "{path} — abierta en el segundo panel",
   "titlebar_unsaved": "Cambios sin guardar",
   "titlebar_unsaved_autosaving": "Cambios sin guardar (guardando automáticamente…)",
   "trash_empty": "La papelera del sistema no tiene notas eliminadas de esta bóveda.",
@@ -928,6 +945,54 @@
   "validation_name_trailing": "Los nombres no pueden terminar en espacio ni en punto.",
   "validation_note_name_empty": "El nombre de la nota no puede estar vacío.",
   "validation_reserved": "\"{name}\" es un nombre de archivo reservado en una plataforma compatible.",
+  "version_bytes": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{count} byte",
+        "countPlural=*": "{count} bytes"
+      }
+    }
+  ],
+  "version_changes": "Cambios",
+  "version_counts": "{added} añadidas, {removed} eliminadas",
+  "version_failed": "Historial de versiones: {error}",
+  "version_full_text": "Texto completo",
+  "version_hint": "Al restaurar una versión, el texto en pantalla se guarda como otra versión.",
+  "version_kilobytes": "{count} KB",
+  "version_loading": "Leyendo las versiones…",
+  "version_none": "Todavía no hay versiones.",
+  "version_none_hint": "Jotter guarda una versión la primera vez que guardas la nota tras abrirla.",
+  "version_open": "Historial de versiones",
+  "version_restore": "Restaurar esta versión",
+  "version_restored": "Se restauró la versión de {time}.",
+  "version_same": "Esta versión es igual que la nota actual.",
+  "version_timeline": "Versiones guardadas",
+  "version_title": "Historial de versiones de {note}",
+  "version_today": "Hoy a las {time}",
+  "version_unchanged": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{count} línea sin cambios",
+        "countPlural=*": "{count} líneas sin cambios"
+      }
+    }
+  ],
+  "version_view": "Qué mostrar",
+  "version_yesterday": "Ayer a las {time}",
   "window_maximize": "Maximizar",
   "window_minimize": "Minimizar",
   "window_restore": "Restaurar",
@@ -970,5 +1035,9 @@
   "settings_file_read_failed": "No se pudo leer el archivo de configuración. Revisa sus permisos e inténtalo de nuevo.",
   "settings_file_write_failed": "No se pudo guardar el archivo de configuración. Revisa la carpeta de destino e inténtalo de nuevo.",
   "settings_file_path_failed": "Selecciona un archivo de configuración local e inténtalo de nuevo.",
-  "settings_storage_failed": "No se pudo guardar o acceder a la configuración. Revisa los permisos del archivo e inténtalo de nuevo."
+  "settings_storage_failed": "No se pudo guardar o acceder a la configuración. Revisa los permisos del archivo e inténtalo de nuevo.",
+  "version_save_failed": "No se puede restaurar porque no se guardaron los cambios actuales. Tus cambios siguen abiertos.",
+  "version_line_added": "Añadida: ",
+  "version_line_removed": "Eliminada: ",
+  "version_line_unchanged": "Sin cambios: "
 }

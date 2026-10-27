@@ -8,6 +8,7 @@
   import { tabsStore } from './stores/tabs.svelte';
   import { vaultStore } from './stores/vault.svelte';
   import { m } from './i18n.svelte';
+  import { toggleSplitNote } from './panes';
   import { noteStamp } from './templates';
 
   interface Props {
@@ -114,6 +115,22 @@
       shortcut: shortcutLabel('Ctrl+\\'),
       action: () => settingsStore.toggleSidebar(),
     },
+    {
+      id: 'split-note',
+      category: m.cmd_cat_focus(),
+      label: settingsStore.splitMode === 'note' ? m.cmd_split_close() : m.cmd_split_note(),
+      shortcut: shortcutLabel('Ctrl+Shift+\\'),
+      action: () => void toggleSplitNote(),
+    },
+    {
+      id: 'split-preview',
+      category: m.cmd_cat_focus(),
+      label: settingsStore.splitMode === 'preview' ? m.cmd_split_close() : m.cmd_split_preview(),
+      action: () =>
+        settingsStore.splitMode === 'preview'
+          ? settingsStore.closeSplit()
+          : settingsStore.openSplitPreview(),
+    },
     ...(vaultStore.vaultSnapshot
       ? [
           {
@@ -122,6 +139,14 @@
             label: m.cmd_quick_switcher(),
             shortcut: shortcutLabel('Ctrl+O'),
             action: () => (settingsStore.showQuickSwitcher = true),
+          },
+          {
+            id: 'version-history',
+            category: m.cmd_cat_navigation(),
+            label: m.cmd_version_history(),
+            action: () => {
+              if (tabsStore.focusedTabPath) settingsStore.openVersionHistory(tabsStore.focusedTabPath);
+            },
           },
           {
             id: 'view-health',
@@ -396,8 +421,8 @@
             label: m.cmd_note_save(),
             shortcut: shortcutLabel('Ctrl+S'),
             action: () => {
-              if (tabsStore.activeTabPath) {
-                void tabsStore.flushAutosaveFor(tabsStore.activeTabPath);
+              if (tabsStore.focusedTabPath) {
+                void tabsStore.flushAutosaveFor(tabsStore.focusedTabPath);
               }
             },
           },
@@ -407,8 +432,8 @@
             label: m.cmd_note_close(),
             shortcut: shortcutLabel('Ctrl+W'),
             action: () => {
-              if (tabsStore.activeTabPath) {
-                void tabsStore.closeTab(tabsStore.activeTabPath);
+              if (tabsStore.focusedTabPath) {
+                void tabsStore.closeTab(tabsStore.focusedTabPath);
               }
             },
           },

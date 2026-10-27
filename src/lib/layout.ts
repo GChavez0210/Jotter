@@ -16,16 +16,46 @@ export function sidebarFitsWindow(windowWidth: number, sidebarWidth: number): bo
 /**
  * True while the window has room for the right panel beside the text column, counting the
  * sidebar whenever the user wants it open, including while it is automatically hidden.
- * The right panel yields first, so a narrowing window keeps the file tree longer.
+ * The right panel yields first, so a narrowing window keeps the file tree longer. A split
+ * asks for a second text column, so the panel yields that much sooner.
  */
 export function rightPanelFitsWindow(
   windowWidth: number,
   sidebarWidth: number,
+  sidebarRequested: boolean,
+  splitRequested = false
+): boolean {
+  const { rightPanelWidth } = designTokens.layout;
+  const taken = sidebarRequested ? Math.round(sidebarWidth) : 0;
+  return windowWidth >= taken + rightPanelWidth + editorArea(splitRequested);
+}
+
+/**
+ * True while the window has room for two text columns beside the sidebar. The right panel
+ * has already yielded by this point, so it counts for nothing here.
+ */
+export function splitFitsWindow(
+  windowWidth: number,
+  sidebarWidth: number,
   sidebarRequested: boolean
 ): boolean {
-  const { rightPanelWidth, editorMinWidth } = designTokens.layout;
   const taken = sidebarRequested ? Math.round(sidebarWidth) : 0;
-  return windowWidth >= taken + rightPanelWidth + editorMinWidth;
+  return windowWidth >= taken + editorArea(true);
+}
+
+/** Width the editor area needs: one readable text column, or two while a split is open. */
+function editorArea(split: boolean): number {
+  return designTokens.layout.editorMinWidth * (split ? 2 : 1);
+}
+
+/**
+ * Share of the editor area the left pane may take, so neither pane falls below a readable
+ * text column. A row with room for exactly two columns pins the sash to the middle.
+ */
+export function clampSplitRatio(ratio: number, rowWidth: number): number {
+  const smallest = designTokens.layout.editorMinWidth / Math.max(rowWidth, 1);
+  if (smallest >= 0.5) return 0.5;
+  return Math.max(smallest, Math.min(1 - smallest, ratio));
 }
 
 /**

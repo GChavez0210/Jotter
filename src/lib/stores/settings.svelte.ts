@@ -3,7 +3,7 @@ import { defaultCaptureShortcut, defaultSummonShortcut } from '../platform';
 import { m } from '../i18n.svelte';
 import { normalizeTemplatesFolder } from '../templates';
 import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
-import { rightPanelFitsWindow, sidebarFitsWindow, titleBarIsCompact, widthForSidebar } from '../layout';
+import { rightPanelFitsWindow, sidebarFitsWindow, splitFitsWindow, titleBarIsCompact, widthForSidebar } from '../layout';
 import { designTokens, isAccentPresetId, type AccentPresetId } from '../designTokens';
 import type {
   CloseAction,
@@ -11,7 +11,9 @@ import type {
   EditingMode,
   FocusMode,
   LeftSidebarView,
+  PaneId,
   RightPanelTab,
+  SplitMode,
   ThemePreference,
 } from '../types';
 
@@ -58,6 +60,16 @@ export class SettingsStore {
   showRightPanel = $state(true);
   rightPanelTab = $state<RightPanelTab>('note');
 
+  /**
+   * Split view. The mode and the note in the second pane last for the session, since open
+   * notes do not survive a restart either; only the sash position is persisted.
+   */
+  splitMode = $state<SplitMode>('off');
+  splitNotePath = $state<string | null>(null);
+  splitRatio = $state(0.5);
+  /** The pane that takes the next note the user opens, and whose editor commands act on. */
+  activePane = $state<PaneId>('primary');
+
   // Milestone 5: Editor Font Size, Accent Color, Vault Hidden Files, Image Paste Format
   editorFontSize = $state<number>(16);
   accentColorMode = $state<AccentMode>('preset');
@@ -83,6 +95,10 @@ export class SettingsStore {
   trayEnabled = $state(false);
   /** Notify when a task with a due date comes due. */
   taskReminders = $state(true);
+  /** Keep a copy of a note's text before each save, so earlier versions can be restored. */
+  versionHistory = $state(true);
+  /** The note whose version history the timeline shows, or `null` while it is closed. */
+  versionHistoryNote = $state<string | null>(null);
   /** Hiding to the tray needs the tray icon, so the two settings move together. */
   closeAction = $state<CloseAction>('quit');
 
@@ -120,13 +136,33 @@ export class SettingsStore {
   /** True while the sidebar belongs on screen, whoever hid it. */
   sidebarVisible = $derived(!this.sidebarCollapsed && !this.sidebarAutoHidden);
 
-  /** The right panel yields its width before the sidebar does. */
+  /** The right panel yields its width before the sidebar and the second pane do. */
   rightPanelAutoHidden = $derived(
-    !rightPanelFitsWindow(this.windowWidth, this.sidebarWidth, !this.sidebarCollapsed)
+    !rightPanelFitsWindow(
+      this.windowWidth,
+      this.sidebarWidth,
+      !this.sidebarCollapsed,
+      this.splitMode !== 'off'
+    )
   );
 
   /** True while the right panel belongs on screen, whoever hid it. */
   rightPanelVisible = $derived(this.showRightPanel && !this.rightPanelAutoHidden);
+
+  /** The window is too narrow for two text columns. Widening it brings the split back. */
+  splitAutoHidden = $derived(
+    !splitFitsWindow(this.windowWidth, this.sidebarWidth, !this.sidebarCollapsed)
+  );
+
+  /** True while the second pane belongs on screen. Focus modes show one note only. */
+  splitVisible = $derived(
+    this.splitMode !== 'off' && this.focusMode === 'off' && !this.splitAutoHidden
+  );
+
+  effectivePane = $derived<PaneId>(
+    this.splitVisible && this.splitMode === 'note' && this.activePane === 'secondary'
+      ? 'secondary' : 'primary'
+  );
 
   /** The title bar drops its text labels to keep the window controls reachable. */
   titleBarCompact = $derived(titleBarIsCompact(this.windowWidth));
@@ -539,6 +575,67 @@ export class SettingsStore {
     if (show && this.rightPanelAutoHidden) void this.widenWindowForRightPanel();
   }
 
+  /**
+   * Opens the second pane on a note, or closes the split when that note is already there.
+   * A window too narrow for two text columns widens, as asking for the sidebar does.
+   */
+  openSplitNote(relPath: string | null) {
+    if (this.splitMode === 'note' && relPath && this.splitNotePath === relPath) {
+      this.closeSplit();
+      return;
+    }
+    this.splitMode = 'note';
+    this.splitNotePath = relPath;
+    this.activePane = 'secondary';
+    if (this.focusMode !== 'off') this.exitFocusMode();
+    if (this.splitAutoHidden) void this.widenWindowForSplit();
+  }
+
+  /** Shows the open note's rendered preview beside it. The preview takes no focus. */
+  openSplitPreview() {
+    this.splitMode = 'preview';
+    this.splitNotePath = null;
+    this.activePane = 'primary';
+    if (this.focusMode !== 'off') this.exitFocusMode();
+    if (this.splitAutoHidden) void this.widenWindowForSplit();
+  }
+
+  closeSplit() {
+    this.splitMode = 'off';
+    this.splitNotePath = null;
+    this.activePane = 'primary';
+  }
+
+  setActivePane(pane: PaneId) {
+    if (this.splitMode === 'off') {
+      this.activePane = 'primary';
+      return;
+    }
+    this.activePane = pane;
+  }
+
+  setVersionHistory(enabled: boolean) {
+    this.versionHistory = enabled;
+    this.persist('jotter.versionHistory', String(enabled));
+  }
+
+  /** Opens the timeline for a note. The dialog loads that note's versions when it appears. */
+  openVersionHistory(relPath: string | null) {
+    this.versionHistoryNote = relPath;
+  }
+
+  setSplitRatio(ratio: number) {
+    if (!Number.isFinite(ratio)) return;
+    this.splitRatio = Math.max(0.2, Math.min(0.8, ratio));
+    this.persist('jotter.splitRatio', this.splitRatio.toFixed(3));
+  }
+
+  private async widenWindowForSplit() {
+    const { editorMinWidth } = designTokens.layout;
+    const target = (!this.sidebarCollapsed ? Math.round(this.sidebarWidth) : 0) + editorMinWidth * 2;
+    await this.widenWindowTo(target);
+  }
+
   private async widenWindowForRightPanel() {
     const { rightPanelWidth, editorMinWidth } = designTokens.layout;
     const target =
@@ -601,6 +698,10 @@ export class SettingsStore {
         this.rightPanelTab = savedRightTab;
       } else if (legacyTab === 'calendar' || legacyTab === 'trash') {
         this.rightPanelTab = legacyTab;
+      }
+      const savedRatio = Number(appStorage.getItem('jotter.splitRatio'));
+      if (savedRatio >= 0.2 && savedRatio <= 0.8) {
+        this.splitRatio = savedRatio;
       }
       const savedRightPanel = appStorage.getItem('jotter.showRightPanel');
       if (savedRightPanel === 'true' || savedRightPanel === 'false') {
@@ -681,6 +782,7 @@ export class SettingsStore {
       const savedTemplatesFolder = appStorage.getItem('jotter.templatesFolder');
       if (savedTemplatesFolder !== null) this.templatesFolder = savedTemplatesFolder;
       this.taskReminders = appStorage.getItem('jotter.taskReminders') !== 'false';
+      this.versionHistory = appStorage.getItem('jotter.versionHistory') !== 'false';
       this.quickCaptureEnabled = appStorage.getItem('jotter.quickCaptureEnabled') === 'true';
       const savedCaptureShortcut = appStorage.getItem('jotter.quickCaptureShortcut');
       if (savedCaptureShortcut) this.quickCaptureShortcut = savedCaptureShortcut;

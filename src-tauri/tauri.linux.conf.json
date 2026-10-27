@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Jotter",
+        "width": 1120,
+        "height": 760,
+        "minWidth": 480,
+        "minHeight": 460,
+        "resizable": true,
+        "dragDropEnabled": false,
+        "decorations": true,
+        "transparent": false,
+        "center": true
+      }
+    ]
+  },
+  "bundle": {
+    "targets": ["appimage", "deb"]
+  }
+}

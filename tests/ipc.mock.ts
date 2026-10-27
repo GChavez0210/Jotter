@@ -1,4 +1,5 @@
 export const control = {
+  read: async (path: string) => ({relPath:path,title:path,content:'disk'}),
   save: async (path: string, content: string) => ({relPath:path,title:path,content}),
   openCalls: 0,
   closeCalls: 0,
@@ -10,7 +11,7 @@ export const calendarControl = {pick: async (_name: string): Promise<string | nu
 export const pickTaskCalendarPath = (name: string) => calendarControl.pick(name);
 export const writeTaskCalendar = async (path: string) => {calendarControl.writes.push(path); return true;};
 export const saveNote = (path: string, content: string) => control.save(path, content);
-export const readNote = async (path: string) => ({relPath:path,title:path,content:'disk'});
+export const readNote = (path: string) => control.read(path);
 export const openVault = async () => {control.openCalls++; return {rootPath:'B',name:'B',tree:[],noteCount:0};};
 export const closeVault = async () => {control.closeCalls++;};
 export const createFolder = async () => {};
@@ -48,6 +49,19 @@ export const configureQuickCapture = async (_enabled: boolean, _shortcut: string
 export const configureWindowBehavior = (trayResident: boolean, hideOnClose: boolean) =>
   systemControl.configureWindow(trayResident, hideOnClose);
 export const listCssSnippets = async () => [];
+
+// The editor component reaches for these; the UI harness mounts it with the backend absent.
+export const copyToClipboard = async (req: import('../src/lib/types').CopyRequest) => ({
+  plain: req.text, html: req.text, mode: req.mode,
+  lineCount: req.text.split(String.fromCharCode(10)).length, charCount: req.text.length,
+});
+export const previewClipboardPayload = copyToClipboard;
+export const pastePlainFromClipboard = async () => '';
+export const savePastedImage = async (): Promise<[string, string]> => ['pasted.png', 'attachments/pasted.png'];
+export const listSpellDictionaries = async () => [];
+export const spellCheckWords = async () => [] as string[];
+export const spellSuggest = async () => [] as string[];
+export const spellAddWord = async () => {};
 export const openSnippetsFolder = async () => {};
 
 import type { AiConfig, AiRequest, AiResult, AiStatus } from '../src/lib/types';
@@ -77,3 +91,39 @@ export const saveAppSettings = async (json: string) => {
 export const exportSettingsFile = async () => null;
 export const importSettingsFile = async () => null;
 export const configureTaskReminders = async () => {};
+
+// The accessibility harness mounts the whole app, which reaches for these on startup.
+export const listenQuitRequested = async (_handler: (quit: boolean) => void) => () => {};
+export const listenVaultFsEvents = async (_handler: (payload: unknown) => void) => () => {};
+export const listenCaptureRequests = async (_handler: (request: unknown) => Promise<string>) => () => {};
+export const setTrayLabels = async (_show: string, _quit: string) => {};
+export const configureVersionHistory = async (_enabled: boolean) => {};
+export const quitApp = async (_quit?: boolean) => {};
+export const keepAppOpen = async () => {};
+export const renderNoteHtmlPreview = async (title: string, markdown: string) =>
+  `<!DOCTYPE html><html><body><main><h1>${title}</h1><p>${markdown}</p></main></body></html>`;
+export const exportActiveNoteHtml = async () => null;
+export const getBacklinks = async () => [];
+export const getAllTags = async () => [];
+export const getNotesByTag = async () => [];
+export const queryCalendarDays = async () => [];
+export const queryCalendarDateNotes = async () => [];
+export const queryDueTasks = async () => [];
+export const listDeletedEntries = async () => [];
+export const searchVault = async () => [];
+export const getVaultHealth = async () => ({
+  brokenLinks: {items: [], total: 0}, unusedAttachments: {items: [], total: 0},
+  emptyNotes: {items: [], total: 0}, duplicateTitles: {items: [], total: 0},
+});
+export const versionControl = {
+  text: '# Earlier version\n',
+  restores: [] as string[],
+};
+export const listNoteVersions = async () => [{id:'1700000000000', savedAtMs:1700000000000, bytes:versionControl.text.length}];
+export const readNoteVersion = async () => versionControl.text;
+export const restoreNoteVersion = async (relPath: string) => {
+  versionControl.restores.push(relPath);
+  return {relPath, title:relPath, content:versionControl.text};
+};
+export const pickVaultFolder = async () => null;
+export const openDictionariesFolder = async () => {};

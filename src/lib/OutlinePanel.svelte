@@ -1,12 +1,19 @@
 <script lang="ts">
   import Icon from './ui/Icon.svelte';
+  import { settingsStore } from './stores/settings.svelte';
   import { tabsStore } from './stores/tabs.svelte';
   import { activeHeadingIndex, outlineDepths, parseOutline } from './outline';
   import { m } from './i18n.svelte';
 
   let headings = $derived(parseOutline(tabsStore.activeTab?.content ?? ''));
   let depths = $derived(outlineDepths(headings));
-  let activeIndex = $derived(activeHeadingIndex(headings, tabsStore.docStats.cursorLine));
+  // The outline follows the note in the first pane, so a cursor in the second pane, which is
+  // in another note, highlights nothing.
+  let activeIndex = $derived(
+    settingsStore.effectivePane === 'primary'
+      ? activeHeadingIndex(headings, tabsStore.docStats.cursorLine)
+      : -1
+  );
 </script>
 
 <section class="panel-section" aria-label={m.outline_title()}>

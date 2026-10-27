@@ -20,10 +20,11 @@ pub mod tasks;
 pub mod tray;
 pub mod types;
 pub mod vault;
+pub mod versions;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
@@ -65,6 +66,8 @@ pub struct AppState {
     /// Bumped on every vault open or close so a stale watcher worker never writes into the next vault's index.
     pub vault_generation: Arc<AtomicU64>,
     pub vault_operation: Arc<Mutex<()>>,
+    /// Whether a save keeps the note's previous text. The frontend owns the setting.
+    pub version_history: Arc<AtomicBool>,
 }
 
 /// Path of the SQLite index cache for `vault_root`: one database per vault, so edit history
@@ -389,6 +392,13 @@ fn open_vault(
         *v_guard = Some(vault_root.clone());
     }
 
+    // Notes deleted a month ago or more give their history back to the disk.
+    crate::versions::prune_orphans(
+        &crate::versions::versions_dir(&app_data_dir, &vault_root),
+        &vault_root,
+        system_time_to_ms(SystemTime::now()),
+    );
+
     let _ = record_recent_vault(&state.recent_vaults_file, &vault_root);
     Ok(snapshot)
 }
@@ -513,8 +523,26 @@ fn save_note(
 ) -> Result<NoteDocument, String> {
     let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
     let vault_root = require_active_vault(&state)?;
-    let normalized_rel = crate::vault::ensure_md_extension(&rel_path);
+    let (note_path, normalized_rel) = crate::versions::resolve_note_path(&vault_root, &rel_path)?;
     mark_self_write(&state.recent_self_writes, &normalized_rel);
+
+    // Keep the text on disk before this save replaces it, so the note can go back to it.
+    if state.version_history.load(Ordering::Relaxed) {
+        if let Ok(previous) = std::fs::read_to_string(&note_path) {
+            if previous != content {
+                let dir = versions_dir(&state, &vault_root);
+                let now_ms = system_time_to_ms(SystemTime::now());
+                // A failed snapshot must never stop the note itself from reaching disk.
+                let _ = crate::versions::snapshot(
+                    &dir,
+                    &normalized_rel,
+                    &previous,
+                    now_ms,
+                    crate::versions::SNAPSHOT_INTERVAL_MS,
+                );
+            }
+        }
+    }
 
     let (doc, changed) = save_vault_note(&vault_root, &normalized_rel, &content)?;
     if changed {
@@ -591,6 +619,13 @@ fn rename_entry(
     } else if let Some(scanned_list) = &dir_scanned {
         state.search_index.upsert_batch(scanned_list)?;
     }
+
+    // Version history follows the note, the same way pins do.
+    let _ = crate::versions::rename(
+        &versions_dir(&state, &vault_root),
+        &res.old_rel_path,
+        &res.new_rel_path,
+    );
 
     // A pinned note keeps its pin through a rename or a move, including inside a renamed folder.
     let file = pins_file(&state, &vault_root);
@@ -1099,12 +1134,12 @@ fn spell_paths(app_handle: &AppHandle, state: &State<'_, AppState>) -> crate::sp
 
 /// Pins file for the open vault, beside the recent vaults list in the app data folder.
 fn pins_file(state: &State<'_, AppState>, vault_root: &Path) -> PathBuf {
-    let app_data = state
-        .recent_vaults_file
-        .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(std::env::temp_dir);
-    crate::pins::pins_path(&app_data, vault_root)
+    crate::pins::pins_path(&app_data_dir(state), vault_root)
+}
+
+/// Version history folder for the open vault.
+fn versions_dir(state: &State<'_, AppState>, vault_root: &Path) -> PathBuf {
+    crate::versions::versions_dir(&app_data_dir(state), vault_root)
 }
 
 #[tauri::command]
@@ -1132,6 +1167,80 @@ fn set_note_pinned(
     let next = crate::pins::set_pinned(&crate::pins::load_pins(&file), &clean, pinned);
     crate::pins::save_pins(&file, &vault_root, &next)?;
     Ok(crate::pins::existing_pins(&next, &vault_root))
+}
+
+/// Every stored version of a note, newest first.
+#[tauri::command]
+fn list_note_versions(
+    state: State<'_, AppState>,
+    rel_path: String,
+) -> Result<Vec<crate::versions::NoteVersion>, String> {
+    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let vault_root = require_active_vault(&state)?;
+    let (_, clean) = crate::versions::resolve_note_path(&vault_root, &rel_path)?;
+    Ok(crate::versions::list(&versions_dir(&state, &vault_root), &clean))
+}
+
+/// The text of one stored version, for the timeline's diff.
+#[tauri::command]
+fn read_note_version(
+    state: State<'_, AppState>,
+    rel_path: String,
+    id: String,
+) -> Result<String, String> {
+    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let vault_root = require_active_vault(&state)?;
+    let (_, clean) = crate::versions::resolve_note_path(&vault_root, &rel_path)?;
+    crate::versions::read(&versions_dir(&state, &vault_root), &clean, &id)
+}
+
+/// Writes a stored version back to the note, keeping the text it replaces as a new version.
+#[tauri::command]
+fn restore_note_version(
+    state: State<'_, AppState>,
+    rel_path: String,
+    id: String,
+) -> Result<NoteDocument, String> {
+    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let vault_root = require_active_vault(&state)?;
+    let (note_path, clean) = crate::versions::resolve_note_path(&vault_root, &rel_path)?;
+    let dir = versions_dir(&state, &vault_root);
+    let wanted = crate::versions::read(&dir, &clean, &id)?;
+
+    // Restoring is itself an edit, so the text on screen becomes a version of its own. It is
+    // kept whatever the interval says, so one restore can always be undone by another.
+    match std::fs::read_to_string(&note_path) {
+        Ok(previous) if previous != wanted => {
+            crate::versions::snapshot_before_restore(&dir, &clean, &previous, system_time_to_ms(SystemTime::now()))?;
+        }
+        Ok(_) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(format!("Cannot read the current note before restoring: {e}")),
+    }
+
+    mark_self_write(&state.recent_self_writes, &clean);
+    let (doc, changed) = save_vault_note(&vault_root, &clean, &wanted)?;
+    if changed {
+        mark_self_write(&state.recent_self_writes, &doc.rel_path);
+        let abs = vault_root.join(&doc.rel_path);
+        let now_ms = system_time_to_ms(SystemTime::now());
+        let scanned = scan_single_file_from_disk(&vault_root, &abs)?;
+        {
+            let conn = state
+                .sqlite_conn
+                .lock()
+                .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+            upsert_scanned_note(&conn, &scanned, Some(now_ms))?;
+        }
+        state.search_index.upsert_scanned_note(&scanned)?;
+    }
+    Ok(doc)
+}
+
+/// Turns snapshots on or off. Off, saves keep no history; what is stored stays.
+#[tauri::command]
+fn configure_version_history(state: State<'_, AppState>, enabled: bool) {
+    state.version_history.store(enabled, Ordering::Relaxed);
 }
 
 #[tauri::command]
@@ -1350,6 +1459,7 @@ pub fn run() {
             recent_vaults_file,
             vault_generation: Arc::new(AtomicU64::new(0)),
             vault_operation: Arc::new(Mutex::new(())),
+            version_history: Arc::new(AtomicBool::new(true)),
         })
         .setup(|app| {
             crate::tray::create_tray(app)?;
@@ -1406,6 +1516,10 @@ pub fn run() {
             configure_task_reminders,
             list_pinned_notes,
             set_note_pinned,
+            list_note_versions,
+            read_note_version,
+            restore_note_version,
+            configure_version_history,
             list_deleted_entries,
             restore_deleted_entry,
             list_css_snippets,

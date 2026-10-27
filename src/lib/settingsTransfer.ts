@@ -35,6 +35,7 @@ const VALIDATORS: Record<string, (value: string) => boolean> = {
   'jotter.editorFontSize': oneOf('12', '14', '16', '20'),
   'jotter.sidebarWidth': (value) => value.trim() !== '' && Number.isFinite(Number(value)) && Number(value) >= 180 && Number(value) <= 480,
   'jotter.leftSidebarView': oneOf('files', 'search', 'tags', 'calendar', 'trash'),
+  'jotter.splitRatio': (value) => value.trim() !== '' && Number(value) >= 0.2 && Number(value) <= 0.8,
   'jotter.rightPanelTab': oneOf('note', 'calendar', 'trash'),
   'jotter.focusMode': oneOf('off', 'minimal', 'zen'),
   'jotter.notesNavigation': oneOf('folders', 'tags'),
@@ -61,7 +62,7 @@ const VALIDATORS: Record<string, (value: string) => boolean> = {
       && (section.hidden === undefined || typeof section.hidden === 'boolean')))),
 };
 for (const name of ['typewriterScrolling', 'dimInactiveParagraphs', 'showHiddenFiles', 'showHomePage',
-  'showLineNumbers', 'spellCheck', 'summonEnabled', 'quickCaptureEnabled', 'taskReminders', 'trayEnabled', 'sidebarCollapsed', 'showRightPanel']) {
+  'showLineNumbers', 'spellCheck', 'summonEnabled', 'quickCaptureEnabled', 'taskReminders', 'trayEnabled', 'sidebarCollapsed', 'showRightPanel', 'versionHistory']) {
   VALIDATORS[`jotter.${name}`] = boolean;
 }
 

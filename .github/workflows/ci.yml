@@ -32,13 +32,16 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm test
+      # The interface checks drive a real browser: focus order, layering, and the axe audit.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:review-ui
 
   rust:
     name: Rust tests (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        os: [windows-latest, macos-latest]
+        os: [windows-latest, macos-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     env:
       # Full debug symbols inflate Windows cache archives; CI does not use a debugger.
@@ -46,6 +49,13 @@ jobs:
       CARGO_PROFILE_TEST_DEBUG: '0'
     steps:
       - uses: actions/checkout@v4
+      # WebKitGTK and its bundling tools are not on the runner image.
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev patchelf
       - uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -60,5 +70,7 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       # cargo test builds the app binary too. Use the packaged-app feature set once,
       # instead of a Tauri CLI build (which also repeats beforeBuildCommand).
+      # The Linux system clipboard test is ignored here; run it explicitly in a desktop
+      # session with cargo test system_clipboard_roundtrip -- --ignored.
       - run: cargo test --locked --features tauri/custom-protocol
         working-directory: src-tauri

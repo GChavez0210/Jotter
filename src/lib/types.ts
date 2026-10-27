@@ -23,6 +23,12 @@ export type EditingMode = 'live' | 'source';
 
 export type FocusMode = 'off' | 'minimal' | 'zen';
 
+/** What the second editor pane holds: nothing, another note, or the open note rendered. */
+export type SplitMode = 'off' | 'note' | 'preview';
+
+/** Which of the two editor panes takes the next note the user opens. */
+export type PaneId = 'primary' | 'secondary';
+
 /** What the window's close button does. */
 export type CloseAction = 'quit' | 'tray';
 
@@ -154,6 +160,14 @@ export interface VaultHealthReport {
   duplicateTitles: HealthList<{ title: string; paths: string[] }>;
 }
 export type RightPanelTab = 'note' | 'calendar' | 'trash';
+
+/** One stored snapshot of a note, as the version history lists them, newest first. */
+export interface NoteVersion {
+  /** The time the snapshot was taken, in milliseconds, which also names its file. */
+  id: string;
+  savedAtMs: number;
+  bytes: number;
+}
 
 /** A vault note or folder in the OS trash. */
 export interface DeletedEntry {

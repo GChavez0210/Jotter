@@ -10,9 +10,9 @@
   let crumbs = $derived.by(() => {
     const parts: string[] = [];
     if (vaultStore.vaultSnapshot) parts.push(vaultStore.vaultSnapshot.name);
-    if (tabsStore.activeTab) {
-      const folders = tabsStore.activeTab.relPath.replace(/\\/g, '/').split('/').slice(0, -1);
-      parts.push(...folders, tabsStore.activeTab.title.replace(/\.md$/i, ''));
+    if (tabsStore.focusedTab) {
+      const folders = tabsStore.focusedTab.relPath.replace(/\\/g, '/').split('/').slice(0, -1);
+      parts.push(...folders, tabsStore.focusedTab.title.replace(/\.md$/i, ''));
     } else if (tabsStore.scratchpadMode) {
       parts.push(m.scratchpad_title());
     }
@@ -45,7 +45,7 @@
       {clipboardStore.statusBanner || m.status_ready()}
     </span>
 
-    {#if tabsStore.activeTab || tabsStore.scratchpadMode}
+    {#if tabsStore.focusedTab || tabsStore.scratchpadMode}
       <span class="item">{settingsStore.editingMode === 'live' ? m.titlebar_live() : m.editing_mode_source()}</span>
       <span class="item">
         {#if tabsStore.docStats.selectedChars > 0}

@@ -60,9 +60,10 @@
       color var(--transition-fast);
   }
 
+  /* 24 px is the smallest pointer target WCAG 2.2 accepts. */
   .icon-btn.sm {
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
   }
 
   .icon-btn:hover:not(:disabled) {
