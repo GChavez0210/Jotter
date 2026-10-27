@@ -4,12 +4,21 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-27
+
 ### Added
 
 - **Split view.** **Ctrl+Shift+\\**, the title bar's split button, or **Open on the right** in a note's context menu puts a second note beside the first one. Each pane keeps its own cursor, scroll position and undo history, and the pane you last typed in takes the next note you open. Drag the bar between them to resize, or double-click it to even them out. **Show Rendered Preview Beside the Note** in the command palette shows the open note as it will export instead of a second note. A window too narrow for two text columns hides the pane until it is wide enough again.
 - **Accessibility pass.** An axe audit runs over the app's main screens in every theme as part of the interface checks, and the findings are fixed: the editor's text box carries its own name for a screen reader, a tab is one control instead of a control inside a control, small buttons meet the 24 px target size, muted text meets AA contrast in light and dark, and a dialog keeps Tab inside it until it closes. The sidebar's edge and the split view's divider now move with the arrow keys, and reset with Home or a double-click, so neither needs a drag.
 - **Linux builds.** A tagged release now ships an x86_64 AppImage and a `.deb` beside the Windows installers, and CI runs the Rust tests on Linux. The desktop draws the window frame, so Jotter leaves the title bar to it. The clipboard enables native Wayland data-control support with an X11 fallback; native platform testing remains pending. Global shortcuts need X11: Wayland lets no application claim one, so the summon hotkey and quick capture say so instead of failing quietly, and `GDK_BACKEND=x11` makes them work inside a Wayland session.
 - **Note version history.** Jotter periodically keeps the previous saved text of a note so you can recover from unwanted edits. **Version history** in a note's header, or the command palette, opens a timeline of stored versions with what restoring one would change, and restores it in a click. Restoring keeps the text it replaces as another version, so it can be undone the same way. Versions live in the app data folder, never in the vault, and are thinned as they age: everything from the last day, one a day for a month, one a week for a year. **Settings → Vault → Keep version history** turns it off.
+
+### Fixed
+
+- Keep each note in one editor pane, route note actions to the focused pane, retain heading targets, and show external-change controls for either note.
+- Validate vault paths before reading or snapshotting history. Abort restoration when pending edits cannot be saved or the current text cannot be preserved.
+- Preserve history on rename, including timestamp collisions, and give missing notes a full retention period from their first detected absence.
+- Keep printing, word counts, shortcuts, and keyboard tab closing consistent with the visible note. Stabilize accessibility audits across theme changes.
 
 ## [0.5.0] - 2026-10-24
 
