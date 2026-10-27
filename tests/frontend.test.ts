@@ -1,9 +1,12 @@
 import { systemStore } from '../src/lib/stores/system.svelte';
 import { settingsStore } from '../src/lib/stores/settings.svelte';
 import { systemControl } from './ipc.mock';
-import { isMac, isWindows, isMacPlatform, shortcutLabel } from '../src/lib/platform';
+import { isMac, isWindows, isMacPlatform, isLinuxPlatform, shortcutLabel } from '../src/lib/platform';
 import { designTokens } from '../src/lib/designTokens';
-import { maxSidebarWidth, rightPanelFitsWindow, sidebarFitsWindow, titleBarIsCompact, widthForSidebar } from '../src/lib/layout';
+import { clampSplitRatio, maxSidebarWidth, rightPanelFitsWindow, sidebarFitsWindow, splitFitsWindow, titleBarIsCompact, widthForSidebar } from '../src/lib/layout';
+import { openInActivePane, openInSplit, paneShowing, toggleSplitNote } from '../src/lib/panes';
+import { collapseUnchanged, diffLines, diffSummary } from '../src/lib/diff';
+import { sameNotePath } from '../src/lib/notePaths';
 import { validateEntryName } from '../src/lib/validation';
 import { mock, test } from 'node:test';
 import { i18n, m, matchSystemLocale, SLOT, splitSlots } from '../src/lib/i18n.svelte';
@@ -723,6 +726,12 @@ test('spell check languages come from the note, then the vault', () => {
 test('shortcut hints follow the desktop platform', () => {
   assert.equal(isMacPlatform('MacIntel'), true);
   assert.equal(isMacPlatform('Win32'), false);
+  // Linux draws its own title bar; Android, which also reports Linux, gets its own interface.
+  assert.equal(isLinuxPlatform('Linux x86_64'), true);
+  assert.equal(isLinuxPlatform('Linux aarch64'), true);
+  assert.equal(isLinuxPlatform('Linux armv8l; Android 14'), false);
+  assert.equal(isLinuxPlatform('Win32'), false);
+  assert.equal(isLinuxPlatform('MacIntel'), false);
   assert.equal(shortcutLabel('Copy (Ctrl+Shift+C)', true), 'Copy (Cmd+Shift+C)');
   assert.equal(shortcutLabel('Ctrl+Alt+J', true), 'Cmd+Option+J');
   assert.equal(shortcutLabel('Ctrl+O', false), 'Ctrl+O');
@@ -918,6 +927,217 @@ test('the right panel yields its width before the sidebar does', () => {
     const panelFits = rightPanelFitsWindow(width, sidebarDefaultWidth, true);
     if (panelFits) assert.ok(sidebarFits, `panel outlived the sidebar at ${width}`);
   }
+});
+
+test('the second pane yields after the right panel and before the sidebar', () => {
+  const { sidebarDefaultWidth, editorMinWidth, rightPanelWidth } = designTokens.layout;
+  const twoColumns = sidebarDefaultWidth + editorMinWidth * 2;
+  assert.equal(splitFitsWindow(twoColumns, sidebarDefaultWidth, true), true);
+  assert.equal(splitFitsWindow(twoColumns - 1, sidebarDefaultWidth, true), false);
+  // A collapsed sidebar gives its width to the second column.
+  assert.equal(splitFitsWindow(editorMinWidth * 2, sidebarDefaultWidth, false), true);
+
+  // An open split asks the right panel for its space first.
+  const all = sidebarDefaultWidth + rightPanelWidth + editorMinWidth * 2;
+  assert.equal(rightPanelFitsWindow(all, sidebarDefaultWidth, true, true), true);
+  assert.equal(rightPanelFitsWindow(all - 1, sidebarDefaultWidth, true, true), false);
+  for (const width of [480, 700, 856, 1120, 1400]) {
+    if (rightPanelFitsWindow(width, sidebarDefaultWidth, true, true)) {
+      assert.ok(splitFitsWindow(width, sidebarDefaultWidth, true), `panel outlived the split at ${width}`);
+    }
+    if (splitFitsWindow(width, sidebarDefaultWidth, true)) {
+      assert.ok(sidebarFitsWindow(width, sidebarDefaultWidth), `split outlived the sidebar at ${width}`);
+    }
+  }
+});
+
+test('the sash keeps both panes at a readable width', () => {
+  const { editorMinWidth } = designTokens.layout;
+  const wide = editorMinWidth * 4;
+  assert.equal(clampSplitRatio(0.5, wide), 0.5);
+  assert.equal(clampSplitRatio(0.4, wide), 0.4);
+  // Neither pane may fall below one text column.
+  assert.equal(clampSplitRatio(0, wide), 0.25);
+  assert.equal(clampSplitRatio(1, wide), 0.75);
+  // A row with room for exactly two columns pins the sash to the middle.
+  assert.equal(clampSplitRatio(0.2, editorMinWidth * 2), 0.5);
+  assert.equal(clampSplitRatio(0.5, 0), 0.5);
+});
+
+test('notes open in the pane the user last worked in, and never twice at once', async () => {
+  settingsStore.setWindowWidth(1600);
+  settingsStore.sidebarCollapsed = true;
+  tabsStore.resetTabs();
+  await tabsStore.openNoteInTab('A.md');
+  await tabsStore.openNoteInTab('B.md');
+  assert.equal(tabsStore.activeTabPath, 'B.md');
+
+  // Opening a note on the right makes the second pane the one that takes the next note.
+  await openInSplit('A.md');
+  assert.equal(settingsStore.splitMode, 'note');
+  assert.equal(settingsStore.splitNotePath, 'A.md');
+  assert.equal(settingsStore.activePane, 'secondary');
+  assert.equal(paneShowing('A.md'), 'secondary');
+  assert.equal(paneShowing('B.md'), 'primary');
+
+  // A third note replaces what the second pane shows, leaving the first pane alone.
+  await openInActivePane('C.md');
+  assert.equal(settingsStore.splitNotePath, 'C.md');
+  assert.equal(tabsStore.activeTabPath, 'B.md');
+
+  // Asking the second pane for the note the first pane shows swaps the two panes.
+  await openInActivePane('B.md');
+  assert.equal(settingsStore.splitNotePath, 'B.md');
+  assert.equal(tabsStore.activeTabPath, 'C.md');
+
+  // The same from the other side: the first pane takes the note and hands back its own.
+  settingsStore.setActivePane('primary');
+  await openInActivePane('B.md');
+  assert.equal(tabsStore.activeTabPath, 'B.md');
+  assert.equal(settingsStore.splitNotePath, 'C.md');
+
+  settingsStore.closeSplit();
+  assert.equal(settingsStore.splitVisible, false);
+  assert.equal(settingsStore.activePane, 'primary');
+  assert.equal(paneShowing('C.md'), null);
+});
+
+test('the split pane follows renames and empties when its note closes', async () => {
+  settingsStore.setWindowWidth(1600);
+  settingsStore.sidebarCollapsed = true;
+  tabsStore.resetTabs();
+  await tabsStore.openNoteInTab('Work/Report.md');
+  await tabsStore.openNoteInTab('Journal.md');
+  await openInSplit('Work/Report.md');
+  assert.equal(settingsStore.splitNotePath, 'Work/Report.md');
+
+  // A renamed note, and a renamed folder, carry the second pane with them.
+  tabsStore.updatePathsAfterRename('Work/Report.md', 'Work/Summary.md');
+  assert.equal(settingsStore.splitNotePath, 'Work/Summary.md');
+  tabsStore.updatePathsAfterRename('Work', 'Archive');
+  assert.equal(settingsStore.splitNotePath, 'Archive/Summary.md');
+
+  // Closing the note leaves the pane open and empty, so the sash stays put.
+  await tabsStore.closeTab('Archive/Summary.md');
+  assert.equal(settingsStore.splitMode, 'note');
+  assert.equal(settingsStore.splitNotePath, null);
+
+  // Deleting a note clears a pane showing it.
+  await openInSplit('Journal.md');
+  tabsStore.removeTabsUnderPath('Journal.md');
+  assert.equal(settingsStore.splitNotePath, null);
+
+  // Switching vaults closes the split with the tabs.
+  await tabsStore.openNoteInTab('Other.md');
+  await openInSplit('Second.md');
+  tabsStore.resetTabs();
+  assert.equal(settingsStore.splitMode, 'off');
+});
+
+test('toggling the split picks the note worked in before this one', async () => {
+  settingsStore.setWindowWidth(1600);
+  settingsStore.sidebarCollapsed = true;
+  tabsStore.resetTabs();
+  toggleSplitNote();
+  // With nothing open the pane opens empty rather than refusing.
+  assert.equal(settingsStore.splitMode, 'note');
+  assert.equal(settingsStore.splitNotePath, null);
+  settingsStore.closeSplit();
+
+  await tabsStore.openNoteInTab('A.md');
+  await tabsStore.openNoteInTab('B.md');
+  toggleSplitNote();
+  assert.equal(settingsStore.splitNotePath, 'A.md');
+  toggleSplitNote();
+  assert.equal(settingsStore.splitMode, 'off');
+
+  // The preview mode takes no note of its own and replaces an open split.
+  settingsStore.openSplitPreview();
+  assert.equal(settingsStore.splitMode, 'preview');
+  assert.equal(settingsStore.splitNotePath, null);
+  assert.equal(settingsStore.activePane, 'primary');
+  settingsStore.closeSplit();
+});
+
+test('a window too narrow for two columns hides the split without forgetting it', async () => {
+  settingsStore.setWindowWidth(1600);
+  settingsStore.sidebarCollapsed = true;
+  tabsStore.resetTabs();
+  await tabsStore.openNoteInTab('A.md');
+  await openInSplit('B.md');
+  assert.equal(settingsStore.splitVisible, true);
+
+  settingsStore.setWindowWidth(designTokens.layout.editorMinWidth * 2 - 1);
+  assert.equal(settingsStore.splitAutoHidden, true);
+  assert.equal(settingsStore.splitVisible, false);
+  assert.equal(settingsStore.splitMode, 'note');
+  // The pane that is off screen never takes a note.
+  assert.equal(paneShowing('B.md'), null);
+
+  settingsStore.setWindowWidth(1600);
+  assert.equal(settingsStore.splitVisible, true);
+
+  // Focus modes show one note at a time.
+  settingsStore.setFocusMode('minimal');
+  assert.equal(settingsStore.splitVisible, false);
+  settingsStore.exitFocusMode();
+  assert.equal(settingsStore.splitVisible, true);
+  settingsStore.closeSplit();
+});
+
+test('the diff pairs unchanged lines and marks what a version would change', () => {
+  const older = 'title\nalpha\nbeta\ngamma\n';
+  const newer = 'title\nalpha\nbeta two\ngamma\ndelta\n';
+  const lines = diffLines(older, newer);
+  assert.deepEqual(
+    lines.map((l) => `${l.kind}:${l.text}`),
+    ['same:title', 'same:alpha', 'del:beta', 'add:beta two', 'same:gamma', 'add:delta']
+  );
+  assert.deepEqual(diffSummary(lines), { added: 2, removed: 1 });
+
+  // Line numbers point into the text each side came from.
+  const removed = lines.find((l) => l.kind === 'del');
+  const added = lines.filter((l) => l.kind === 'add');
+  assert.equal(removed?.oldLine, 3);
+  assert.equal(added[0].newLine, 3);
+  assert.equal(added[1].newLine, 5);
+
+  // Identical text has nothing to show, and a trailing newline is not a line of its own.
+  assert.deepEqual(diffSummary(diffLines(older, older)), { added: 0, removed: 0 });
+  assert.deepEqual(diffSummary(diffLines('one\ntwo', 'one\ntwo\n')), { added: 0, removed: 0 });
+  // Windows line endings compare equal to Unix ones.
+  assert.deepEqual(diffSummary(diffLines('a\r\nb\r\n', 'a\nb\n')), { added: 0, removed: 0 });
+  // An empty note on either side is all additions or all removals.
+  assert.deepEqual(diffSummary(diffLines('', 'a\nb')), { added: 2, removed: 0 });
+  assert.deepEqual(diffSummary(diffLines('a\nb', '')), { added: 0, removed: 2 });
+});
+
+test('the diff hides long runs of unchanged lines around each change', () => {
+  const older = Array.from({ length: 30 }, (_, i) => `line ${i + 1}`).join('\n');
+  const newer = older.replace('line 15', 'line fifteen');
+  const rows = collapseUnchanged(diffLines(older, newer), 2);
+
+  // Two gaps: before the change and after it, with the context lines kept between them.
+  const gaps = rows.filter((r) => r.kind === 'gap');
+  assert.equal(gaps.length, 2);
+  assert.deepEqual(
+    rows.filter((r) => r.kind !== 'gap').map((r) => `${r.kind}:${r.text}`),
+    [
+      'same:line 13',
+      'same:line 14',
+      'del:line 15',
+      'add:line fifteen',
+      'same:line 16',
+      'same:line 17',
+    ]
+  );
+  // Every line is accounted for, hidden or shown.
+  const shown = rows.filter((r) => r.kind !== 'gap').length;
+  const hidden = gaps.reduce((sum, gap) => sum + (gap.kind === 'gap' ? gap.count : 0), 0);
+  assert.equal(shown + hidden, diffLines(older, newer).length);
+
+  // Nothing to hide in a short note.
+  assert.equal(collapseUnchanged(diffLines('a', 'b'), 2).some((r) => r.kind === 'gap'), false);
 });
 
 test('the title bar gives up its labels below the compact width', () => {
@@ -1558,4 +1778,61 @@ test('link edits apply only while the text still matches', () => {
     { from: 4, to: 7, expected: 'Old', insert: 'a' },
     { from: 5, to: 6, expected: 'l', insert: 'b' },
   ]), false);
+});
+
+
+test('opening the only note on the right and closing the primary never duplicate a document', async () => {
+  tabsStore.resetTabs(); settingsStore.setWindowWidth(1600); settingsStore.sidebarCollapsed = true;
+  await tabsStore.openNoteInTab('Only.md');
+  await openInSplit('Only.md');
+  assert.equal(settingsStore.splitNotePath, 'Only.md');
+  assert.equal(tabsStore.activeTabPath, null);
+  settingsStore.closeSplit();
+  await tabsStore.openNoteInTab('A.md'); await tabsStore.openNoteInTab('B.md');
+  await openInSplit('A.md');
+  await tabsStore.closeTab('B.md');
+  assert.notEqual(tabsStore.activeTabPath, settingsStore.splitNotePath);
+  assert.equal(tabsStore.activeTabPath, 'A.md');
+  tabsStore.resetTabs();
+});
+
+test('all note open entry points use the focused pane and retain heading targets through swaps', async () => {
+  tabsStore.resetTabs(); settingsStore.setWindowWidth(1600); settingsStore.sidebarCollapsed = true;
+  await tabsStore.openNoteInTab('A.md'); await openInSplit('B.md');
+  await tabsStore.openNoteInTab('C.md', {heading:'Target'});
+  assert.equal(tabsStore.activeTabPath, 'A.md');
+  assert.equal(settingsStore.splitNotePath, 'C.md');
+  assert.equal(tabsStore.pendingScrollTarget?.pane, 'secondary');
+  assert.equal(tabsStore.pendingScrollTarget?.heading, 'Target');
+  await tabsStore.openNoteInTab('A.md', {lineNumber:12});
+  assert.equal(tabsStore.activeTabPath, 'C.md');
+  assert.equal(settingsStore.splitNotePath, 'A.md');
+  assert.equal(tabsStore.pendingScrollTarget?.lineNumber, 12);
+  assert.equal(tabsStore.consumeScrollTarget(tabsStore.pendingScrollTarget!), true);
+  tabsStore.resetTabs();
+});
+
+test('focused note commands fall back to the visible primary in narrow and preview layouts', async () => {
+  tabsStore.resetTabs(); settingsStore.setWindowWidth(1600); settingsStore.sidebarCollapsed = true;
+  await tabsStore.openNoteInTab('A.md'); await openInSplit('B.md');
+  assert.equal(tabsStore.focusedTabPath, 'B.md');
+  settingsStore.setWindowWidth(650);
+  assert.equal(tabsStore.focusedTabPath, 'A.md');
+  settingsStore.setWindowWidth(1600);settingsStore.openSplitPreview();settingsStore.setActivePane('secondary');
+  assert.equal(tabsStore.focusedTabPath, 'A.md');
+  tabsStore.resetTabs();
+});
+
+test('note identity respects Linux case and normalizes path separators', () => {
+  assert.equal(sameNotePath('Work/Note.md', 'work/note.md', true), false);
+  assert.equal(sameNotePath('Work/Note.md', 'work/note.md', false), true);
+  assert.equal(sameNotePath('Work\\Note.md', 'Work/Note.md', true), true);
+});
+
+test('restored content updates an existing tab through its platform spelling', async () => {
+  tabsStore.resetTabs(); await tabsStore.openNoteInTab('Note.md');
+  tabsStore.applyRestoredContent(isLinuxPlatform(typeof navigator === 'undefined' ? '' : navigator.platform) ? 'Note.md' : 'note.MD', 'restored');
+  assert.equal(tabsStore.activeTab?.content, 'restored');
+  assert.equal(tabsStore.activeTab?.dirty, false);
+  tabsStore.resetTabs();
 });

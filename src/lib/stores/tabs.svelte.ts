@@ -1,7 +1,10 @@
 import { shortcutLabel } from '../platform';
 import { readNote, saveNote } from '../ipc';
 import { clipboardStore } from './clipboard.svelte';
+import { settingsStore } from './settings.svelte';
 import { m } from '../i18n.svelte';
+import { sameNotePath, notePathKey } from '../notePaths';
+import type { PaneId } from '../types';
 
 export interface OpenTab {
   relPath: string;
@@ -50,6 +53,7 @@ fn copy_preserves_newlines(input: &str) -> String {
 \`\`\``);
 
 export interface PendingScrollTarget {
+  pane?: PaneId;
   relPath: string;
   heading?: string;
   lineNumber?: number;
@@ -61,6 +65,10 @@ class TabsStore {
   private activePath = $state<string | null>(null);
   get activeTabPath(): string | null { return this.activePath; }
   set activeTabPath(path: string | null) {
+    if (sameNotePath(path, settingsStore.splitNotePath)) {
+      settingsStore.splitNotePath = this.openTabs.some((t) => sameNotePath(t.relPath, this.activePath))
+        && !sameNotePath(path, this.activePath) ? this.activePath : null;
+    }
     if (path !== this.activePath) this.pendingScrollTarget = null;
     this.activePath = path;
   }
@@ -86,12 +94,22 @@ class TabsStore {
     this.openTabs.find((t) => t.relPath === this.activeTabPath) ?? null
   );
 
+  focusedTab = $derived(
+    settingsStore.effectivePane === 'secondary'
+      ? this.openTabs.find((t) => sameNotePath(t.relPath, settingsStore.splitNotePath)) ?? null
+      : this.activeTab
+  );
+
+  get focusedTabPath(): string | null { return this.focusedTab?.relPath ?? null; }
+
   resetTabs() {
     this.generation++;
     this.clearAllTimers();
     this.openTabs = [];
     this.activeTabPath = null;
     this.pendingScrollTarget = null;
+    // Both split modes show an open note, so the second pane closes with the tabs.
+    settingsStore.closeSplit();
   }
 
   clearPendingScrollTarget() {
@@ -102,7 +120,7 @@ class TabsStore {
   consumeScrollTarget(target: PendingScrollTarget): boolean {
     if (this.pendingScrollTarget?.seq !== target.seq) return false;
     this.pendingScrollTarget = null;
-    return this.activeTabPath === target.relPath;
+    return sameNotePath(target.pane === 'secondary' ? settingsStore.splitNotePath : this.activeTabPath, target.relPath);
   }
 
   /** Scrolls the open note to a line, for panels that have no handle on the editor. */
@@ -110,7 +128,7 @@ class TabsStore {
     const relPath = this.activeTabPath;
     if (!relPath) return;
     // The sequence makes a repeat jump to the same line a fresh request.
-    this.pendingScrollTarget = { relPath, lineNumber, seq: ++this.scrollSeq };
+    this.pendingScrollTarget = { relPath, lineNumber, pane: 'primary', seq: ++this.scrollSeq };
   }
 
   clearAllTimers() {
@@ -124,26 +142,47 @@ class TabsStore {
     relPath: string,
     options?: { heading?: string; lineNumber?: number }
   ) {
-    const existing = this.openTabs.find(
-      (t) => t.relPath.toLowerCase() === relPath.toLowerCase()
-    );
-    if (existing) {
-      this.activeTabPath = existing.relPath;
-      if (options?.heading || options?.lineNumber) {
-        this.pendingScrollTarget = {
-          relPath: existing.relPath,
-          heading: options.heading,
-          lineNumber: options.lineNumber,
-          seq: ++this.scrollSeq,
-        };
+    let pane = settingsStore.effectivePane;
+    const loaded = await this.loadTab(relPath);
+    if (!loaded) return;
+    if (pane === 'secondary' && settingsStore.effectivePane === 'secondary') {
+      if (sameNotePath(loaded, this.activeTabPath)) {
+        const previous = settingsStore.splitNotePath;
+        settingsStore.splitNotePath = null;
+        this.activeTabPath = previous;
       }
-      return;
+      settingsStore.splitNotePath = loaded;
+    } else {
+      pane = 'primary';
+      this.activeTabPath = loaded;
     }
+    if (options?.heading || options?.lineNumber) {
+      this.pendingScrollTarget = {
+        relPath: loaded,
+        pane,
+        heading: options.heading,
+        lineNumber: options.lineNumber,
+        seq: ++this.scrollSeq,
+      };
+    }
+  }
+
+  /**
+   * Reads a note into an open tab without making it the active one, and returns the path the
+   * vault gave it. The second editor pane opens notes this way.
+   */
+  async loadTab(relPath: string): Promise<string | null> {
+    const existing = this.openTabs.find(
+      (t) => sameNotePath(t.relPath, relPath)
+    );
+    if (existing) return existing.relPath;
 
     try {
       const generation = this.generation;
       const doc = await readNote(relPath);
-      if (generation !== this.generation) return;
+      if (generation !== this.generation) return null;
+      const alreadyLoaded = this.openTabs.find((t) => sameNotePath(t.relPath, doc.relPath));
+      if (alreadyLoaded) return alreadyLoaded.relPath;
       const tab: OpenTab = {
         relPath: doc.relPath,
         title: doc.title,
@@ -153,20 +192,13 @@ class TabsStore {
         externalChangePending: false,
       };
       this.openTabs = [...this.openTabs, tab];
-      this.activeTabPath = tab.relPath;
-      if (options?.heading || options?.lineNumber) {
-        this.pendingScrollTarget = {
-          relPath: tab.relPath,
-          heading: options.heading,
-          lineNumber: options.lineNumber,
-          seq: ++this.scrollSeq,
-        };
-      }
       clipboardStore.setStatus(m.status_opened({ path: doc.relPath }));
+      return tab.relPath;
     } catch (err) {
       clipboardStore.setStatus(
         m.status_open_failed({ error: err instanceof Error ? err.message : String(err) })
       );
+      return null;
     }
   }
 
@@ -180,22 +212,26 @@ class TabsStore {
       externalChangePending: false,
     };
     this.openTabs = [
-      ...this.openTabs.filter((t) => t.relPath !== relPath),
+      ...this.openTabs.filter((t) => !sameNotePath(t.relPath, relPath)),
       newTab,
     ];
-    this.activeTabPath = relPath;
+    if (settingsStore.effectivePane === 'secondary' && !sameNotePath(relPath, this.activeTabPath)) {
+      settingsStore.splitNotePath = relPath;
+    } else this.activeTabPath = relPath;
   }
 
   async closeTab(relPath: string, e?: MouseEvent) {
     e?.stopPropagation();
     if (!(await this.flushAutosaveFor(relPath))) return;
-    const idx = this.openTabs.findIndex((t) => t.relPath === relPath);
+    const idx = this.openTabs.findIndex((t) => sameNotePath(t.relPath, relPath));
     if (idx < 0) return;
 
-    const nextTabs = this.openTabs.filter((t) => t.relPath !== relPath);
+    const nextTabs = this.openTabs.filter((t) => !sameNotePath(t.relPath, relPath));
     this.openTabs = nextTabs;
+    // The second pane empties rather than closing, so the sash stays where the user put it.
+    if (sameNotePath(settingsStore.splitNotePath, relPath)) settingsStore.splitNotePath = null;
 
-    if (this.activeTabPath === relPath) {
+    if (sameNotePath(this.activeTabPath, relPath)) {
       if (nextTabs.length === 0) {
         this.activeTabPath = null;
       } else {
@@ -217,7 +253,7 @@ class TabsStore {
     }
 
     this.openTabs = this.openTabs.map((t) =>
-      t.relPath === docId
+      sameNotePath(t.relPath, docId)
         ? {
             ...t,
             content: newContent,
@@ -260,14 +296,14 @@ class TabsStore {
   private async saveUntilClean(relPath: string): Promise<boolean> {
     // Include edits made while an earlier save is waiting for disk.
     while (true) {
-      const tab = this.openTabs.find((t) => t.relPath === relPath);
+      const tab = this.openTabs.find((t) => sameNotePath(t.relPath, relPath));
       if (!tab || !tab.dirty) return true;
 
       const contentToSave = tab.content;
       try {
         const savedDoc = await saveNote(relPath, contentToSave);
         this.openTabs = this.openTabs.map((t) =>
-          t.relPath === relPath
+          sameNotePath(t.relPath, relPath)
             ? {
                 ...t,
                 savedContent: contentToSave,
@@ -299,65 +335,85 @@ class TabsStore {
     const oldPrefix = `${oldRelPath}/`;
 
     this.openTabs = this.openTabs.map((t) => {
-      if (t.relPath === oldRelPath) {
+      if (sameNotePath(t.relPath, oldRelPath)) {
         const base = newRelPath.split('/').pop() ?? newRelPath;
         const title = base.toLowerCase().endsWith('.md')
           ? base.slice(0, -3)
           : base;
         return { ...t, relPath: newRelPath, title };
       }
-      if (t.relPath.startsWith(oldPrefix)) {
+      if (notePathKey(t.relPath).startsWith(notePathKey(oldPrefix))) {
         const updatedRel = `${newRelPath}/${t.relPath.slice(oldPrefix.length)}`;
         return { ...t, relPath: updatedRel };
       }
       return t;
     });
 
-    if (this.activeTabPath === oldRelPath) {
+    if (sameNotePath(this.activeTabPath, oldRelPath)) {
       this.activeTabPath = newRelPath;
-    } else if (this.activeTabPath?.startsWith(oldPrefix)) {
+    } else if (this.activeTabPath && notePathKey(this.activeTabPath).startsWith(notePathKey(oldPrefix))) {
       this.activeTabPath = `${newRelPath}/${this.activeTabPath.slice(
         oldPrefix.length
       )}`;
+    }
+
+    const split = settingsStore.splitNotePath;
+    if (sameNotePath(split, oldRelPath)) {
+      settingsStore.splitNotePath = newRelPath;
+    } else if (split && notePathKey(split).startsWith(notePathKey(oldPrefix))) {
+      settingsStore.splitNotePath = `${newRelPath}/${split.slice(oldPrefix.length)}`;
     }
   }
 
   removeTabsUnderPath(relPath: string) {
     const prefix = `${relPath}/`;
     for (const [k, timer] of this.autosaveTimers.entries()) {
-      if (k === relPath || k.startsWith(prefix)) {
+      if (sameNotePath(k, relPath) || notePathKey(k).startsWith(notePathKey(prefix))) {
         clearTimeout(timer);
         this.autosaveTimers.delete(k);
       }
     }
 
     const remaining = this.openTabs.filter(
-      (t) => t.relPath !== relPath && !t.relPath.startsWith(prefix)
+      (t) => !sameNotePath(t.relPath, relPath) && !notePathKey(t.relPath).startsWith(notePathKey(prefix))
     );
     this.openTabs = remaining;
+    const split = settingsStore.splitNotePath;
+    if (split && (sameNotePath(split, relPath) || notePathKey(split).startsWith(notePathKey(prefix)))) {
+      settingsStore.splitNotePath = null;
+    }
     if (
       this.activeTabPath &&
-      (this.activeTabPath === relPath || this.activeTabPath.startsWith(prefix))
+      (sameNotePath(this.activeTabPath, relPath) || notePathKey(this.activeTabPath).startsWith(notePathKey(prefix)))
     ) {
       this.activeTabPath =
         remaining.length > 0 ? remaining[remaining.length - 1].relPath : null;
     }
   }
 
+  /** Takes text written to a note outside the editor, such as a restored version. */
+  applyRestoredContent(relPath: string, content: string) {
+    this.openTabs = this.openTabs.map((t) =>
+      sameNotePath(t.relPath, relPath)
+        ? { ...t, content, savedContent: content, dirty: false, externalChangePending: false }
+        : t
+    );
+  }
+
   dismissExternalChangeBanner(relPath: string) {
     this.openTabs = this.openTabs.map((t) =>
-      t.relPath === relPath ? { ...t, externalChangePending: false } : t
+      sameNotePath(t.relPath, relPath) ? { ...t, externalChangePending: false } : t
     );
   }
 
   async reloadTabFromDisk(
     relPath: string,
-    onReplaceActiveEditor?: (newContent: string) => void
+    onReplaceEditor?: (relPath: string, newContent: string) => void
   ) {
     try {
       const doc = await readNote(relPath);
       this.openTabs = this.openTabs.map((t) =>
-        t.relPath === relPath
+        sameNotePath(t.relPath, relPath)
           ? {
               ...t,
               content: doc.content,
@@ -367,13 +423,12 @@ class TabsStore {
             }
           : t
       );
-      if (this.activeTabPath === relPath) {
-        onReplaceActiveEditor?.(doc.content);
-      }
+      // Either pane may hold the note, so the caller matches the path to its editor.
+      onReplaceEditor?.(relPath, doc.content);
       clipboardStore.setStatus(m.status_reloaded({ path: relPath }));
     } catch {
-      this.openTabs = this.openTabs.filter((t) => t.relPath !== relPath);
-      if (this.activeTabPath === relPath) {
+      this.openTabs = this.openTabs.filter((t) => !sameNotePath(t.relPath, relPath));
+      if (sameNotePath(this.activeTabPath, relPath)) {
         this.activeTabPath =
           this.openTabs.length > 0
             ? this.openTabs[this.openTabs.length - 1].relPath
@@ -384,16 +439,16 @@ class TabsStore {
 
   async handleExternalPathsChanged(
     changedPaths: string[],
-    onReplaceActiveEditor?: (newContent: string) => void
+    onReplaceEditor?: (relPath: string, newContent: string) => void
   ) {
     for (const rel of changedPaths) {
       const tab = this.openTabs.find(
-        (t) => t.relPath.toLowerCase() === rel.toLowerCase()
+        (t) => sameNotePath(t.relPath, rel)
       );
       if (!tab) continue;
 
       if (!tab.dirty) {
-        await this.reloadTabFromDisk(tab.relPath, onReplaceActiveEditor);
+        await this.reloadTabFromDisk(tab.relPath, onReplaceEditor);
       } else {
         this.openTabs = this.openTabs.map((t) =>
           t.relPath === tab.relPath ? { ...t, externalChangePending: true } : t

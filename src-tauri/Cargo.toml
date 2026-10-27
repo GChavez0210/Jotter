@@ -44,6 +44,9 @@ keyring = { version = "3", features = ["apple-native"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "vendored"] }
+# A native Wayland session reads nothing from the X11 clipboard, so add the Wayland protocol.
+# arboard keeps X11 as the fallback, which covers X11 sessions and XWayland.
+arboard = { version = "3.4", features = ["wayland-data-control"] }
 
 [dev-dependencies]
 tempfile = "3.14"

@@ -7,6 +7,7 @@
   import Button from './ui/Button.svelte';
   import IconButton from './ui/IconButton.svelte';
   import type { IconName } from './ui/icons';
+  import { openInSplit } from './panes';
   import { settingsStore } from './stores/settings.svelte';
   import { designTokens } from './designTokens';
   import { maxSidebarWidth } from './layout';
@@ -221,6 +222,19 @@
       y: Math.min(e.clientY, window.innerHeight - 180),
       node,
     };
+  }
+
+  /**
+   * Arrow keys move the sidebar's edge without a drag, which WCAG 2.2 asks of anything a
+   * pointer drags, and a double-click puts it back to its default width.
+   */
+  function handleResizeKeys(e: KeyboardEvent) {
+    const step = e.key === 'ArrowLeft' ? -16 : e.key === 'ArrowRight' ? 16 : 0;
+    if (step === 0 && e.key !== 'Home') return;
+    e.preventDefault();
+    const widest = maxSidebarWidth(settingsStore.windowWidth);
+    const target = e.key === 'Home' ? designTokens.layout.sidebarDefaultWidth : width + step;
+    onResize(Math.max(designTokens.layout.sidebarMinWidth, Math.min(widest, target)));
   }
 
   function handleResizePointerDown(e: PointerEvent) {
@@ -593,14 +607,23 @@
       />
     </div>
 
-    <!-- Resize Sash -->
+    <!-- Resize Sash. A focusable separator is the ARIA pattern for a window splitter, which
+         the a11y rules do not cover. Arrow keys move it and Home resets it. -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div
       class="resize-handle"
       class:dragging={isResizing}
       role="separator"
       aria-orientation="vertical"
       aria-label={m.sidebar_resize()}
+      aria-valuenow={Math.round(width)}
+      aria-valuemin={designTokens.layout.sidebarMinWidth}
+      aria-valuemax={maxSidebarWidth(settingsStore.windowWidth)}
+      tabindex="0"
       onpointerdown={handleResizePointerDown}
+      onkeydown={handleResizeKeys}
+      ondblclick={() => onResize(designTokens.layout.sidebarDefaultWidth)}
     ></div>
   </aside>
 {/if}
@@ -655,6 +678,19 @@
       <div class="ctx-sep" role="separator"></div>
       {#if targetNode.kind === 'file'}
         {@const pinned = vaultStore.isPinned(targetNode.relPath)}
+        <button
+          type="button"
+          class="ctx-item"
+          role="menuitem"
+          onclick={() => {
+            const target = targetNode.relPath;
+            contextMenu = null;
+            void openInSplit(target);
+          }}
+        >
+          <Icon name="columns" />
+          <span>{m.sidebar_ctx_open_in_split()}</span>
+        </button>
         <button
           type="button"
           class="ctx-item"
@@ -934,12 +970,13 @@
     align-items: center;
   }
 
+  /* On the accent button the shortcut keeps the label's own color: dimming it would drop
+     the text below the contrast the button's background needs. */
   .sidebar-footer kbd {
     margin-left: auto;
     border-color: currentColor;
     background: transparent;
     color: inherit;
-    opacity: 0.75;
   }
 
   .vault-switcher-btn {

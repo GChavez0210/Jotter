@@ -26,6 +26,7 @@ import type {
   DeletedEntry,
   NoteCard,
   NoteDocument,
+  NoteVersion,
   RecentVault,
   RenameEntryResult,
   SearchHit,
@@ -210,6 +211,25 @@ export async function listPinnedNotes(): Promise<string[]> {
 /** Returns the whole pinned list, in the order the sidebar shows it. */
 export async function setNotePinned(relPath: string, pinned: boolean): Promise<string[]> {
   return invoke<string[]>('set_note_pinned', { relPath, pinned });
+}
+
+/** Stored versions of a note, newest first. */
+export async function listNoteVersions(relPath: string): Promise<NoteVersion[]> {
+  return invoke<NoteVersion[]>('list_note_versions', { relPath });
+}
+
+export async function readNoteVersion(relPath: string, id: string): Promise<string> {
+  return invoke<string>('read_note_version', { relPath, id });
+}
+
+/** Writes a version back to the note, keeping the text it replaces as a new version. */
+export async function restoreNoteVersion(relPath: string, id: string): Promise<NoteDocument> {
+  return invoke<NoteDocument>('restore_note_version', { relPath, id });
+}
+
+/** Turns snapshots on or off in the backend, which takes them as notes are saved. */
+export async function configureVersionHistory(enabled: boolean): Promise<void> {
+  return invoke<void>('configure_version_history', { enabled });
 }
 
 export async function listCssSnippets(): Promise<CssSnippet[]> {

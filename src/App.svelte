@@ -6,12 +6,12 @@
   import { saveBeforeLeaving } from './lib/saveBeforeLeaving';
   import LazyLoadError from './lib/LazyLoadError.svelte';
   import Dialog from './lib/ui/Dialog.svelte';
-  import { configureTaskReminders } from './lib/ipc';
+  import { configureTaskReminders, configureVersionHistory } from './lib/ipc';
   import RightPanel from './lib/RightPanel.svelte';
   import ClipboardInspector from './lib/ClipboardInspector.svelte';
   import Editor from './lib/Editor.svelte';
+  import NotePane from './lib/NotePane.svelte';
   import FirstRunScreen from './lib/FirstRunScreen.svelte';
-  import NoteHeader from './lib/NoteHeader.svelte';
   import Sidebar from './lib/Sidebar.svelte';
   import StatusBar from './lib/StatusBar.svelte';
   import TitleBar from './lib/TitleBar.svelte';
@@ -28,6 +28,9 @@
   } from './lib/ipc';
   import { enhanceRenderedHtml } from './lib/richBlocks';
   import { setOpenNoteEditApplier } from './lib/linkUpdates';
+  import { clampSplitRatio } from './lib/layout';
+  import { openInActivePane, toggleSplitNote } from './lib/panes';
+  import IconButton from './lib/ui/IconButton.svelte';
   import type { MarkdownFormatCommandId } from './lib/markdownCommands';
   import { aiStore } from './lib/stores/ai.svelte';
   import { clipboardStore } from './lib/stores/clipboard.svelte';
@@ -40,8 +43,21 @@
   import HomePage from './lib/HomePage.svelte';
   import { i18n, m, SLOT, splitSlots } from './lib/i18n.svelte';
   import { noteStamp } from './lib/templates';
+  import { sameNotePath } from './lib/notePaths';
 
-  let editorRef: Editor | undefined = $state();
+  let primaryEditor: Editor | undefined = $state();
+  let secondaryEditor: Editor | undefined = $state();
+  let paneRow: HTMLDivElement | undefined = $state();
+  let draggingSash = $state(false);
+  let paneWidth = $state(0);
+  let displayedSplitRatio = $derived(clampSplitRatio(settingsStore.splitRatio, paneWidth));
+
+  $effect(() => {
+    if (!paneRow) return;
+    const observer = new ResizeObserver(([entry]) => { paneWidth = entry.contentRect.width; });
+    observer.observe(paneRow);
+    return () => observer.disconnect();
+  });
   let unlistenFsEvents: UnlistenFn | null = null;
   let unlistenQuit: UnlistenFn | null = null;
   let unlistenCapture: UnlistenFn | null = null;
@@ -52,6 +68,33 @@
   let printArticleHtml = $state('');
   let closing = $state(false);
 
+  /** The editor the user last worked in. Editor commands and the AI panel act on this one. */
+  let activeEditor = $derived(
+    settingsStore.effectivePane === 'secondary'
+      ? secondaryEditor
+      : primaryEditor
+  );
+
+  /** The note in the second pane, which both panes read from the same open tabs. */
+  let splitTab = $derived(
+    settingsStore.splitNotePath
+      ? (tabsStore.openTabs.find((t) => t.relPath === settingsStore.splitNotePath) ?? null)
+      : null
+  );
+
+  /** Open tabs the second pane can show: everything except the note already on the left. */
+  let splitCandidates = $derived(
+    tabsStore.openTabs.filter((t) => t.relPath !== tabsStore.activeTabPath)
+  );
+
+  /** Finds the pane that holds a note, so a reload or a link update reaches the right editor. */
+  function editorForPath(relPath: string): Editor | undefined {
+    if (settingsStore.splitVisible && settingsStore.splitMode === 'note' && sameNotePath(settingsStore.splitNotePath, relPath)) {
+      return secondaryEditor;
+    }
+    return sameNotePath(tabsStore.activeTabPath, relPath) ? primaryEditor : undefined;
+  }
+
   let sidebarVisible = $derived(
     Boolean(vaultStore.vaultSnapshot) &&
       settingsStore.focusMode === 'off' &&
@@ -60,30 +103,30 @@
 
   $effect(() => {
     const target = tabsStore.pendingScrollTarget;
-    const activeRel = tabsStore.activeTabPath;
+    const targetEditor = target ? editorForPath(target.relPath) : undefined;
     if (
       target &&
-      activeRel &&
-      target.relPath.toLowerCase() === activeRel.toLowerCase() &&
-      editorRef
+      targetEditor
     ) {
       requestAnimationFrame(() => {
         if (!tabsStore.consumeScrollTarget(target)) return;
         if (target.heading) {
-          editorRef?.scrollToHeading(target.heading);
+          targetEditor.scrollToHeading(target.heading);
         } else if (target.lineNumber) {
-          editorRef?.scrollToLine(target.lineNumber);
+          targetEditor.scrollToLine(target.lineNumber);
         }
       });
     }
   });
 
   function getActiveNoteTitleAndMarkdown(): { title: string; markdown: string } {
-    if (tabsStore.activeTab) {
-      const name = tabsStore.activeTab.title.replace(/\.md$/i, '');
+    // In split view the focused pane decides, so an export matches the note on screen.
+    const tab = tabsStore.focusedTab;
+    if (tab) {
+      const name = tab.title.replace(/\.md$/i, '');
       return {
         title: name || m.note_untitled(),
-        markdown: tabsStore.activeTab.content,
+        markdown: tab.content,
       };
     }
     return {
@@ -137,26 +180,61 @@
 
   async function refreshInspectorPreview() {
     const sample =
-      editorRef?.getCurrentCopyTargetText() ??
+      activeEditor?.getCurrentCopyTargetText() ??
       tabsStore.activeTab?.content ??
       tabsStore.scratchpadContent;
     await clipboardStore.refreshPreview(sample, settingsStore.copyMode);
   }
 
+  /** Drags the sash between the two panes. The ratio is clamped to keep both readable. */
+  function startSashDrag(e: PointerEvent) {
+    e.preventDefault();
+    draggingSash = true;
+
+    const handleMove = (moveEvent: PointerEvent) => {
+      const row = paneRow?.getBoundingClientRect();
+      if (!row || row.width <= 0) return;
+      const share = (moveEvent.clientX - row.left) / row.width;
+      settingsStore.setSplitRatio(clampSplitRatio(share, row.width));
+    };
+
+    const handleUp = () => {
+      draggingSash = false;
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+    };
+
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+  }
+
+  function handleSashKeys(e: KeyboardEvent) {
+    if (e.key === 'Home') {
+      e.preventDefault();
+      settingsStore.setSplitRatio(0.5);
+      return;
+    }
+    const step = e.key === 'ArrowLeft' ? -0.02 : e.key === 'ArrowRight' ? 0.02 : 0;
+    if (step === 0) return;
+    e.preventDefault();
+    const width = paneRow?.getBoundingClientRect().width ?? 0;
+    settingsStore.setSplitRatio(clampSplitRatio(displayedSplitRatio + step, width));
+  }
+
   function handleFormatCommand(cmd: MarkdownFormatCommandId) {
-    editorRef?.executeMarkdownCommand(cmd);
+    activeEditor?.executeMarkdownCommand(cmd);
   }
 
   function handleWikiLinkClick(noteTarget: string, heading?: string) {
     const cleanNote = noteTarget.trim();
     if (!cleanNote && heading) {
-      editorRef?.scrollToHeading(heading);
+      activeEditor?.scrollToHeading(heading);
       return;
     }
 
     if (!vaultStore.vaultSnapshot) {
       if (heading) {
-        editorRef?.scrollToHeading(heading);
+        activeEditor?.scrollToHeading(heading);
       } else {
         clipboardStore.setStatus(m.status_open_vault_to_navigate({ note: cleanNote }));
       }
@@ -165,7 +243,7 @@
 
     const found = vaultStore.resolveWikiTarget(cleanNote);
     if (found) {
-      void tabsStore.openNoteInTab(found.relPath, { heading });
+      void openInActivePane(found.relPath, { heading });
       return;
     }
 
@@ -281,51 +359,56 @@
     if (e.key === 'Escape') {
       if (missingWikiLinkPrompt) {
         missingWikiLinkPrompt = null;
-        editorRef?.focusEditor();
+        activeEditor?.focusEditor();
+        return;
+      }
+      if (settingsStore.versionHistoryNote) {
+        settingsStore.openVersionHistory(null);
+        activeEditor?.focusEditor();
         return;
       }
       if (settingsStore.showTemplatePicker) {
         settingsStore.showTemplatePicker = false;
-        editorRef?.focusEditor();
+        activeEditor?.focusEditor();
         return;
       }
       if (settingsStore.showQuickSwitcher) {
         settingsStore.showQuickSwitcher = false;
-        editorRef?.focusEditor();
+        activeEditor?.focusEditor();
         return;
       }
       if (settingsStore.showCommandPalette) {
         settingsStore.showCommandPalette = false;
-        editorRef?.focusEditor();
+        activeEditor?.focusEditor();
         return;
       }
       if (settingsStore.showSettings) {
         settingsStore.showSettings = false;
-        editorRef?.focusEditor();
+        activeEditor?.focusEditor();
         return;
       }
       if (aiStore.showPanel) {
         aiStore.closePanel();
-        editorRef?.focusEditor();
+        activeEditor?.focusEditor();
         return;
       }
       if (settingsStore.focusMode !== 'off') {
         e.preventDefault();
         settingsStore.exitFocusMode();
-        editorRef?.focusEditor();
+        activeEditor?.focusEditor();
         return;
       }
     }
 
     if (isMod && keyLower === 's' && !e.shiftKey) {
       e.preventDefault();
-      if (tabsStore.activeTabPath) {
-        void tabsStore.flushAutosaveFor(tabsStore.activeTabPath);
+      if (tabsStore.focusedTabPath) {
+        void tabsStore.flushAutosaveFor(tabsStore.focusedTabPath);
       }
     } else if (isMod && keyLower === 'w') {
-      if (tabsStore.activeTabPath) {
+      if (tabsStore.focusedTabPath) {
         e.preventDefault();
-        void tabsStore.closeTab(tabsStore.activeTabPath);
+        void tabsStore.closeTab(tabsStore.focusedTabPath);
       }
     } else if (isMod && keyLower === 'n') {
       if (vaultStore.vaultSnapshot) {
@@ -333,10 +416,12 @@
         const stamp = noteStamp();
         void vaultStore.createNoteInVault('', m.note_default_name({ stamp }));
       }
-    } else if (isMod && e.key === '\\') {
+    } else if (isMod && (e.code === 'Backslash' || e.key === '\\' || e.key === '|')) {
       if (vaultStore.vaultSnapshot) {
         e.preventDefault();
-        if (settingsStore.focusMode !== 'off') {
+        if (e.shiftKey) {
+          void toggleSplitNote();
+        } else if (settingsStore.focusMode !== 'off') {
           settingsStore.exitFocusMode();
         } else {
           settingsStore.toggleSidebar();
@@ -371,6 +456,13 @@
   });
 
   $effect(() => {
+    // Snapshots are taken in the backend, as each save replaces the text on disk.
+    void configureVersionHistory(settingsStore.versionHistory).catch(() => {
+      // The backend is missing in a browser preview.
+    });
+  });
+
+  $effect(() => {
     // Reminders run in the backend so they still fire while the window sits in the tray.
     void configureTaskReminders(settingsStore.taskReminders).catch(() => {
       // The backend is missing in a browser preview.
@@ -401,8 +493,7 @@
   });
 
   onMount(() => {
-    setOpenNoteEditApplier((path, edits) =>
-      tabsStore.activeTabPath === path && (editorRef?.applyTextEdits(edits) ?? false));
+    setOpenNoteEditApplier((path, edits) => editorForPath(path)?.applyTextEdits(edits) ?? false);
     const cleanupSettings = settingsStore.initFromStorageAndSystem();
     void systemStore.reloadSnippets();
     void aiStore.ensureLoaded();
@@ -450,8 +541,8 @@
     });
 
     void listenVaultFsEvents((evt) => {
-      void vaultStore.handleExternalFsEvent(evt.changedPaths, (newContent) => {
-        editorRef?.replaceContentFromDisk(newContent);
+      void vaultStore.handleExternalFsEvent(evt.changedPaths, (relPath, newContent) => {
+        editorForPath(relPath)?.replaceContentFromDisk(newContent);
       });
     })
       .then((unlisten) => {
@@ -545,18 +636,18 @@
         </div>
       {/if}
 
-      {#if tabsStore.activeTab?.externalChangePending}
+      {#each tabsStore.openTabs.filter((tab) => tab.externalChangePending) as changedTab (changedTab.relPath)}
         <div class="external-reload-banner" role="alert">
           <span>
-            {appExternalChangeParts[0]}<strong>{tabsStore.activeTab.relPath}</strong>{appExternalChangeParts[1]}
+            {appExternalChangeParts[0]}<strong>{changedTab.relPath}</strong>{appExternalChangeParts[1]}
           </span>
           <div class="external-reload-actions">
             <Button
               variant="primary"
               onclick={() =>
                 void tabsStore.reloadTabFromDisk(
-                  tabsStore.activeTab!.relPath,
-                  (newContent) => editorRef?.replaceContentFromDisk(newContent)
+                  changedTab.relPath,
+                  (relPath, newContent) => editorForPath(relPath)?.replaceContentFromDisk(newContent)
                 )}
             >
               {m.app_reload_from_disk()}
@@ -564,88 +655,137 @@
             <Button
               onclick={() =>
                 tabsStore.dismissExternalChangeBanner(
-                  tabsStore.activeTab!.relPath
+                  changedTab.relPath
                 )}
             >
               {m.app_keep_my_edits()}
             </Button>
           </div>
         </div>
-      {/if}
+      {/each}
 
       <div class="work-row">
-        <section class="editor-column" aria-label={m.app_editor_label()}>
-          <div class="editor-card">
-
-            {#if tabsStore.scratchpadMode}
-              <Editor
-                bind:this={editorRef}
-                docId="__scratchpad__"
-                initialDoc={tabsStore.scratchpadContent}
-                copyMode={settingsStore.copyMode}
-                editingMode={settingsStore.editingMode}
-                dimInactiveParagraphs={settingsStore.dimInactiveParagraphs}
-                typewriterScrolling={settingsStore.typewriterScrolling}
-                vaultFiles={vaultStore.allFiles}
-                onWikiLinkClick={handleWikiLinkClick}
-                onImagePasted={(_fileName, relPath) =>
-                  clipboardStore.setStatus(m.status_saved_pasted_image({ path: relPath }))}
-                onDocChange={(docId, content) =>
-                  tabsStore.handleEditorDocChange(docId, content, () => {
+        <div class="pane-row" bind:this={paneRow}>
+          <section
+            class="editor-column"
+            aria-label={m.app_editor_label()}
+            style:flex={settingsStore.splitVisible ? `${displayedSplitRatio} 1 0` : '1 1 0'}
+            onfocusin={() => settingsStore.setActivePane('primary')}
+          >
+            <div class="editor-card">
+              {#if tabsStore.scratchpadMode}
+                <NotePane
+                  pane="primary"
+                  docId="__scratchpad__"
+                  initialDoc={tabsStore.scratchpadContent}
+                  tab={null}
+                  onEditor={(editor) => (primaryEditor = editor)}
+                  onOpenNote={handleWikiLinkClick}
+                  onScratchpadEdit={() => {
                     if (settingsStore.showInspector) void refreshInspectorPreview();
-                  })}
-                onCopyComplete={(payload, source) =>
-                  clipboardStore.handleCopyComplete(payload, source)}
-                onPastePlainComplete={(chars, lines) =>
-                  clipboardStore.handlePastePlainComplete(chars, lines)}
-                onStatsChange={(s) => (tabsStore.docStats = s)}
-                onError={(err) => clipboardStore.setStatus(m.status_clipboard_error({ error: String(err) }))}
-              >
-                {#snippet header()}<NoteHeader onEdit={(change) => editorRef?.applyChange(change)} />{/snippet}
-              </Editor>
-            {:else if tabsStore.activeTab}
-              <Editor
-                bind:this={editorRef}
-                docId={tabsStore.activeTab.relPath}
-                initialDoc={tabsStore.activeTab.content}
-                copyMode={settingsStore.copyMode}
-                editingMode={settingsStore.editingMode}
-                dimInactiveParagraphs={settingsStore.dimInactiveParagraphs}
-                typewriterScrolling={settingsStore.typewriterScrolling}
-                vaultFiles={vaultStore.allFiles}
-                onWikiLinkClick={handleWikiLinkClick}
-                onImagePasted={(_fileName, relPath) =>
-                  clipboardStore.setStatus(m.status_saved_pasted_image({ path: relPath }))}
-                onDocChange={(docId, content) =>
-                  tabsStore.handleEditorDocChange(docId, content)}
-                onCopyComplete={(payload, source) =>
-                  clipboardStore.handleCopyComplete(payload, source)}
-                onPastePlainComplete={(chars, lines) =>
-                  clipboardStore.handlePastePlainComplete(chars, lines)}
-                onStatsChange={(s) => (tabsStore.docStats = s)}
-                onError={(err) => clipboardStore.setStatus(m.status_clipboard_error({ error: String(err) }))}
-              >
-                {#snippet header()}<NoteHeader onEdit={(change) => editorRef?.applyChange(change)} />{/snippet}
-              </Editor>
-            {:else}
-              {#if vaultStore.vaultSnapshot && settingsStore.showHomePage}
+                  }}
+                />
+              {:else if tabsStore.activeTab}
+                <NotePane
+                  pane="primary"
+                  docId={tabsStore.activeTab.relPath}
+                  initialDoc={tabsStore.activeTab.content}
+                  tab={tabsStore.activeTab}
+                  onEditor={(editor) => (primaryEditor = editor)}
+                  onOpenNote={handleWikiLinkClick}
+                />
+              {:else if vaultStore.vaultSnapshot && settingsStore.showHomePage}
                 <div class="home-scroll">
                   <HomePage onNewNote={createUntitledNote} />
                 </div>
               {:else}
-              <div class="no-open-note">
-                <div class="no-note-title">{m.app_nothing_open()}</div>
-                <div class="no-note-desc">
-                  {appNothingOpenHintParts[0]}<kbd>{shortcutLabel('Ctrl O')}</kbd>{appNothingOpenHintParts[1]}
+                <div class="no-open-note">
+                  <div class="no-note-title">{m.app_nothing_open()}</div>
+                  <div class="no-note-desc">
+                    {appNothingOpenHintParts[0]}<kbd>{shortcutLabel('Ctrl O')}</kbd>{appNothingOpenHintParts[1]}
+                  </div>
+                  <Button variant="primary" icon="file-plus" onclick={createUntitledNote}>
+                    {m.common_new_note()}
+                  </Button>
                 </div>
-                <Button variant="primary" icon="file-plus" onclick={createUntitledNote}>
-                  {m.common_new_note()}
-                </Button>
-              </div>
               {/if}
-            {/if}
-          </div>
-        </section>
+            </div>
+          </section>
+
+          {#if settingsStore.splitVisible}
+            <!-- A focusable separator is the ARIA pattern for a window splitter, which the
+                 a11y rules do not cover. Arrow keys move it. -->
+            <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+            <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+            <div
+              class="pane-sash"
+              class:dragging={draggingSash}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label={m.split_resize()}
+              aria-valuenow={Math.round(displayedSplitRatio * 100)}
+              aria-valuemin={20}
+              aria-valuemax={80}
+              tabindex="0"
+              onpointerdown={startSashDrag}
+              onkeydown={handleSashKeys}
+              ondblclick={() => settingsStore.setSplitRatio(0.5)}
+            ></div>
+
+            <section
+              class="editor-column second"
+              aria-label={settingsStore.splitMode === 'preview'
+                ? m.split_preview_label()
+                : m.split_second_pane()}
+              style:flex={`${1 - displayedSplitRatio} 1 0`}
+              onfocusin={() => settingsStore.setActivePane(settingsStore.splitMode === 'note' ? 'secondary' : 'primary')}
+            >
+              <div class="pane-bar">
+                <span class="pane-bar-title">
+                  {settingsStore.splitMode === 'preview'
+                    ? m.split_preview_label()
+                    : m.split_second_pane()}
+                </span>
+                <IconButton
+                  icon="x"
+                  size="sm"
+                  label={m.split_close()}
+                  onclick={() => settingsStore.closeSplit()}
+                />
+              </div>
+              <div class="editor-card">
+                {#if settingsStore.splitMode === 'preview'}
+                  {#await import('./lib/PreviewPane.svelte') then { default: PreviewPane }}
+                    <PreviewPane />
+                  {:catch}
+                    <LazyLoadError onClose={() => settingsStore.closeSplit()} />
+                  {/await}
+                {:else if splitTab}
+                  <NotePane
+                    pane="secondary"
+                    docId={splitTab.relPath}
+                    initialDoc={splitTab.content}
+                    tab={splitTab}
+                    onEditor={(editor) => (secondaryEditor = editor)}
+                    onOpenNote={handleWikiLinkClick}
+                  />
+                {:else}
+                  <div class="no-open-note">
+                    <div class="no-note-desc">{m.split_pick_note()}</div>
+                    {#each splitCandidates as candidate (candidate.relPath)}
+                      <Button
+                        icon="file-text"
+                        onclick={() => settingsStore.openSplitNote(candidate.relPath)}
+                      >
+                        {candidate.title}
+                      </Button>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
+            </section>
+          {/if}
+        </div>
 
         {#if vaultStore.vaultSnapshot && settingsStore.focusMode === 'off'}
           <RightPanel />
@@ -670,17 +810,37 @@
     {/await}
   {/if}
 
+  {#if settingsStore.versionHistoryNote}
+    {#await import('./lib/VersionHistoryDialog.svelte') then { default: VersionHistoryDialog }}
+      <VersionHistoryDialog
+        relPath={settingsStore.versionHistoryNote}
+        onRestored={(relPath, content) => {
+          tabsStore.applyRestoredContent(relPath, content);
+          editorForPath(relPath)?.replaceContentFromDisk(content);
+        }}
+        onClose={() => {
+          settingsStore.openVersionHistory(null);
+          activeEditor?.focusEditor();
+        }}
+      />
+    {:catch}
+      <Dialog label={m.lazy_load_failed()} onClose={() => settingsStore.openVersionHistory(null)}>
+        <LazyLoadError onClose={() => settingsStore.openVersionHistory(null)} />
+      </Dialog>
+    {/await}
+  {/if}
+
   {#if settingsStore.showTemplatePicker}
     {#await import('./lib/TemplatePicker.svelte') then { default: TemplatePicker }}
       <TemplatePicker
         onClose={() => {
           settingsStore.showTemplatePicker = false;
-          editorRef?.focusEditor();
+          activeEditor?.focusEditor();
         }}
       />
     {:catch}
-      <Dialog label={m.lazy_load_failed()} onClose={() => { settingsStore.showTemplatePicker = false; editorRef?.focusEditor(); }}>
-        <LazyLoadError onClose={() => { settingsStore.showTemplatePicker = false; editorRef?.focusEditor(); }} />
+      <Dialog label={m.lazy_load_failed()} onClose={() => { settingsStore.showTemplatePicker = false; activeEditor?.focusEditor(); }}>
+        <LazyLoadError onClose={() => { settingsStore.showTemplatePicker = false; activeEditor?.focusEditor(); }} />
       </Dialog>
     {/await}
   {/if}
@@ -690,12 +850,12 @@
       <QuickSwitcher
         onClose={() => {
           settingsStore.showQuickSwitcher = false;
-          editorRef?.focusEditor();
+          activeEditor?.focusEditor();
         }}
       />
     {:catch}
-      <Dialog label={m.lazy_load_failed()} onClose={() => { settingsStore.showQuickSwitcher = false; editorRef?.focusEditor(); }}>
-        <LazyLoadError onClose={() => { settingsStore.showQuickSwitcher = false; editorRef?.focusEditor(); }} />
+      <Dialog label={m.lazy_load_failed()} onClose={() => { settingsStore.showQuickSwitcher = false; activeEditor?.focusEditor(); }}>
+        <LazyLoadError onClose={() => { settingsStore.showQuickSwitcher = false; activeEditor?.focusEditor(); }} />
       </Dialog>
     {/await}
   {/if}
@@ -704,42 +864,42 @@
     {#await import('./lib/CommandPalette.svelte') then { default: CommandPalette }}
       <CommandPalette
         onFormat={handleFormatCommand}
-        onCopyTrigger={() => editorRef?.triggerCopyFromToolbar()}
-        onPastePlainTrigger={() => editorRef?.triggerPastePlainFromToolbar()}
+        onCopyTrigger={() => activeEditor?.triggerCopyFromToolbar()}
+        onPastePlainTrigger={() => activeEditor?.triggerPastePlainFromToolbar()}
         onRefreshInspector={() => void refreshInspectorPreview()}
         onExportHtml={() => void handleExportHtml()}
         onExportPdf={() => void handleExportPdf()}
         onClose={() => {
           settingsStore.showCommandPalette = false;
-          editorRef?.focusEditor();
+          activeEditor?.focusEditor();
         }}
       />
     {:catch}
-      <Dialog label={m.lazy_load_failed()} onClose={() => { settingsStore.showCommandPalette = false; editorRef?.focusEditor(); }}>
-        <LazyLoadError onClose={() => { settingsStore.showCommandPalette = false; editorRef?.focusEditor(); }} />
+      <Dialog label={m.lazy_load_failed()} onClose={() => { settingsStore.showCommandPalette = false; activeEditor?.focusEditor(); }}>
+        <LazyLoadError onClose={() => { settingsStore.showCommandPalette = false; activeEditor?.focusEditor(); }} />
       </Dialog>
     {/await}
   {/if}
 
-  {#if aiStore.showPanel && editorRef}
+  {#if aiStore.showPanel && activeEditor}
     {#await import('./lib/AiPanel.svelte') then { default: AiPanel }}
       <AiPanel
-        hasSelection={editorRef.hasSelection()}
-        captureTarget={(scope) => editorRef?.captureAiTarget(scope) ?? null}
+        hasSelection={activeEditor.hasSelection()}
+        captureTarget={(scope) => activeEditor?.captureAiTarget(scope) ?? null}
         applyResult={(target, text, placement) =>
-          editorRef?.applyAiResult(target, text, placement) ?? false}
+          activeEditor?.applyAiResult(target, text, placement) ?? false}
         onOpenSettings={() => {
           aiStore.closePanel();
           settingsStore.openSettings('ai');
         }}
         onClose={() => {
           aiStore.closePanel();
-          editorRef?.focusEditor();
+          activeEditor?.focusEditor();
         }}
       />
     {:catch}
-      <Dialog label={m.lazy_load_failed()} onClose={() => { aiStore.closePanel(); editorRef?.focusEditor(); }}>
-        <LazyLoadError onClose={() => { aiStore.closePanel(); editorRef?.focusEditor(); }} />
+      <Dialog label={m.lazy_load_failed()} onClose={() => { aiStore.closePanel(); activeEditor?.focusEditor(); }}>
+        <LazyLoadError onClose={() => { aiStore.closePanel(); activeEditor?.focusEditor(); }} />
       </Dialog>
     {/await}
   {/if}
@@ -750,12 +910,12 @@
         onRefreshInspector={() => void refreshInspectorPreview()}
         onClose={() => {
           settingsStore.showSettings = false;
-          editorRef?.focusEditor();
+          activeEditor?.focusEditor();
         }}
       />
     {:catch}
-      <Dialog label={m.lazy_load_failed()} onClose={() => { settingsStore.showSettings = false; editorRef?.focusEditor(); }}>
-        <LazyLoadError onClose={() => { settingsStore.showSettings = false; editorRef?.focusEditor(); }} />
+      <Dialog label={m.lazy_load_failed()} onClose={() => { settingsStore.showSettings = false; activeEditor?.focusEditor(); }}>
+        <LazyLoadError onClose={() => { settingsStore.showSettings = false; activeEditor?.focusEditor(); }} />
       </Dialog>
     {/await}
   {/if}
@@ -788,12 +948,60 @@
     display: flex;
   }
 
+  /* Holds the one or two editor panes, with the right panel outside it, so the sash
+     measures only the text columns. */
+  .pane-row {
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    display: flex;
+  }
+
   .editor-column {
     flex: 1;
     min-width: 0;
     min-height: 0;
     display: flex;
     flex-direction: column;
+  }
+
+  .editor-column.second {
+    border-left: 1px solid var(--line-subtle);
+  }
+
+  .pane-sash {
+    flex: none;
+    width: 5px;
+    cursor: col-resize;
+    background: transparent;
+    transition: background-color var(--transition-fast);
+  }
+
+  .pane-sash:hover,
+  .pane-sash:focus-visible,
+  .pane-sash.dragging {
+    background: var(--accent);
+  }
+
+  /* Names the second pane and closes it; the first pane needs no bar of its own. */
+  .pane-bar {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    height: var(--row-height);
+    padding: 0 var(--space-1) 0 var(--space-3);
+    border-bottom: 1px solid var(--line-subtle);
+    color: var(--text-muted);
+    font-size: var(--fs-12);
+  }
+
+  .pane-bar-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .external-reload-banner {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import { onMount, type Snippet } from 'svelte';
 
   interface Props {
     /** Accessible name of the dialog. */
@@ -12,6 +12,55 @@
   }
 
   let { label, onClose, variant = 'picker', onkeydown, children }: Props = $props();
+
+  let dialogEl: HTMLDivElement | undefined = $state();
+
+  const FOCUSABLE =
+    'a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
+
+  function focusableItems(): HTMLElement[] {
+    if (!dialogEl) return [];
+    return Array.from(dialogEl.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+      // A radio group or a tab strip moves one roving tab stop between its buttons, so the
+      // ones it has taken out of the tab order are not where Tab can land.
+      (el) => el.tabIndex >= 0 && (el.offsetParent !== null || el === document.activeElement)
+    );
+  }
+
+  /**
+   * Keeps Tab inside the dialog. `aria-modal` already hides the rest of the page from a screen
+   * reader, so a Tab that walked out would move focus somewhere its user cannot see.
+   */
+  function handleTab(event: KeyboardEvent) {
+    if (event.key !== 'Tab') return;
+    const items = focusableItems();
+    if (items.length === 0) {
+      event.preventDefault();
+      return;
+    }
+    const first = items[0];
+    const last = items[items.length - 1];
+    const active = document.activeElement as HTMLElement | null;
+    if (!active || !dialogEl?.contains(active)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+      return;
+    }
+    if (event.shiftKey && active === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  onMount(() => {
+    // Dialogs that own their first control, such as the pickers, focus it themselves.
+    if (dialogEl && !dialogEl.contains(document.activeElement)) {
+      focusableItems()[0]?.focus();
+    }
+  });
 </script>
 
 <!-- Clicking the scrim closes the dialog; Escape is handled by the app-level key handler. -->
@@ -21,9 +70,18 @@
   onmousedown={(e) => {
     if (e.target === e.currentTarget) onClose();
   }}
-  {onkeydown}
+  onkeydown={(event) => {
+    handleTab(event);
+    onkeydown?.(event);
+  }}
 >
-  <div class="dialog {variant}" role="dialog" aria-modal="true" aria-label={label}>
+  <div
+    class="dialog {variant}"
+    bind:this={dialogEl}
+    role="dialog"
+    aria-modal="true"
+    aria-label={label}
+  >
     {@render children()}
   </div>
 </div>

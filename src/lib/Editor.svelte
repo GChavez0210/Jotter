@@ -65,6 +65,8 @@
     editingMode?: EditingMode;
     dimInactiveParagraphs?: boolean;
     typewriterScrolling?: boolean;
+    /** The second pane mounts without taking the cursor out of the first one. */
+    autoFocus?: boolean;
     vaultFiles?: VaultNode[];
     onWikiLinkClick?: (noteTarget: string, heading?: string) => void;
     onImagePasted?: (fileName: string, relPath: string) => void;
@@ -91,6 +93,7 @@
     editingMode = 'live',
     dimInactiveParagraphs = false,
     typewriterScrolling = false,
+    autoFocus = true,
     vaultFiles = [],
     onWikiLinkClick,
     onImagePasted,
@@ -151,6 +154,8 @@
   const spellcheckCompartment = new Compartment();
   const lineNumbersCompartment = new Compartment();
   const placeholderCompartment = new Compartment();
+  /** Names the contenteditable, which carries the textbox role a screen reader announces. */
+  const contentLabelCompartment = new Compartment();
   const searchCompartment = new Compartment();
 
   function lineNumbersExtension() {
@@ -900,6 +905,7 @@
         highlightActiveLine(),
         EditorView.lineWrapping,
         placeholderCompartment.of(placeholder(m.editor_placeholder())),
+        contentLabelCompartment.of(EditorView.contentAttributes.of({ 'aria-label': m.editor_label() })),
         markdown({ base: markdownLanguage }),
         syntaxHighlighting(markdownHighlight),
         createWikiLinkAutocompleteExtension(() => vaultFiles),
@@ -1020,6 +1026,9 @@
     const translatedPlaceholder = placeholder(m.editor_placeholder());
     untrack(() => view)?.dispatch({ effects: [
       placeholderCompartment.reconfigure(translatedPlaceholder),
+      contentLabelCompartment.reconfigure(
+        EditorView.contentAttributes.of({ 'aria-label': m.editor_label() })
+      ),
       searchCompartment.reconfigure(searchExtension()),
       refreshEditorLocale.of(),
     ] });
@@ -1149,7 +1158,7 @@
       parent: editorHost,
     });
     emitStats(view.state);
-    view.focus();
+    if (autoFocus) view.focus();
     void spellingStore.ensureLoaded();
   });
 
@@ -1172,7 +1181,7 @@
   {#if header}
     <div class="note-header">{@render header()}</div>
   {/if}
-  <div class="editor-surface" bind:this={editorHost} aria-label={m.editor_label()}></div>
+  <div class="editor-surface" bind:this={editorHost}></div>
 </div>
 
 {#if selectionBar}

@@ -33,6 +33,14 @@ pub fn vault_key(vault_root: &Path) -> String {
     format!("{:016x}", fnv1a_64(key.trim_end_matches('/')))
 }
 
+/// Names the folder holding one note's version history. Windows and macOS open `Note.md` and
+/// `note.md` as one file, so the key folds case there, as the vault does.
+pub fn note_key(rel_path: &str) -> String {
+    let key = rel_path.replace('\\', "/");
+    let key = if cfg!(target_os = "linux") { key } else { key.to_lowercase() };
+    format!("{:016x}", fnv1a_64(&key))
+}
+
 pub fn export_file_name(title: &str, extension: &str) -> String {
     let clean: String = title.chars().map(|c| {
         if c.is_control() || "<>:\"/\\|?*".contains(c) { '-' } else { c }

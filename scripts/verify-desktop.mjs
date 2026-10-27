@@ -1,6 +1,6 @@
 import { chromium, expect } from '@playwright/test';
 import { spawn } from 'node:child_process';
-import { mkdir, writeFile, readFile, rename, chmod, stat } from 'node:fs/promises';
+import { mkdir, writeFile, readFile, rename, chmod, stat, rmdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
 
@@ -75,6 +75,23 @@ try {
   await page.getByLabel('Vault folder path').fill(vault);
   await page.getByRole('button',{name:'Open folder',exact:true}).click();
   await page.getByRole('button',{name:'Verification',exact:true}).click();
+  // A rejected path must not be read or copied into version history first.
+  await writeFile(join(root,'outside.md'),'OUTSIDE-VAULT-FIXTURE');
+  const rejectedHistoryPaths = await page.evaluate(async()=> {
+    const invoke=window.__TAURI_INTERNALS__.invoke;
+    const commands=[
+      ['save_note',{relPath:'../outside.md',content:'changed'}],
+      ['list_note_versions',{relPath:'../outside.md'}],
+      ['read_note_version',{relPath:'../outside.md',id:'1000'}],
+      ['restore_note_version',{relPath:'../outside.md',id:'1000'}],
+    ];
+    return Promise.all(commands.map(async([command,args])=>{
+      try {await invoke(command,args);return false;} catch(e){return String(e).includes('Path traversal');}
+    }));
+  });
+  expect(rejectedHistoryPaths).toEqual([true,true,true,true]);
+  expect(await readFile(join(root,'outside.md'),'utf8')).toBe('OUTSIDE-VAULT-FIXTURE');
+  checks.push('History commands reject outside-vault paths before reading or snapshotting');
   if (process.env.JOTTER_CLOSE_ONLY) {
     await page.locator('.cm-content').click();
     await page.keyboard.press('Control+End');
@@ -88,6 +105,16 @@ try {
     await writeFile(join(root,'results.json'),JSON.stringify({checks,errors},null,2));
     console.log(JSON.stringify({root,checks},null,2));
   } else {
+  // Opening the sole active tab on the right must move it, never clone its editor.
+  await page.locator('.tree-root').getByRole('button',{name:'Verification',exact:true}).click({button:'right'});
+  await page.getByRole('menuitem',{name:'Open on the right'}).click();
+  await expect(page.locator('.cm-content')).toHaveCount(1);
+  await expect(page.getByRole('region',{name:'Second pane'}).locator('h1.title')).toHaveText('Verification');
+  await expect(page.getByRole('region',{name:'Editor',exact:true}).locator('.cm-content')).toHaveCount(0);
+  await page.getByRole('button',{name:'Close the second pane'}).click();
+  await page.locator('.tree-root').getByRole('button',{name:'Verification',exact:true}).click();
+  await expect(page.locator('.cm-content')).toHaveCount(1);
+  checks.push('Open on the right moves the only open note without creating duplicate editors');
   await expect(page.locator('.cm-diagram-block svg')).toHaveCount(2);
   await expect(page.locator('.cm-math-block .katex')).toHaveCount(1);
   await expect(page.locator('.cm-math-inline .katex')).toHaveCount(1);
@@ -275,6 +302,108 @@ try {
   await page.screenshot({path:join(root,'dark-mode-print.png'),fullPage:true});
   await page.emulateMedia({media:'screen'});
   checks.push('Dark-mode print renders SVG with dark labels on white');
+
+  // Two notes side by side, each with its own text, and a preview of the open note.
+  // The reload above closed every tab, so open a second note for the split to take. The window
+  // has to hold two text columns with room to spare, or the sash has nowhere to travel.
+  await setWindowWidth(1700);
+  await page.keyboard.press('Control+o');
+  await page.getByPlaceholder('Find a note by name').fill(today);
+  await page.keyboard.press('Enter');
+  await expect(page.locator('h1.title')).toHaveText(today);
+  await page.getByRole('tab',{name:/Verification/}).click();
+  await expect(page.locator('h1.title')).toHaveText('Verification');
+  await page.getByRole('button',{name:'Split view',exact:true}).click();
+  const secondPane = page.getByRole('region',{name:'Second pane'});
+  await expect(secondPane).toBeVisible();
+  await expect(page.locator('.cm-content')).toHaveCount(2);
+  // The second pane took the note opened before this one, and the tab strip marks it.
+  await expect(secondPane.locator('h1.title')).toHaveText(today);
+  await expect(page.locator('.tab.in-split')).toHaveCount(1);
+  // Typing lands in the pane the user clicked, and reaches that note's file.
+  await secondPane.locator('.cm-content').click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('\nSPLIT-PANE-EDIT');
+  await expect.poll(()=>readFile(join(vault,`Daily/${today}.md`),'utf8')).toContain('SPLIT-PANE-EDIT');
+  expect(await readFile(join(vault,'Verification.md'),'utf8')).not.toContain('SPLIT-PANE-EDIT');
+  await page.screenshot({path:join(root,'split-view.png')});
+  // The sash moves the boundary between the panes.
+  const paneWidth = () => page.locator('.editor-column').first().evaluate(el=>el.getBoundingClientRect().width);
+  const startWidth = await paneWidth();
+  const sash = await page.getByRole('separator',{name:'Resize the panes'}).boundingBox();
+  await page.mouse.move(sash.x + sash.width / 2, sash.y + sash.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(sash.x - 200, sash.y + sash.height / 2, {steps:5});
+  await page.mouse.up();
+  await expect.poll(paneWidth).toBeLessThan(startWidth - 100);
+  // A window too narrow for two text columns hides the split and widening brings it back.
+  await setWindowWidth(700);
+  await expect(secondPane).toBeHidden();
+  await expect(page.locator('.cm-content')).toHaveCount(1);
+  await setWindowWidth(1700);
+  await expect(secondPane).toBeVisible();
+  // The preview pane renders the open note through the export renderer.
+  await page.keyboard.press('Control+p');
+  await page.getByPlaceholder('Type a command').fill('Rendered Preview');
+  await page.keyboard.press('Enter');
+  const preview = page.getByRole('region',{name:'Preview'});
+  await expect(preview.locator('.preview-body h1')).toHaveText('Verification');
+  await expect(preview.locator('.preview-body .katex')).not.toHaveCount(0);
+  await page.screenshot({path:join(root,'split-preview.png')});
+  await preview.getByRole('button',{name:'Close the second pane'}).click();
+  await expect(page.locator('.cm-content')).toHaveCount(1);
+  checks.push('Split view edits two notes independently, resizes, hides in a narrow window, and previews the open note');
+
+  // Version history keeps the text a save replaced, and restores it.
+  await page.locator('.cm-content').click();
+  await page.keyboard.press('Control+End');
+  await page.keyboard.type('\nVERSION-HISTORY-PROBE');
+  await page.keyboard.press('Control+s');
+  await expect.poll(()=>readFile(join(vault,'Verification.md'),'utf8')).toContain('VERSION-HISTORY-PROBE');
+  await page.getByRole('button',{name:'Version history',exact:true}).click();
+  const timeline = page.getByRole('dialog',{name:/Version history of Verification/});
+  await expect(timeline.getByRole('navigation',{name:'Stored versions'}).locator('.entry')).not.toHaveCount(0);
+  // The diff reads as what restoring would do: the probe line goes away.
+  await expect(timeline.locator('.row.del').filter({hasText:'VERSION-HISTORY-PROBE'})).toHaveCount(1);
+  await page.screenshot({path:join(root,'version-history.png')});
+  await timeline.getByRole('button',{name:'Restore this version'}).click();
+  await expect.poll(()=>readFile(join(vault,'Verification.md'),'utf8')).not.toContain('VERSION-HISTORY-PROBE');
+  // The editor shows the restored text, not the edit that was undone.
+  await expect(page.locator('.cm-content')).not.toContainText('VERSION-HISTORY-PROBE');
+  // Restoring kept the replaced text, so the timeline can go back to it.
+  await expect(timeline.locator('.row.add').filter({hasText:'VERSION-HISTORY-PROBE'})).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog',{name:/Version history/})).toHaveCount(0);
+  checks.push('Version history stores the text a save replaced, shows it as a diff, and restores it to disk');
+
+  // Failure to preserve the current text must abort a restore, while an ordinary save
+  // still succeeds when its optional history marker cannot be written.
+  await page.evaluate(async()=>{
+    const invoke=window.__TAURI_INTERNALS__.invoke;
+    await invoke('create_note',{relPath:'HistoryStorage.md',initialContent:'original history text'});
+    await invoke('save_note',{relPath:'HistoryStorage.md',content:'saved current text'});
+  });
+  let historyHash=0xcbf29ce484222325n;
+  for(const byte of Buffer.from('historystorage.md')) historyHash=BigInt.asUintN(64,(historyHash^BigInt(byte))*0x100000001b3n);
+  const historyDir=join(root,'app-data/Jotter/vaults',`${vaultHash.toString(16).padStart(16,'0')}.versions`,historyHash.toString(16).padStart(16,'0'));
+  const historyMarker=join(historyDir,'note.json');
+  await rename(historyMarker,join(historyDir,'marker-backup.json'));
+  await mkdir(historyMarker);
+  try {
+    await page.evaluate(()=>window.__TAURI_INTERNALS__.invoke('save_note',{relPath:'HistoryStorage.md',content:'latest protected text'}));
+    const restoreError=await page.evaluate(async()=>{
+      const invoke=window.__TAURI_INTERNALS__.invoke;
+      const versions=await invoke('list_note_versions',{relPath:'HistoryStorage.md'});
+      try {await invoke('restore_note_version',{relPath:'HistoryStorage.md',id:versions.at(-1).id});return '';}
+      catch(e){return String(e);}
+    });
+    expect(restoreError).toContain('Cannot preserve the current note');
+    expect(await readFile(join(vault,'HistoryStorage.md'),'utf8')).toBe('latest protected text');
+  } finally {
+    await rmdir(historyMarker);
+    await rename(join(historyDir,'marker-backup.json'),historyMarker);
+  }
+  checks.push('Unavailable history storage leaves ordinary saves working and prevents unsafe restoration');
 
   // A read-only destination forces the actual atomic write to fail.
   await chmod(join(vault,'Verification.md'),0o444);

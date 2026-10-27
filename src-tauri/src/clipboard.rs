@@ -754,6 +754,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(target_os = "linux", ignore = "requires a desktop clipboard; run explicitly in an X11 or Wayland session")]
     fn system_clipboard_roundtrip_writes_html_and_plain_via_arboard() {
         // 1. Rich mode writes both CF_UNICODETEXT and CF_HTML (with <br> and &nbsp;)
         let sample = "# Heading\r\n  Indented **bold**  line\r\n\tTabbed line";

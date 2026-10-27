@@ -162,6 +162,46 @@ pub fn configure_capture(app: &AppHandle, enabled: bool, shortcut_text: &str) ->
     configure_slot(app, &state.capture_shortcut, enabled, shortcut_text, toggle_capture_window)
 }
 
+/// Whether a global shortcut can work in this session. Wayland gives no application a
+/// system-wide hotkey, and the X11 grabs the shortcut plugin makes never fire for a Wayland
+/// client, so Jotter says so instead of registering nothing. `GDK_BACKEND=x11` runs Jotter as
+/// an X11 client inside a Wayland session, where they do work.
+///
+/// Takes the environment as arguments, so the rule is tested on every platform.
+#[cfg(any(target_os = "linux", test))]
+fn global_shortcuts_work(
+    session_type: Option<&str>,
+    wayland_display: bool,
+    gdk_backend: Option<&str>,
+) -> bool {
+    let session = session_type.unwrap_or_default();
+    let wayland = session.eq_ignore_ascii_case("wayland")
+        || (session.is_empty() && wayland_display);
+    let forced_x11 = gdk_backend.is_some_and(|value| value.to_lowercase().contains("x11"));
+    !wayland || forced_x11
+}
+
+#[cfg(target_os = "linux")]
+fn require_global_shortcut_support() -> Result<(), String> {
+    let session = std::env::var("XDG_SESSION_TYPE").ok();
+    let backend = std::env::var("GDK_BACKEND").ok();
+    if global_shortcuts_work(
+        session.as_deref(),
+        std::env::var_os("WAYLAND_DISPLAY").is_some(),
+        backend.as_deref(),
+    ) {
+        return Ok(());
+    }
+    Err("Global shortcuts need an X11 session. Wayland does not let an application claim one. \
+         Log in with X11 (Xorg), or start Jotter with GDK_BACKEND=x11."
+        .to_string())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn require_global_shortcut_support() -> Result<(), String> {
+    Ok(())
+}
+
 fn configure_slot(
     app: &AppHandle,
     slot: &Mutex<Option<Shortcut>>,
@@ -169,6 +209,9 @@ fn configure_slot(
     shortcut_text: &str,
     on_press: fn(&AppHandle),
 ) -> Result<(), String> {
+    if enabled {
+        require_global_shortcut_support()?;
+    }
     let global = app.global_shortcut();
 
     let mut current = slot
@@ -248,8 +291,23 @@ fn replace_shortcut<T: Copy + Eq>(
 
 #[cfg(test)]
 mod tests {
-    use super::{hides_on_close, replace_shortcut};
+    use super::{global_shortcuts_work, hides_on_close, replace_shortcut};
     use std::cell::RefCell;
+
+    #[test]
+    fn global_shortcuts_need_x11_or_an_x11_backend() {
+        // X11 sessions, and every other platform's empty environment, are fine.
+        assert!(global_shortcuts_work(Some("x11"), false, None));
+        assert!(global_shortcuts_work(None, false, None));
+        assert!(global_shortcuts_work(Some("tty"), false, None));
+        // A Wayland session cannot claim one, however it says so.
+        assert!(!global_shortcuts_work(Some("wayland"), false, None));
+        assert!(!global_shortcuts_work(Some("Wayland"), true, None));
+        assert!(!global_shortcuts_work(None, true, None));
+        // Unless Jotter is told to run as an X11 client inside it.
+        assert!(global_shortcuts_work(Some("wayland"), true, Some("x11")));
+        assert!(!global_shortcuts_work(Some("wayland"), true, Some("wayland")));
+    }
 
     #[test]
     fn close_button_quits_unless_the_user_chose_to_hide() {

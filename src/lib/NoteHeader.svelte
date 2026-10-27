@@ -1,6 +1,7 @@
 <script lang="ts">
   import { settingsStore } from './stores/settings.svelte';
   import { tabsStore } from './stores/tabs.svelte';
+  import type { OpenTab } from './stores/tabs.svelte';
   import { vaultStore } from './stores/vault.svelte';
   import Icon from './ui/Icon.svelte';
   import { tagColor } from './tagColor';
@@ -9,18 +10,21 @@
   import { i18n, m } from './i18n.svelte';
 
   interface Props {
+    /** The pane's own note, or `null` for the scratchpad. */
+    tab: OpenTab | null;
+    /** Word count of the pane's own editor, since each pane counts its own text. */
+    words: number;
     /** Applies a frontmatter edit through the editor, so it joins the undo history. */
     onEdit?: (change: TextChange) => void;
   }
 
-  let { onEdit }: Props = $props();
+  let { tab, words, onEdit }: Props = $props();
   let addingProperty = $state(false);
 
   // Same rule as the indexer (links.rs): '#' at line start or after whitespace,
   // then letters, digits, '_', '-' or '/', with at least one non-digit.
   const INLINE_TAG_RE = /(?<=^|\s)#([\p{L}\p{N}_/-]+)/gu;
 
-  let tab = $derived(tabsStore.activeTab);
   let title = $derived(tab ? tab.title.replace(/\.md$/i, '') : m.scratchpad_title());
   let folder = $derived(
     tab ? tab.relPath.replace(/\\/g, '/').split('/').slice(0, -1).join(' / ') : ''
@@ -88,12 +92,21 @@
   {#if edited}
     <span class="meta-item">{edited}</span>
   {/if}
-  <span class="meta-item">{m.word_count({ count: tabsStore.docStats.words })}</span>
+  <span class="meta-item">{m.word_count({ count: words })}</span>
   {#each tags as tag (tag)}
     <button type="button" class="chip" title={m.note_show_tagged({ tag })} onclick={() => showTag(tag)}>
       <span class="dot" style:background={tagColor(tag)}></span>{tag}
     </button>
   {/each}
+  {#if tab && settingsStore.versionHistory}
+    <button
+      type="button"
+      class="meta-action"
+      onclick={() => settingsStore.openVersionHistory(tab.relPath)}
+    >
+      <Icon name="clock-counter-clockwise" size={12} />{m.version_open()}
+    </button>
+  {/if}
   {#if onEdit && !hasFrontmatter && !addingProperty}
     <button type="button" class="meta-action" onclick={() => (addingProperty = true)}>
       <Icon name="plus" size={12} />{m.prop_add_property()}

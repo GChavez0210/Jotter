@@ -102,7 +102,8 @@ export async function renderDiagram(source: string): Promise<string> {
 }
 
 /** Pele colors for exported files, which do not have Jotter's theme variables. */
-function exportDiagramCss(dark: boolean): string {
+/** Diagram, math and error styles the rendered HTML needs, for export and the preview pane. */
+export function exportDiagramCss(dark: boolean): string {
   const c = dark
     ? { fg: '#f5f5f5', muted: '#adadad', line: '#cccccc', surface: '#2c2c2c', alt: '#363636', border: '#5c5c5c', accent: '#7ea0ff' }
     : { fg: '#1b1b1b', muted: '#595959', line: '#4f4f4f', surface: '#f5f5f5', alt: '#ebebeb', border: '#a8a8a8', accent: '#2f4fa8' };

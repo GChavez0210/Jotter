@@ -1,3 +1,4 @@
+import { sameNotePath, notePathKey } from '../notePaths';
 import { detectSyncProvider, findConflictCopies, type ConflictCopy } from '../syncConflicts';
 import {
   closeVault,
@@ -166,12 +167,12 @@ class VaultStore {
    * 3. Shortest path among notes with that stem
    */
   resolveWikiTarget(rawTarget: string, sourceRelPath?: string): VaultNode | null {
-    const clean = stripMdExt(rawTarget.trim().replace(/\\/g, '/')).toLowerCase();
+    const clean = notePathKey(stripMdExt(rawTarget.trim().replace(/\\/g, '/')));
     if (!clean) return null;
 
     // 1. Exact relative path match (without .md)
     for (const file of this.allFiles) {
-      if (stripMdExt(file.relPath).toLowerCase() === clean) {
+      if (notePathKey(stripMdExt(file.relPath)) === clean) {
         return file;
       }
     }
@@ -181,9 +182,9 @@ class VaultStore {
     const lastSlash = effectiveSource.lastIndexOf('/');
     if (lastSlash > 0) {
       const sourceDir = effectiveSource.slice(0, lastSlash);
-      const sameFolderNorm = stripMdExt(`${sourceDir}/${clean}`).toLowerCase();
+      const sameFolderNorm = notePathKey(stripMdExt(`${sourceDir}/${clean}`));
       for (const file of this.allFiles) {
-        if (stripMdExt(file.relPath).toLowerCase() === sameFolderNorm) {
+        if (notePathKey(stripMdExt(file.relPath)) === sameFolderNorm) {
           return file;
         }
       }
@@ -193,7 +194,7 @@ class VaultStore {
     if (!clean.includes('/')) {
       let bestMatch: VaultNode | null = null;
       for (const file of this.allFiles) {
-        if (stripMdExt(file.name).toLowerCase() === clean) {
+        if (notePathKey(stripMdExt(file.name)) === clean) {
           if (
             !bestMatch ||
             file.relPath.length < bestMatch.relPath.length ||
@@ -466,7 +467,7 @@ class VaultStore {
    */
   async captureEntry(note: string, text: string): Promise<string> {
     const path = normalizeCaptureNote(note);
-    const tab = tabsStore.openTabs.find((t) => t.relPath.toLowerCase() === path.toLowerCase());
+    const tab = tabsStore.openTabs.find((t) => sameNotePath(t.relPath, path));
     if (tab && tab.relPath === tabsStore.activeTabPath) {
       const edit = captureEdit(tab.content, text);
       if (edit && applyToOpenNote(tab.relPath, [edit])) return tab.relPath;
@@ -586,7 +587,7 @@ class VaultStore {
     const relPath = folder ? `${folder}/${title}.md` : `${title}.md`;
 
     const existing = this.allFiles.find(
-      (f) => f.relPath.toLowerCase() === relPath.toLowerCase()
+      (f) => sameNotePath(f.relPath, relPath)
     );
     if (existing) {
       await tabsStore.openNoteInTab(existing.relPath);
@@ -617,7 +618,7 @@ class VaultStore {
 
   async handleExternalFsEvent(
     changedPaths: string[],
-    onReplaceActiveEditor?: (newContent: string) => void
+    onReplaceEditor?: (relPath: string, newContent: string) => void
   ) {
     if (!this.vaultSnapshot) return;
     invalidateImagePreviews();
@@ -628,10 +629,7 @@ class VaultStore {
       // ignore
     }
     this.bumpIndexVersion();
-    await tabsStore.handleExternalPathsChanged(
-      changedPaths,
-      onReplaceActiveEditor
-    );
+    await tabsStore.handleExternalPathsChanged(changedPaths, onReplaceEditor);
   }
   async rebuildIndex(): Promise<number | null> {
     if (!this.vaultSnapshot) return null;

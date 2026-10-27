@@ -725,6 +725,20 @@
 
             <div class="setting-card">
               <div class="setting-info">
+                <label for="toggle-version-history" class="setting-label">{m.settings_version_history()}</label>
+                <div class="setting-desc">{m.settings_version_history_desc()}</div>
+              </div>
+              <input
+                id="toggle-version-history"
+                type="checkbox"
+                class="fluent-toggle"
+                checked={settingsStore.versionHistory}
+                onchange={(e) => settingsStore.setVersionHistory((e.currentTarget as HTMLInputElement).checked)}
+              />
+            </div>
+
+            <div class="setting-card">
+              <div class="setting-info">
                 <label for="toggle-task-reminders" class="setting-label">{m.settings_task_reminders()}</label>
                 <div class="setting-desc">{m.settings_task_reminders_desc()}</div>
               </div>

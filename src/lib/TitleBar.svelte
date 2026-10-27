@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { isMac, shortcutLabel } from './platform';
+  import { isLinux, isMac, shortcutLabel } from './platform';
   import { onMount } from 'svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { settingsStore } from './stores/settings.svelte';
@@ -10,6 +10,7 @@
   import IconButton from './ui/IconButton.svelte';
   import Segmented from './ui/Segmented.svelte';
   import { m } from './i18n.svelte';
+  import { openInActivePane, paneShowing, toggleSplitNote } from './panes';
   import { noteStamp } from './templates';
 
   interface Props {
@@ -19,7 +20,9 @@
 
   let { sidebarVisible }: Props = $props();
 
-  // macOS keeps its native traffic lights (titleBarStyle Overlay); Windows and Linux get drawn controls.
+  // macOS keeps its native traffic lights (titleBarStyle Overlay) and Linux its own title bar;
+  // only Windows draws the controls here.
+  const drawsWindowControls = !isMac && !isLinux;
   let maximized = $state(false);
 
   let hasEditor = $derived(Boolean(tabsStore.activeTab) || tabsStore.scratchpadMode);
@@ -38,7 +41,7 @@
   }
 
   onMount(() => {
-    if (isMac) return;
+    if (!drawsWindowControls) return;
     let unlisten: (() => void) | undefined;
     let disposed = false;
     try {
@@ -103,21 +106,28 @@
   </div>
 
   {#if showTabs}
-    <div class="tabs" role="tablist" aria-label={m.titlebar_open_notes()}>
+    <div class="tabs" role="tablist" aria-multiselectable={settingsStore.splitVisible && settingsStore.splitMode === 'note'} aria-label={m.titlebar_open_notes()}>
       {#each tabsStore.openTabs as tab (tab.relPath)}
-        {@const active = tab.relPath === tabsStore.activeTabPath}
+        {@const pane = paneShowing(tab.relPath)}
+        {@const active = pane !== null}
         <div
           class="tab"
           class:active
+          class:in-split={pane === 'secondary'}
           role="tab"
           tabindex="0"
           aria-selected={active}
-          title={tab.relPath}
-          onclick={() => (tabsStore.activeTabPath = tab.relPath)}
+          aria-keyshortcuts="Delete"
+          title={pane === 'secondary' ? m.titlebar_tab_in_split({ path: tab.relPath }) : tab.relPath}
+          onclick={() => void openInActivePane(tab.relPath)}
           onkeydown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
+            if (e.key === 'Delete' || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'w')) {
               e.preventDefault();
-              tabsStore.activeTabPath = tab.relPath;
+              e.stopPropagation();
+              void tabsStore.closeTab(tab.relPath);
+            } else if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              void openInActivePane(tab.relPath);
             }
           }}
           onauxclick={(e) => {
@@ -129,15 +139,19 @@
           {#if tab.dirty}
             <span class="dirty-dot" title={m.titlebar_unsaved_autosaving()} aria-label={m.titlebar_unsaved()}></span>
           {/if}
-          <button
-            type="button"
+          <!-- A button inside the tab would be a widget inside a widget, so this is a plain
+               target for the pointer. The keyboard closes the tab with Ctrl+W, and a middle
+               click closes it too. -->
+          <!-- svelte-ignore a11y_no_static_element_interactions -->
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <span
             class="tab-close"
+            aria-hidden="true"
             title={m.titlebar_close_tab({ shortcut: shortcutLabel('Ctrl+W') })}
-            aria-label={m.titlebar_close_named({ title: tab.title })}
             onclick={(e) => void tabsStore.closeTab(tab.relPath, e)}
           >
             <Icon name="x" size={12} />
-          </button>
+          </span>
         </div>
       {/each}
     </div>
@@ -170,6 +184,13 @@
     {/if}
     {#if vaultStore.vaultSnapshot && settingsStore.focusMode === 'off'}
       <IconButton
+        icon="columns"
+        label={m.split_toggle()}
+        tooltip={m.split_toggle_tooltip({ shortcut: shortcutLabel('Ctrl+Shift+\\') })}
+        pressed={settingsStore.splitVisible}
+        onclick={() => void toggleSplitNote()}
+      />
+      <IconButton
         icon="sidebar"
         label={m.right_panel()}
         pressed={settingsStore.showRightPanel}
@@ -184,7 +205,7 @@
     />
   </div>
 
-  {#if !isMac}
+  {#if drawsWindowControls}
     <div class="window-controls">
       <button type="button" tabindex="-1" aria-label={m.window_minimize()} onclick={() => windowAction('minimize')}>
         <Icon name="minus" size={14} />
@@ -295,6 +316,11 @@
     box-shadow: inset 0 -2px 0 var(--accent);
   }
 
+  /* The note in the second pane is open too, marked with a dashed underline. */
+  .tab.in-split {
+    box-shadow: inset 0 -2px 0 var(--line-control);
+  }
+
   .tab-title {
     overflow: hidden;
     text-overflow: ellipsis;
@@ -312,8 +338,8 @@
   .tab-close {
     display: grid;
     place-items: center;
-    width: 20px;
-    height: 20px;
+    width: 24px;
+    height: 24px;
     flex: none;
     padding: 0;
     border: 0;
@@ -325,8 +351,7 @@
   }
 
   .tab:hover .tab-close,
-  .tab.active .tab-close,
-  .tab-close:focus-visible {
+  .tab.active .tab-close {
     opacity: 1;
   }
 

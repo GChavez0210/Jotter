@@ -187,6 +187,9 @@
   "cmd_placeholder": "Type a command",
   "cmd_quick_switcher": "Quick Switcher: Fuzzy Open Note by Name",
   "cmd_search_label": "Search commands",
+  "cmd_split_close": "Close Second Pane",
+  "cmd_split_note": "Open Note in a Second Pane",
+  "cmd_split_preview": "Show Rendered Preview Beside the Note",
   "cmd_theme_dark": "Theme: Dark",
   "cmd_theme_high_contrast": "Theme: High Contrast Dark",
   "cmd_theme_light": "Theme: Light",
@@ -196,6 +199,7 @@
   "cmd_typewriter_on": "Enable Typewriter Scrolling (keep active line centered)",
   "cmd_vault_rebuild": "Rebuild SQLite & Tantivy Vault Index",
   "cmd_vault_switch": "Switch or Close Vault",
+  "cmd_version_history": "Version History of This Note",
   "cmd_view_calendar": "Open Calendar View",
   "cmd_view_files": "Open File Tree View",
   "cmd_view_search": "Open Full-Text Vault Search Panel",
@@ -434,6 +438,18 @@
   "quick_matches": "Matching notes",
   "quick_no_match": "No notes in this vault match “{query}”.",
   "quick_switcher": "Quick switcher",
+  "settings_version_history": "Keep version history",
+  "settings_version_history_desc": "Store a copy of a note's text before each save, so you can read and restore earlier versions. Copies live outside the vault and are thinned as they age.",
+  "sidebar_ctx_open_in_split": "Open on the right",
+  "split_close": "Close the second pane",
+  "split_pick_note": "Pick a note for this pane, or right-click one in the sidebar.",
+  "split_preview_empty": "Open a note to see it rendered here.",
+  "split_preview_failed": "Could not render the preview: {error}",
+  "split_preview_label": "Preview",
+  "split_resize": "Resize the panes",
+  "split_second_pane": "Second pane",
+  "split_toggle": "Split view",
+  "split_toggle_tooltip": "Show two notes side by side ({shortcut})",
   "template_picker": "New note from template",
   "template_find": "Find a template",
   "template_none": "No templates found in “{folder}”. Add notes to that folder to use them as templates.",
@@ -911,6 +927,7 @@
   "titlebar_show_sidebar": "Show sidebar",
   "titlebar_show_sidebar_tooltip": "Show sidebar ({shortcut})",
   "titlebar_source_title": "Plain Markdown ({shortcut})",
+  "titlebar_tab_in_split": "{path} — open in the second pane",
   "titlebar_unsaved": "Unsaved changes",
   "titlebar_unsaved_autosaving": "Unsaved changes (autosaving…)",
   "trash_empty": "No deleted notes from this vault are in the system trash.",
@@ -928,6 +945,54 @@
   "validation_name_trailing": "Names cannot end with a space or a period.",
   "validation_note_name_empty": "Note name cannot be empty.",
   "validation_reserved": "\"{name}\" is a reserved filename on a supported platform.",
+  "version_bytes": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{count} byte",
+        "countPlural=*": "{count} bytes"
+      }
+    }
+  ],
+  "version_changes": "Changes",
+  "version_counts": "{added} added, {removed} removed",
+  "version_failed": "Version history: {error}",
+  "version_full_text": "Full text",
+  "version_hint": "Restoring a version keeps the text on screen as a version of its own.",
+  "version_kilobytes": "{count} KB",
+  "version_loading": "Reading versions…",
+  "version_none": "No versions yet.",
+  "version_none_hint": "Jotter stores a version the first time you save this note after opening it.",
+  "version_open": "Version history",
+  "version_restore": "Restore this version",
+  "version_restored": "Restored the version from {time}.",
+  "version_same": "This version matches the note as it is now.",
+  "version_timeline": "Stored versions",
+  "version_title": "Version history of {note}",
+  "version_today": "Today {time}",
+  "version_unchanged": [
+    {
+      "declarations": [
+        "input count",
+        "local countPlural = count: plural"
+      ],
+      "selectors": [
+        "countPlural"
+      ],
+      "match": {
+        "countPlural=one": "{count} unchanged line",
+        "countPlural=*": "{count} unchanged lines"
+      }
+    }
+  ],
+  "version_view": "What to show",
+  "version_yesterday": "Yesterday {time}",
   "window_maximize": "Maximize",
   "window_minimize": "Minimize",
   "window_restore": "Restore",
@@ -970,5 +1035,9 @@
   "settings_file_read_failed": "Could not read the settings file. Check its permissions and try again.",
   "settings_file_write_failed": "Could not write the settings file. Check the destination folder and try again.",
   "settings_file_path_failed": "Choose a local settings file and try again.",
-  "settings_storage_failed": "Could not save or access settings. Check file permissions and try again."
+  "settings_storage_failed": "Could not save or access settings. Check file permissions and try again.",
+  "version_save_failed": "Cannot restore because the current edits could not be saved. Your edits are still open.",
+  "version_line_added": "Added: ",
+  "version_line_removed": "Removed: ",
+  "version_line_unchanged": "Unchanged: "
 }
