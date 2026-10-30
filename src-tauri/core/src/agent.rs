@@ -36,13 +36,17 @@ impl AgentVault {
     /// Opens the vault at `root`. `app_data_dir` holds the version history, so a snapshot taken
     /// here appears in the app's timeline for the same note.
     pub fn open(root: &Path, read_only: bool, app_data_dir: &Path) -> Result<Self, String> {
+        // Preserve the path spelling the app uses for history. Canonicalization can expand
+        // Windows short names or macOS /var aliases into a different persistence key.
+        let history_root = std::path::absolute(root)
+            .map_err(|e| format!("Cannot resolve the vault '{}': {e}", root.display()))?;
+        let versions_dir = versions::versions_dir(app_data_dir, &history_root);
         let root = root
             .canonicalize()
             .map_err(|e| format!("Cannot open the vault '{}': {e}", root.display()))?;
         if !root.is_dir() {
             return Err(format!("'{}' is not a folder", root.display()));
         }
-        let versions_dir = versions::versions_dir(app_data_dir, &root);
         Ok(Self { root, read_only, versions_dir })
     }
 
@@ -340,6 +344,26 @@ mod tests {
         let agent = open(&vault, &data, true);
         assert_eq!(agent.list(Some("")).unwrap(), agent.list(None).unwrap());
         assert!(agent.list(Some("../outside")).is_err());
+    }
+
+    #[test]
+    fn relative_vault_paths_use_the_same_history_as_absolute_paths() {
+        let data = tempfile::tempdir().unwrap();
+        let relative = std::path::Path::new(".");
+        let absolute = std::path::absolute(relative).unwrap();
+        let agent = AgentVault::open(relative, true, data.path()).unwrap();
+        assert_eq!(agent.versions_dir, versions::versions_dir(data.path(), &absolute));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_vault_root_alias_keeps_the_apps_history_identity() {
+        let (vault, data) = vault_with_notes();
+        let alias = data.path().join("Alias");
+        std::os::unix::fs::symlink(vault.path(), &alias).unwrap();
+        let agent = AgentVault::open(&alias, false, data.path()).unwrap();
+        agent.append("Plan", "after", false).unwrap();
+        assert_eq!(versions::list(&versions::versions_dir(data.path(), &alias), "Plan.md").len(), 1);
     }
 
 }

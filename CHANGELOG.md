@@ -17,7 +17,7 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 ### Fixed
 
 - Pause autosave when a dirty note changes externally until the user chooses which copy to keep. Keeping local edits resumes saving; reloading preserves the external copy.
-- Keep CLI version history in the same vault folder as the app on Windows. Carry history through note and folder renames, and rewrite links to moved notes and attachments.
+- Keep CLI version history in the same vault folder as the app, including Windows short paths and macOS path aliases. Carry history through note and folder renames, and rewrite links to moved notes and attachments.
 - Separate the desktop and CLI executables so workspace builds cannot overwrite either program.
 - Isolate backups by vault, use unique temporary and archive names, and serialize manual and scheduled runs. Keep the displayed backup status current.
 - Stop CalDAV deletes after an authorization failure and retain unsent events for retry.
