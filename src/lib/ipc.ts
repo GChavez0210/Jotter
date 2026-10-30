@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import type { UpdateInfo, UpdateProgress } from './types';
 import { emitTo, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import {
   CAPTURE_REQUEST_EVENT,
@@ -17,6 +18,9 @@ import type {
   LinkUpdatePlan,
   TextEdit,
   AppliedEdits,
+  BackupConfig,
+  BackupStatus,
+  CaldavReport,
   CalendarDateField,
   CalendarDaySummary,
   CalendarNoteEntry,
@@ -392,6 +396,42 @@ export async function writeTaskCalendar(targetPath: string): Promise<boolean> {
   return invoke<boolean>('write_task_calendar', { targetPath });
 }
 
+/** Sets the open vault's backup schedule, or turns scheduled backups off with `null`. */
+export async function configureBackups(config: BackupConfig | null): Promise<void> {
+  return invoke<void>('configure_backups', { config });
+}
+
+export async function getBackupStatus(): Promise<BackupStatus> {
+  return invoke<BackupStatus>('get_backup_status');
+}
+
+/** Backs up the open vault now. Resolves to the path of the new zip. */
+export async function runBackupNow(): Promise<string> {
+  return invoke<string>('run_backup_now');
+}
+
+export async function pickBackupFolder(title?: string): Promise<string | null> {
+  return invoke<string | null>('pick_backup_folder', { title: title ?? null });
+}
+
+/** Saves the CalDAV password in the system credential store. It never comes back. */
+export async function caldavSetPassword(password: string): Promise<void> {
+  return invoke<void>('caldav_set_password', { password });
+}
+
+export async function caldavHasPassword(): Promise<boolean> {
+  return invoke<boolean>('caldav_has_password');
+}
+
+/** Removes the password and the record of pushed events. Events on the server stay. */
+export async function caldavForget(): Promise<void> {
+  return invoke<void>('caldav_forget');
+}
+
+export async function caldavSync(calendarUrl: string, username: string): Promise<CaldavReport> {
+  return invoke<CaldavReport>('caldav_sync', { calendarUrl, username });
+}
+
 export async function aiGetStatus(): Promise<AiStatus> {
   return invoke<AiStatus>('ai_get_status');
 }
@@ -416,6 +456,20 @@ export async function aiRun(request: AiRequest): Promise<AiResult> {
 /** Resolves to whether a request with that ID was still running. */
 export async function aiCancel(operationId: string): Promise<boolean> {
   return invoke<boolean>('ai_cancel', { operationId });
+}
+
+/** Asks the release feed for a newer version, or `null` when this one is current. */
+export async function checkForUpdate(): Promise<UpdateInfo | null> {
+  return invoke<UpdateInfo | null>('check_for_update');
+}
+
+/** Downloads and installs the update the last check found, then restarts Jotter. */
+export async function installUpdate(expectedVersion: string): Promise<void> {
+  return invoke<void>('install_update', { expectedVersion });
+}
+
+export async function listenUpdateProgress(handler: (progress: UpdateProgress) => void): Promise<UnlistenFn> {
+  return listen<UpdateProgress>('update-progress', (event) => handler(event.payload));
 }
 
 /** The saved app settings as JSON text, or `null` before the first save. */

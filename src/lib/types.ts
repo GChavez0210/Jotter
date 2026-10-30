@@ -133,6 +133,27 @@ export interface LinkUpdatePlan {
   linkCount: number;
 }
 
+/** The scheduler's view of the open vault's backups. */
+export interface BackupStatus {
+  lastBackupMs: number | null;
+  lastError: string | null;
+}
+
+export interface BackupConfig {
+  vault: string;
+  folder: string;
+  intervalHours: number;
+  keep: number;
+}
+
+/** What one CalDAV push changed on the server. */
+export interface CaldavReport {
+  createdOrUpdated: number;
+  deleted: number;
+  failed: number;
+  firstError: string | null;
+}
+
 export interface AppliedEdits {
   applied: number;
   skipped: number;
@@ -275,3 +296,18 @@ export interface AiResult {
   model: string;
   usage: { inputTokens: number | null; outputTokens: number | null };
 }
+
+/** An update the release feed offers. `notes` is the release's Markdown. */
+export interface UpdateInfo {
+  version: string;
+  currentVersion: string;
+  notes: string | null;
+  /** `YYYY-MM-DD`. */
+  date: string | null;
+  /** False when the install cannot replace itself, such as a .deb package. */
+  canInstall: boolean;
+}
+
+export type UpdateProgress =
+  | { phase: 'downloading'; downloaded: number; total: number | null }
+  | { phase: 'installing' };

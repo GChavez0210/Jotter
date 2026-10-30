@@ -1,10 +1,19 @@
 [package]
 name = "jotter"
-version = "0.5.1"
+version = "0.5.2"
 description = "Desktop Markdown notes app compatible with Obsidian vaults"
 authors = ["Jotter Contributors"]
 license = "MIT"
 edition = "2021"
+default-run = "jotter-desktop"
+
+[[bin]]
+name = "jotter-desktop"
+path = "src/main.rs"
+
+[workspace]
+members = ["core", "cli"]
+default-members = [".", "core", "cli"]
 
 [lib]
 name = "jotter_lib"
@@ -14,6 +23,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+jotter-core = { path = "core" }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-global-shortcut = "2"
 serde = { version = "1", features = ["derive"] }
@@ -32,9 +42,14 @@ tauri-plugin-notification = "2"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "native-tls"] }
 url = "2"
+zip = { version = "9", default-features = false, features = ["deflate"] }
+tempfile = "3.14"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"
+# Native TLS, as with `reqwest` above: the default rustls stack builds `ring`, which needs a C
+# toolchain that Windows on ARM lacks.
+tauri-plugin-updater = { version = "2", default-features = false, features = ["native-tls", "system-proxy", "zip"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }
@@ -49,4 +64,6 @@ keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "ve
 arboard = { version = "3.4", features = ["wayland-data-control"] }
 
 [dev-dependencies]
-tempfile = "3.14"
+# `updates` tests decode the public key the updater is configured with.
+base64 = "0.22"
+minisign-verify = "0.3"

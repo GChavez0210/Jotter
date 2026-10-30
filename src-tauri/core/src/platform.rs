@@ -29,7 +29,14 @@ fn fnv1a_64(input: &str) -> u64 {
 pub fn vault_key(vault_root: &Path) -> String {
     let key = vault_root.to_string_lossy().into_owned();
     #[cfg(target_os = "windows")]
-    let key = key.to_lowercase().replace('\\', "/");
+    let key = {
+        let key = key.to_lowercase().replace('\\', "/");
+        if let Some(unc) = key.strip_prefix("//?/unc/") {
+            format!("//{unc}")
+        } else {
+            key.strip_prefix("//?/").unwrap_or(&key).to_string()
+        }
+    };
     format!("{:016x}", fnv1a_64(key.trim_end_matches('/')))
 }
 
@@ -65,4 +72,12 @@ mod tests {
         assert_eq!(export_file_name(" . ", "ics"), "Untitled.ics");
         assert_eq!(export_file_name("line\nbreak", "ics"), "line-break.ics");
     }
+
+    #[test]
+    #[cfg(windows)]
+    fn extended_windows_paths_share_the_existing_vault_key() {
+        assert_eq!(vault_key(Path::new(r"C:\Notes")), vault_key(Path::new(r"\\?\C:\Notes")));
+        assert_eq!(vault_key(Path::new(r"\\server\share\Notes")), vault_key(Path::new(r"\\?\UNC\server\share\Notes")));
+    }
+
 }

@@ -4,6 +4,11 @@ name: Release
 # attaches them to a draft GitHub release, which a maintainer reviews and publishes. A pull
 # request that changes this file builds the same packages as workflow artifacts, without a
 # release, so the pipeline is tested first.
+#
+# Installed copies of Jotter update themselves from this release. Once the repository has the
+# TAURI_SIGNING_PRIVATE_KEY secret, each build also signs its installer and the release gains
+# a latest.json feed that the app reads. The release body is the version's CHANGELOG.md section,
+# which the app shows before it installs. See "Releases and Code Signing" in the README.
 on:
   push:
     tags: ['v*']
@@ -24,6 +29,8 @@ jobs:
     name: Windows ${{ matrix.arch }}
     strategy:
       fail-fast: false
+      # Each action reads and replaces latest.json. Keep release uploads sequential.
+      max-parallel: 1
       matrix:
         include:
           - arch: x64
@@ -41,6 +48,9 @@ jobs:
       SIGNING_ENDPOINT: ${{ vars.TRUSTED_SIGNING_ENDPOINT }}
       SIGNING_ACCOUNT: ${{ vars.TRUSTED_SIGNING_ACCOUNT }}
       SIGNING_PROFILE: ${{ vars.TRUSTED_SIGNING_PROFILE }}
+      # Update signing turns on once this secret exists. See "Releases and Code Signing" in the README.
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -79,15 +89,34 @@ jobs:
           Set-Content -Path signing.json -Value $config
           "TAURI_SIGNING_ARGS=--config signing.json" | Out-File -FilePath $env:GITHUB_ENV -Append
 
+      - name: Turn on update signing
+        if: env.TAURI_SIGNING_PRIVATE_KEY != ''
+        shell: pwsh
+        run: '"TAURI_UPDATER_ARGS=--config src-tauri/tauri.updater.conf.json" | Out-File -FilePath $env:GITHUB_ENV -Append'
+
+      - name: Extract the release notes
+        id: notes
+        shell: bash
+        run: |
+          strict=""
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then strict="--strict"; fi
+          {
+            echo 'body<<RELEASE_NOTES_EOF'
+            node scripts/release-notes.mjs "${{ github.ref_name }}" $strict
+            echo
+            echo 'Windows installers come in x64 and ARM64 builds, each as an .exe (per-user setup) and an .msi. Linux ships an x86_64 AppImage and a .deb.'
+            echo 'RELEASE_NOTES_EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build installers
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          args: --target ${{ matrix.target }} ${{ env.TAURI_SIGNING_ARGS }}
+          args: --target ${{ matrix.target }} ${{ env.TAURI_SIGNING_ARGS }} ${{ env.TAURI_UPDATER_ARGS }}
           tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
           releaseName: Jotter ${{ github.ref_name }}
-          releaseBody: See CHANGELOG.md for what changed. Windows installers come in x64 and ARM64 builds, each as an .exe (per-user setup) and an .msi. Linux ships an x86_64 AppImage and a .deb.
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
 
@@ -102,7 +131,11 @@ jobs:
 
   linux:
     name: Linux x86_64
+    needs: windows
     runs-on: ubuntu-22.04
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -137,15 +170,33 @@ jobs:
             exit 1
           fi
 
+      - name: Turn on update signing
+        if: env.TAURI_SIGNING_PRIVATE_KEY != ''
+        run: echo "TAURI_UPDATER_ARGS=--config src-tauri/tauri.updater.conf.json" >> "$GITHUB_ENV"
+
+      - name: Extract the release notes
+        id: notes
+        run: |
+          strict=""
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then strict="--strict"; fi
+          {
+            echo 'body<<RELEASE_NOTES_EOF'
+            node scripts/release-notes.mjs "${{ github.ref_name }}" $strict
+            echo
+            echo 'Windows installers come in x64 and ARM64 builds, each as an .exe (per-user setup) and an .msi. Linux ships an x86_64 AppImage and a .deb.'
+            echo 'RELEASE_NOTES_EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build the AppImage and .deb
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           # The bundle targets come from tauri.linux.conf.json.
+          args: ${{ env.TAURI_UPDATER_ARGS }}
           tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
           releaseName: Jotter ${{ github.ref_name }}
-          releaseBody: See CHANGELOG.md for what changed. Windows installers come in x64 and ARM64 builds, each as an .exe (per-user setup) and an .msi. Linux ships an x86_64 AppImage and a .deb.
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
 

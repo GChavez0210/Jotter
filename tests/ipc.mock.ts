@@ -10,6 +10,17 @@ export const getNoteCards = async () => {control.noteCardCalls++; return [];};
 export const calendarControl = {pick: async (_name: string): Promise<string | null> => null, writes: [] as string[]};
 export const pickTaskCalendarPath = (name: string) => calendarControl.pick(name);
 export const writeTaskCalendar = async (path: string) => {calendarControl.writes.push(path); return true;};
+export const configureBackups = async (_config: unknown) => {};
+export const backupControl = {
+  status: async (): Promise<import('../src/lib/types').BackupStatus> => ({ lastBackupMs: null, lastError: null }),
+};
+export const getBackupStatus = () => backupControl.status();
+export const runBackupNow = async () => '';
+export const pickBackupFolder = async (_title?: string): Promise<string | null> => null;
+export const caldavSetPassword = async (_password: string) => {};
+export const caldavHasPassword = async () => false;
+export const caldavForget = async () => {};
+export const caldavSync = async (_url: string, _username: string) => ({createdOrUpdated: 0, deleted: 0, failed: 0, firstError: null});
 export const saveNote = (path: string, content: string) => control.save(path, content);
 export const readNote = (path: string) => control.read(path);
 export const openVault = async () => {control.openCalls++; return {rootPath:'B',name:'B',tree:[],noteCount:0};};
@@ -127,3 +138,15 @@ export const restoreNoteVersion = async (relPath: string) => {
 };
 export const pickVaultFolder = async () => null;
 export const openDictionariesFolder = async () => {};
+
+export const updateControl = {
+  check: async (): Promise<import('../src/lib/types').UpdateInfo | null> => null,
+  install: async (_expectedVersion: string): Promise<void> => {},
+  progress: null as null | ((event: import('../src/lib/types').UpdateProgress) => void),
+};
+export const checkForUpdate = () => updateControl.check();
+export const installUpdate = (expectedVersion: string) => updateControl.install(expectedVersion);
+export const listenUpdateProgress = async (handler: (event: import('../src/lib/types').UpdateProgress) => void) => {
+  updateControl.progress = handler;
+  return () => { updateControl.progress = null; };
+};

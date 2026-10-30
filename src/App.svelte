@@ -33,11 +33,14 @@
   import IconButton from './lib/ui/IconButton.svelte';
   import type { MarkdownFormatCommandId } from './lib/markdownCommands';
   import { aiStore } from './lib/stores/ai.svelte';
+  import { updateStore } from './lib/stores/updates.svelte';
   import { clipboardStore } from './lib/stores/clipboard.svelte';
   import { settingsStore } from './lib/stores/settings.svelte';
   import { systemStore } from './lib/stores/system.svelte';
   import { tabsStore } from './lib/stores/tabs.svelte';
   import { vaultStore } from './lib/stores/vault.svelte';
+  import { backupStore } from './lib/stores/backups.svelte';
+  import { caldavStore } from './lib/stores/caldav.svelte';
   import { taskCalendarStore } from './lib/stores/taskCalendar.svelte';
   import { noteCardsStore } from './lib/stores/noteCards.svelte';
   import HomePage from './lib/HomePage.svelte';
@@ -281,6 +284,14 @@
     if (closing) { e.preventDefault(); return; }
     const isMod = e.ctrlKey || e.metaKey;
     const keyLower = e.key.toLowerCase();
+    if (updateStore.dialogOpen) {
+      if (e.key === 'Escape' && !updateStore.installing) {
+        updateStore.closeDialog();
+        activeEditor?.focusEditor();
+      }
+      if (e.key === 'Escape' || e.key === 'F11' || (isMod && keyLower !== 'c' && keyLower !== 'a')) e.preventDefault();
+      return;
+    }
 
     // Settings screen (Ctrl+,)
     if (isMod && !e.shiftKey && e.key === ',') {
@@ -456,6 +467,11 @@
   });
 
   $effect(() => {
+    if (!settingsStore.autoUpdateCheck) return;
+    return updateStore.startAutoCheck();
+  });
+
+  $effect(() => {
     // Snapshots are taken in the backend, as each save replaces the text on disk.
     void configureVersionHistory(settingsStore.versionHistory).catch(() => {
       // The backend is missing in a browser preview.
@@ -489,7 +505,22 @@
   // Every save, external change, and vault switch bumps the index version.
   $effect(() => {
     void vaultStore.indexVersion;
-    untrack(() => taskCalendarStore.scheduleWrite());
+    untrack(() => {
+      taskCalendarStore.scheduleWrite();
+      caldavStore.scheduleSync();
+    });
+  });
+
+  // The password lives in the credential store, so ask which vault has one after a switch.
+  $effect(() => {
+    void vaultStore.vaultSnapshot?.rootPath;
+    untrack(() => void caldavStore.refresh());
+  });
+
+  // The scheduler runs in Rust and needs to know which vault is open and where its zips go.
+  $effect(() => {
+    void vaultStore.vaultSnapshot?.rootPath;
+    untrack(() => void backupStore.apply());
   });
 
   onMount(() => {
@@ -558,6 +589,7 @@
   });
 
   onDestroy(() => {
+    backupStore.stop();
     unlistenFsEvents?.();
     unlistenQuit?.();
     unlistenCapture?.();
@@ -806,6 +838,23 @@
     {:catch}
       <Dialog label={m.lazy_load_failed()} onClose={() => vaultStore.answerLinkUpdate('cancel')}>
         <LazyLoadError onClose={() => vaultStore.answerLinkUpdate('cancel')} />
+      </Dialog>
+    {/await}
+  {/if}
+
+  {#if updateStore.dialogOpen}
+    {#await import('./lib/UpdateDialog.svelte') then { default: UpdateDialog }}
+      <UpdateDialog
+        saveFirst={() => saveBeforeLeaving(() => tabsStore.flushAllAutosaves(), () => appStorage.flush())}
+        onClose={() => {
+          if (updateStore.installing) return;
+          updateStore.closeDialog();
+          activeEditor?.focusEditor();
+        }}
+      />
+    {:catch}
+      <Dialog label={m.lazy_load_failed()} onClose={() => updateStore.closeDialog()}>
+        <LazyLoadError onClose={() => updateStore.closeDialog()} />
       </Dialog>
     {/await}
   {/if}

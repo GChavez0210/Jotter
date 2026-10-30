@@ -3,6 +3,7 @@
   import { settingsStore } from './stores/settings.svelte';
   import { tabsStore } from './stores/tabs.svelte';
   import { vaultStore } from './stores/vault.svelte';
+  import { updateStore } from './stores/updates.svelte';
   import Icon from './ui/Icon.svelte';
   import { m } from './i18n.svelte';
 
@@ -41,6 +42,18 @@
       </button>
     {/if}
 
+    {#if updateStore.info}
+      <button
+        type="button"
+        class="conflicts update"
+        title={m.update_status_title({ version: updateStore.info.version })}
+        onclick={() => updateStore.openDialog()}
+      >
+        <Icon name="arrow-clockwise" size={12} />
+        {m.update_status({ version: updateStore.info.version })}
+      </button>
+    {/if}
+
     <span class="message" role="status" title={clipboardStore.statusBanner || m.status_ready()}>
       {clipboardStore.statusBanner || m.status_ready()}
     </span>
@@ -73,6 +86,12 @@
 
   .conflicts:hover {
     background: var(--surface-hover);
+  }
+
+  .conflicts.update {
+    min-height: 24px;
+    min-width: 24px;
+    color: var(--accent);
   }
 
   .status-bar {

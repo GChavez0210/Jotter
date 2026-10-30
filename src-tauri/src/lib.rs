@@ -1,26 +1,29 @@
 pub mod ai;
 pub mod app_settings;
+pub mod backup;
+pub mod caldav;
 pub mod capture;
 pub mod clipboard;
-pub mod fs_atomic;
-pub mod health;
-pub mod index;
-pub mod link_update;
-pub mod links;
-pub mod md_scan;
+pub use jotter_core::fs_atomic;
+pub use jotter_core::health;
+pub use jotter_core::index;
+pub use jotter_core::link_update;
+pub use jotter_core::links;
+pub use jotter_core::md_scan;
 pub mod media_export;
 pub mod pins;
-pub mod platform;
-pub mod recycle;
+pub use jotter_core::platform;
+pub use jotter_core::recycle;
 pub mod reminders;
-pub mod search;
+pub use jotter_core::search;
 pub mod snippets;
 pub mod spell;
-pub mod tasks;
+pub use jotter_core::tasks;
 pub mod tray;
-pub mod types;
-pub mod vault;
-pub mod versions;
+pub use jotter_core::types;
+pub mod updates;
+pub use jotter_core::vault;
+pub use jotter_core::versions;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -931,6 +934,114 @@ fn configure_task_reminders(
     state.enabled.store(enabled, Ordering::SeqCst);
 }
 
+/// Sets the open vault's backup schedule, or turns scheduled backups off with `None`.
+#[tauri::command]
+fn configure_backups(
+    app: AppHandle,
+    state: State<'_, crate::backup::BackupState>,
+    config: Option<crate::backup::BackupConfig>,
+) -> Result<(), String> {
+    if let Some(config) = &config {
+        if config.folder.trim().is_empty() {
+            return Err("Choose a folder for the backups".to_string());
+        }
+    }
+    let enabled = config.is_some();
+    *state.config.lock().map_err(|e| e.to_string())? = config;
+    *state.last_error.lock().map_err(|e| e.to_string())? = None;
+    // Don't make the first backup wait for the next minute tick.
+    if enabled {
+        std::thread::spawn(move || run_due_backup(&app));
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn get_backup_status(
+    state: State<'_, AppState>,
+    backups: State<'_, crate::backup::BackupState>,
+) -> Result<crate::backup::BackupStatus, String> {
+    let vault_root = require_active_vault(&state)?;
+    Ok(crate::backup::BackupStatus {
+        last_backup_ms: crate::backup::last_backup_ms(&crate::backup::record_path(&app_data_dir(&state), &vault_root)),
+        last_error: backups.last_error.lock().map_err(|e| e.to_string())?.clone(),
+    })
+}
+
+/// Backs up the open vault now, using the configured folder. Returns the new file's path.
+#[tauri::command]
+async fn run_backup_now(
+    state: State<'_, AppState>,
+    backups: State<'_, crate::backup::BackupState>,
+) -> Result<String, String> {
+    let vault_root = require_active_vault(&state)?;
+    let config = backups
+        .config
+        .lock()
+        .map_err(|e| e.to_string())?
+        .clone()
+        .filter(|c| c.vault == vault_root.to_string_lossy())
+        .ok_or_else(|| "Choose a folder for the backups".to_string())?;
+    let record = crate::backup::record_path(&app_data_dir(&state), &vault_root);
+    let running = backups.running.clone();
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        let _running = running.lock().map_err(|e| e.to_string())?;
+        crate::backup::run(&vault_root, &config, &record, chrono::Local::now())
+    })
+    .await
+    .map_err(|e| e.to_string())?;
+    *backups.last_error.lock().map_err(|e| e.to_string())? = outcome.as_ref().err().cloned();
+    outcome.map(|p| p.to_string_lossy().into_owned())
+}
+
+/// Asks which folder should hold the backups. Returns `None` when the user cancels.
+#[tauri::command]
+async fn pick_backup_folder(app: AppHandle, title: Option<String>) -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        app.dialog().file()
+            .set_title(title.unwrap_or_else(|| "Choose a backup folder".into()))
+            .blocking_pick_folder()
+            .map(|p| p.into_path().map(|p| p.to_string_lossy().into_owned()).map_err(|e| e.to_string()))
+            .transpose()
+    }).await.map_err(|e| e.to_string())?
+}
+
+/// Once a minute, backs up the open vault when its schedule says a backup is due. Runs for the
+/// life of the app, so backups still happen while Jotter sits in the tray.
+fn spawn_backup_loop(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(60));
+        run_due_backup(&app);
+    });
+}
+
+/// Backs up the open vault if its schedule says one is due. A vault with no backup yet is
+/// always due, so opening a vault with backups on, or turning them on, backs it up at once.
+/// Backups never overlap: a second caller waits for the first and then finds nothing due.
+fn run_due_backup(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let backups = app.state::<crate::backup::BackupState>();
+    let Ok(_running) = backups.running.lock() else { return };
+    let Some(config) = backups.config.lock().ok().and_then(|c| c.clone()) else { return };
+    let Some(root) = state.active_vault.lock().ok().and_then(|r| r.clone()) else { return };
+    if config.vault != root.to_string_lossy() {
+        return;
+    }
+    let record = crate::backup::record_path(&app_data_dir(&state), &root);
+    let now = chrono::Local::now();
+    if !crate::backup::is_due(crate::backup::last_backup_ms(&record), config.interval_hours, now.timestamp_millis()) {
+        return;
+    }
+    let outcome = crate::backup::run(&root, &config, &record, now);
+    if let Err(err) = &outcome {
+        eprintln!("Scheduled backup failed: {err}");
+    }
+    let mut last = backups.last_error.lock().ok();
+    if let Some(last) = last.as_mut() {
+        **last = outcome.err();
+    }
+}
+
 /// Checks the open vault's tasks every 30 seconds and shows a notification for each one that
 /// has come due. Runs for the life of the app, so reminders still fire while Jotter sits in
 /// the tray.
@@ -1040,6 +1151,82 @@ fn write_task_calendar(state: State<'_, AppState>, target_path: String) -> Resul
     crate::fs_atomic::atomic_write_str(&target, &ics)
         .map_err(|e| format!("Cannot write {}: {e}", target.display()))?;
     Ok(true)
+}
+
+/// Keychain account for a vault's CalDAV password.
+fn caldav_account(vault_root: &Path) -> String {
+    format!("caldav:{}", crate::platform::vault_key(vault_root))
+}
+
+/// Stores the CalDAV password for the open vault in the system credential store. The password
+/// never returns to the webview.
+#[tauri::command]
+fn caldav_set_password(state: State<'_, AppState>, password: String) -> Result<(), String> {
+    use crate::ai::secrets::{OsSecretStore, SecretStore};
+    let vault_root = require_active_vault(&state)?;
+    if password.is_empty() {
+        return Err("Enter the calendar password".to_string());
+    }
+    OsSecretStore.set(&caldav_account(&vault_root), &password)
+}
+
+#[tauri::command]
+fn caldav_has_password(state: State<'_, AppState>) -> Result<bool, String> {
+    use crate::ai::secrets::{OsSecretStore, SecretStore};
+    let vault_root = require_active_vault(&state)?;
+    Ok(OsSecretStore.get(&caldav_account(&vault_root))?.is_some())
+}
+
+/// Turns CalDAV off for the open vault: removes the password and the record of pushed events.
+/// Events already on the server stay there.
+#[tauri::command]
+fn caldav_forget(state: State<'_, AppState>) -> Result<(), String> {
+    use crate::ai::secrets::{OsSecretStore, SecretStore};
+    let vault_root = require_active_vault(&state)?;
+    OsSecretStore.delete(&caldav_account(&vault_root))?;
+    match std::fs::remove_file(crate::caldav::state_path(&app_data_dir(&state), &vault_root)) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("Cannot remove the CalDAV record: {e}")),
+    }
+}
+
+/// Pushes the open vault's open tasks to the CalDAV calendar and returns what changed.
+#[tauri::command]
+async fn caldav_sync(
+    state: State<'_, AppState>,
+    calendar_url: String,
+    username: String,
+) -> Result<crate::caldav::SyncReport, String> {
+    use crate::ai::secrets::{OsSecretStore, SecretStore};
+    let vault_root = require_active_vault(&state)?;
+    let collection = crate::caldav::normalize_collection(&calendar_url)?;
+    let password = OsSecretStore
+        .get(&caldav_account(&vault_root))?
+        .ok_or_else(|| "Enter the calendar password".to_string())?;
+    let tasks = {
+        let conn = state
+            .sqlite_conn
+            .lock()
+            .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+        crate::index::query_due_tasks(&conn)?
+    };
+    let now_ms = system_time_to_ms(SystemTime::now());
+    let events: std::collections::BTreeMap<String, String> = crate::tasks::open_task_uids(&tasks)
+        .into_iter()
+        .map(|(uid, task)| {
+            let body = crate::tasks::build_event_ics(&uid, task, now_ms);
+            (uid, body)
+        })
+        .collect();
+
+    let state_file = crate::caldav::state_path(&app_data_dir(&state), &vault_root);
+    let previous = crate::caldav::load_state(&state_file);
+    let (next, report) = crate::caldav::sync(&collection, username.trim(), &password, &events, &previous).await?;
+    if next != previous {
+        crate::caldav::save_state(&state_file, &next)?;
+    }
+    Ok(report)
 }
 
 #[tauri::command]
@@ -1419,6 +1606,26 @@ fn ai_cancel(ai: State<'_, Arc<crate::ai::AiState>>, operation_id: String) -> bo
     ai.cancel(&operation_id)
 }
 
+/// Asks the update feed whether a newer release exists.
+#[tauri::command]
+async fn check_for_update(
+    app_handle: AppHandle,
+    state: State<'_, crate::updates::UpdateState>,
+) -> Result<Option<crate::updates::UpdateInfo>, String> {
+    crate::updates::check(app_handle, state).await
+}
+
+/// Downloads the update the last check found, installs it, and restarts Jotter.
+/// The page saves open notes first.
+#[tauri::command]
+async fn install_update(
+    app_handle: AppHandle,
+    state: State<'_, crate::updates::UpdateState>,
+    expected_version: String,
+) -> Result<(), String> {
+    crate::updates::install(app_handle, state, expected_version).await
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_data_dir = crate::platform::app_data_dir().expect("Cannot locate Jotter app data");
@@ -1442,10 +1649,15 @@ pub fn run() {
         crate::tray::show_main_window(app);
     }));
 
+    #[cfg(desktop)]
+    let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
+
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .manage(crate::updates::UpdateState::default())
         .manage(crate::reminders::ReminderState::default())
+        .manage(crate::backup::BackupState::default())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(crate::tray::BackgroundState::default())
         .manage(Arc::new(crate::spell::SpellState::default()))
@@ -1464,6 +1676,7 @@ pub fn run() {
         .setup(|app| {
             crate::tray::create_tray(app)?;
             spawn_reminder_loop(app.handle().clone());
+            spawn_backup_loop(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -1513,7 +1726,15 @@ pub fn run() {
             export_settings_file,
             import_settings_file,
             write_task_calendar,
+            caldav_set_password,
+            caldav_has_password,
+            caldav_forget,
+            caldav_sync,
             configure_task_reminders,
+            configure_backups,
+            get_backup_status,
+            run_backup_now,
+            pick_backup_folder,
             list_pinned_notes,
             set_note_pinned,
             list_note_versions,
@@ -1542,7 +1763,9 @@ pub fn run() {
             ai_save_key,
             ai_delete_key,
             ai_run,
-            ai_cancel
+            ai_cancel,
+            check_for_update,
+            install_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running Jotter Tauri application");

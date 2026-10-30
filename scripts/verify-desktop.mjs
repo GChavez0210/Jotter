@@ -20,7 +20,7 @@ await writeFile(join(vault,'Templates/Daily.md'),'# {{title}}\nDate: {{date}}\n'
 // Tauri embeds the frontend at compile time, but cargo does not watch `dist`, so a frontend-only
 // change plus `cargo build` leaves the previous bundle inside the executable and this harness
 // would check code that is no longer in the tree.
-const exePath = resolve(process.env.JOTTER_TEST_EXE ?? 'src-tauri/target/release/jotter.exe');
+const exePath = resolve(process.env.JOTTER_TEST_EXE ?? 'src-tauri/target/release/jotter-desktop.exe');
 const [exeStat, bundleStat] = await Promise.all([stat(exePath), stat(resolve('dist/index.html'))]);
 if (exeStat.mtimeMs < bundleStat.mtimeMs) {
   throw new Error(

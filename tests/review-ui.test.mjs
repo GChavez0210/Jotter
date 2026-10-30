@@ -82,6 +82,57 @@ async function auditPage(page, context) {
   return result.map((violation) => ({ ...violation, context }));
 }
 
+test('updates keep keyboard focus, close with Escape, and block other dialogs during installation', async () => {
+  const bundle = await bundleHarness('AppHarness');
+  const browser = await launchBrowser();
+  try {
+    const page = await openHarness(browser, bundle);
+    await expect(page.locator('.cm-content')).toHaveCount(1);
+    const found = [];
+    for (const theme of ['light', 'dark', 'high-contrast']) {
+      await page.evaluate((value) => document.documentElement.setAttribute('data-theme', value), theme);
+      await page.keyboard.press('Control+,');
+      await page.getByRole('button', {name: 'About', exact: true}).click();
+      found.push(...await auditPage(page, `${theme}: about`));
+      await page.keyboard.press('Escape');
+      await page.evaluate(() => {
+        window.__review.updateStore.info = {
+          version: '0.6.0', currentVersion: '0.5.1', notes: '### Added\n- Updates',
+          date: '2026-11-01', canInstall: true,
+        };
+      });
+      const updateButton = page.getByRole('button', {name: 'Update 0.6.0', exact: true});
+      assert.ok((await updateButton.boundingBox()).height >= 24);
+      found.push(...await auditPage(page, `${theme}: update status`));
+      await updateButton.click();
+      await expect(page.getByRole('button', {name: 'Later', exact: true})).toBeFocused();
+      found.push(...await auditPage(page, `${theme}: update dialog`));
+      for (let i = 0; i < 6; i++) {
+        await page.keyboard.press('Tab');
+        assert.equal(await page.evaluate(() => document.querySelector('[role="dialog"]').contains(document.activeElement)), true);
+      }
+      await page.keyboard.press('Escape');
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+    }
+    await page.getByRole('button', {name: 'Update 0.6.0', exact: true}).click();
+    await page.evaluate(() => {
+      window.__review.updateControl.install = () => new Promise((resolve) => { window.__finishUpdate = resolve; });
+      void window.__review.updateStore.install(async () => true);
+    });
+    await expect(page.getByRole('button', {name: 'Install and restart', exact: true})).toBeDisabled();
+    for (const shortcut of ['Escape', 'Control+,', 'Control+p', 'Control+o', 'F11']) {
+      await page.keyboard.press(shortcut);
+      await expect(page.getByRole('dialog')).toHaveCount(1);
+      assert.equal(await page.evaluate(() => window.__review.updateStore.dialogOpen), true);
+    }
+    await page.evaluate(() => window.__finishUpdate());
+    await expect(page.getByRole('button', {name: 'Install and restart', exact: true})).toBeEnabled();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    assert.deepEqual(found, [], JSON.stringify(found, null, 2));
+  } finally { await browser.close(); }
+});
+
 test('find stays below dialogs and failed panels can close without discarding dirty notes', async () => {
   const bundle = await bundleHarness('ReviewHarness');
   const browser = await launchBrowser();

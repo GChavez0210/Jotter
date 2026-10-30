@@ -57,7 +57,15 @@
     "allow-export-settings-file",
     "allow-import-settings-file",
     "allow-write-task-calendar",
+    "allow-caldav-set-password",
+    "allow-caldav-has-password",
+    "allow-caldav-forget",
+    "allow-caldav-sync",
     "allow-configure-task-reminders",
+    "allow-configure-backups",
+    "allow-get-backup-status",
+    "allow-run-backup-now",
+    "allow-pick-backup-folder",
     "allow-list-pinned-notes",
     "allow-set-note-pinned",
     "allow-list-note-versions",
@@ -86,6 +94,8 @@
     "allow-ai-save-key",
     "allow-ai-delete-key",
     "allow-ai-run",
-    "allow-ai-cancel"
+    "allow-ai-cancel",
+    "allow-check-for-update",
+    "allow-install-update"
   ]
 }

@@ -298,6 +298,8 @@ class TabsStore {
     while (true) {
       const tab = this.openTabs.find((t) => sameNotePath(t.relPath, relPath));
       if (!tab || !tab.dirty) return true;
+      // The user must choose which copy to keep before any save or close can replace it.
+      if (tab.externalChangePending) return false;
 
       const contentToSave = tab.content;
       try {
@@ -404,6 +406,7 @@ class TabsStore {
     this.openTabs = this.openTabs.map((t) =>
       sameNotePath(t.relPath, relPath) ? { ...t, externalChangePending: false } : t
     );
+    this.scheduleAutosave(relPath);
   }
 
   async reloadTabFromDisk(
@@ -450,6 +453,9 @@ class TabsStore {
       if (!tab.dirty) {
         await this.reloadTabFromDisk(tab.relPath, onReplaceEditor);
       } else {
+        const timer = this.autosaveTimers.get(tab.relPath);
+        if (timer) clearTimeout(timer);
+        this.autosaveTimers.delete(tab.relPath);
         this.openTabs = this.openTabs.map((t) =>
           t.relPath === tab.relPath ? { ...t, externalChangePending: true } : t
         );

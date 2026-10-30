@@ -4,6 +4,25 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-10-29
+
+### Added
+
+- **Automatic updates.** Jotter checks GitHub for a newer release shortly after it starts and once a day, and an **Update** button appears in the status bar when one exists. It opens the release notes with **Install and restart**, which saves your open notes, downloads the update, verifies its signature against the key built into the app, installs it, and restarts. Nothing installs without your confirmation. **Settings → About** turns the daily check off and checks on demand, and the command palette has **Check for Updates**. A Linux `.deb` install cannot replace itself and points to the release page instead. The AppImage and the Windows installers update in place.
+- **Calendar sync (CalDAV).** **Settings → Task calendar** can push open tasks with due dates to a CalDAV calendar such as Nextcloud, Fastmail, iCloud, or Radicale. Jotter sends changes one way, never reads the calendar, and deletes the events it created when a task is completed or removed. Use a calendar that holds only Jotter's events. The password stays in the system credential store.
+- **Scheduled vault backups.** **Settings** can zip the whole vault into a folder you choose every 6 hours, daily, or weekly, and keep the newest copies you set. **Back up now** runs one on demand, and Settings shows the time of the last backup. Backups continue while Jotter sits in the tray. Each vault gets its own backup subfolder, and repeated copies use unique names. Existing flat backups stay untouched. Symlinks are skipped, and so is the backup folder when it sits inside the vault.
+- **`jotter` command-line tool and MCP server.** Search, read, create, append to, rename, and delete notes, and read backlinks, tags, tasks, vault health, and version history, from a terminal or an AI agent, with JSON answers. `jotter mcp` serves the same operations to MCP clients. Writes keep the replaced text in the note's version history, deletes go to the Recycle Bin, and `--read-only` refuses every write. See the README for build steps.
+- Release notes. A GitHub release's body is now the version's section of this changelog, so the same text appears on GitHub and inside the update dialog.
+
+### Fixed
+
+- Pause autosave when a dirty note changes externally until the user chooses which copy to keep. Keeping local edits resumes saving; reloading preserves the external copy.
+- Keep CLI version history in the same vault folder as the app on Windows. Carry history through note and folder renames, and rewrite links to moved notes and attachments.
+- Separate the desktop and CLI executables so workspace builds cannot overwrite either program.
+- Isolate backups by vault, use unique temporary and archive names, and serialize manual and scheduled runs. Keep the displayed backup status current.
+- Stop CalDAV deletes after an authorization failure and retain unsent events for retry.
+- Serialize release uploads to preserve every platform in the update feed. Install only the update version confirmed in the dialog, handle Escape and shortcuts consistently, and translate updater errors.
+
 ## [0.5.1] - 2026-10-27
 
 ### Added

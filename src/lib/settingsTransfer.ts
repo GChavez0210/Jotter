@@ -62,7 +62,7 @@ const VALIDATORS: Record<string, (value: string) => boolean> = {
       && (section.hidden === undefined || typeof section.hidden === 'boolean')))),
 };
 for (const name of ['typewriterScrolling', 'dimInactiveParagraphs', 'showHiddenFiles', 'showHomePage',
-  'showLineNumbers', 'spellCheck', 'summonEnabled', 'quickCaptureEnabled', 'taskReminders', 'trayEnabled', 'sidebarCollapsed', 'showRightPanel', 'versionHistory']) {
+  'showLineNumbers', 'spellCheck', 'summonEnabled', 'quickCaptureEnabled', 'taskReminders', 'trayEnabled', 'sidebarCollapsed', 'showRightPanel', 'versionHistory', 'autoUpdateCheck']) {
   VALIDATORS[`jotter.${name}`] = boolean;
 }
 
