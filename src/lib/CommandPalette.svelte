@@ -4,6 +4,7 @@
   import Dialog from './ui/Dialog.svelte';
   import type { MarkdownFormatCommandId } from './markdownCommands';
   import { aiStore } from './stores/ai.svelte';
+  import { askStore } from './stores/ask.svelte';
   import { settingsStore } from './stores/settings.svelte';
   import { tabsStore } from './stores/tabs.svelte';
   import { clipboardStore } from './stores/clipboard.svelte';
@@ -484,6 +485,23 @@
             category: m.cmd_cat_ai(),
             label: m.cmd_ai_summarize(),
             action: () => aiStore.openPanel('summarize'),
+          },
+        ]
+      : []),
+    ...(vaultStore.vaultSnapshot
+      ? [
+          {
+            id: 'ask-vault',
+            category: m.cmd_cat_ai(),
+            label: m.cmd_ask_vault(),
+            action: () => {
+              settingsStore.showSettings = false;
+              settingsStore.showQuickSwitcher = false;
+              settingsStore.showTemplatePicker = false;
+              settingsStore.openVersionHistory(null);
+              aiStore.closePanel();
+              askStore.open();
+            },
           },
         ]
       : []),

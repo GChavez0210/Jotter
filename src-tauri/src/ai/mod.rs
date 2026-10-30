@@ -2,7 +2,9 @@
 //! provider. Off by default. Keys live in the OS credential store and reach only the
 //! endpoint origin they were saved for.
 
+pub mod ask;
 pub mod config;
+pub mod embed;
 pub mod guard;
 pub mod prompt;
 pub mod provider;
@@ -22,6 +24,53 @@ use secrets::SecretStore;
 
 /// About 25,000 words. Larger notes need a selection.
 pub const MAX_INPUT_CHARS: usize = 100_000;
+
+const ASK_OFF: &str = "Ask your vault is off. Turn it on in Settings > AI.";
+
+/// Passages per embeddings request. Providers cap the batch size; 64 stays under every cap.
+pub const EMBED_BATCH: usize = 64;
+
+#[derive(Debug, Clone)]
+pub struct EmbedResult {
+    pub vectors: Vec<Vec<f32>>,
+    pub model: String,
+}
+
+/// The embedding space is tied to an endpoint as well as a model name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbeddingProfile {
+    provider: AiProvider,
+    base_url: url::Url,
+    model: String,
+}
+
+impl EmbeddingProfile {
+    pub fn identity(&self) -> String {
+        // The version invalidates caches built with the earlier, unbounded chunker.
+        serde_json::json!([2, self.provider, self.base_url.as_str().trim_end_matches('/'), self.model]).to_string()
+    }
+
+    fn from_config(config: &AiConfig) -> Result<Self, String> {
+        if !config.enabled {
+            return Err("AI is off. Turn it on in Settings > AI.".into());
+        }
+        if !config.ask_vault_enabled {
+            return Err(ASK_OFF.into());
+        }
+        let provider = config.embedding_provider;
+        if !embed::supports_embeddings(provider) {
+            return Err("Anthropic has no embeddings. Choose another provider in Settings > AI.".into());
+        }
+        if config.embedding_model.is_empty() {
+            return Err("Enter an embedding model name in Settings > AI to use Ask your vault.".into());
+        }
+        Ok(Self {
+            provider,
+            base_url: config::validate_base_url(provider, &config.endpoint(provider).base_url)?,
+            model: config.embedding_model.clone(),
+        })
+    }
+}
 
 pub struct AiState {
     settings_path: PathBuf,
@@ -176,20 +225,41 @@ impl AiState {
     }
 
     fn prepare(&self) -> Result<Prepared, String> {
+        self.prepare_endpoint(false)
+    }
+
+    /// Resolves the endpoint, model, and key for a chat call, or for an embeddings call when
+    /// `embedding` is true. Both use the same origin-bound key check.
+    fn prepare_endpoint(&self, embedding: bool) -> Result<Prepared, String> {
         // Keep endpoint authorization and the secret read in the same critical section.
         let settings = self.lock()?;
+        self.prepare_endpoint_from_settings(&settings, embedding)
+    }
+
+    fn prepare_endpoint_from_settings(&self, settings: &StoredAiSettings, embedding: bool) -> Result<Prepared, String> {
         let config = &settings.config;
         if !config.enabled {
             return Err("AI is off. Turn it on in Settings > AI.".into());
         }
-        let provider = config.provider;
+        if embedding && !config.ask_vault_enabled {
+            return Err(ASK_OFF.into());
+        }
+        let provider = if embedding { config.embedding_provider } else { config.provider };
         let endpoint = config.endpoint(provider);
         let label = provider.label();
+        if embedding && !embed::supports_embeddings(provider) {
+            return Err(format!("{label} has no embeddings. Choose another provider for Ask your vault in Settings > AI."));
+        }
         if endpoint.base_url.is_empty() {
             return Err(format!("Enter the {label} base URL in Settings > AI."));
         }
-        if endpoint.model.is_empty() {
-            return Err(format!("Enter a {label} model name in Settings > AI."));
+        let model = if embedding { config.embedding_model.clone() } else { endpoint.model.clone() };
+        if model.is_empty() {
+            return Err(if embedding {
+                format!("Enter an embedding model name for {label} in Settings > AI.")
+            } else {
+                format!("Enter a {label} model name in Settings > AI.")
+            });
         }
         let base_url = config::validate_base_url(provider, &endpoint.base_url)?;
         let api_key = if provider.uses_key() {
@@ -227,10 +297,69 @@ impl AiState {
         Ok(Prepared {
             provider,
             base_url,
-            model: endpoint.model.clone(),
+            model,
             style: config.style_instructions.clone(),
             api_key,
         })
+    }
+
+    /// Rechecks Ask consent and the retrieval profile before sending note passages to chat.
+    pub async fn chat_for_vault(&self, profile: &EmbeddingProfile, system: &str, user: &str) -> Result<(String, AiUsage), String> {
+        let prepared = {
+            let settings = self.lock()?;
+            Self::check_embedding_profile(&settings.config, profile)?;
+            self.prepare_endpoint_from_settings(&settings, false)?
+        };
+        let call = ChatCall {
+            provider: prepared.provider,
+            base_url: &prepared.base_url,
+            model: &prepared.model,
+            api_key: prepared.api_key.as_deref(),
+            system,
+            user,
+        };
+        provider::send_chat(&self.client, &call).await
+    }
+
+    pub fn embedding_profile(&self) -> Result<EmbeddingProfile, String> {
+        let settings = self.lock()?;
+        EmbeddingProfile::from_config(&settings.config)
+    }
+
+    fn check_embedding_profile(config: &AiConfig, expected: &EmbeddingProfile) -> Result<(), String> {
+        if &EmbeddingProfile::from_config(config)? != expected {
+            return Err("The embedding settings changed. Reopen Ask your vault and update the index.".into());
+        }
+        Ok(())
+    }
+
+    /// Embeds `texts` with the configured embedding model, in requests of up to
+    /// [`EMBED_BATCH`] passages. Returns one vector per text, in order, and the model used.
+    pub async fn embed(&self, texts: &[String]) -> Result<EmbedResult, String> {
+        let profile = self.embedding_profile()?;
+        self.embed_for_profile(&profile, texts).await
+    }
+
+    pub async fn embed_for_profile(&self, profile: &EmbeddingProfile, texts: &[String]) -> Result<EmbedResult, String> {
+        Self::check_embedding_profile(&self.lock()?.config, profile)?;
+        let mut vectors = Vec::with_capacity(texts.len());
+        for batch in texts.chunks(EMBED_BATCH) {
+            let prepared = {
+                let settings = self.lock()?;
+                Self::check_embedding_profile(&settings.config, profile)?;
+                self.prepare_endpoint_from_settings(&settings, true)?
+            };
+            let call = embed::EmbedCall {
+                provider: prepared.provider,
+                base_url: &prepared.base_url,
+                model: &prepared.model,
+                api_key: prepared.api_key.as_deref(),
+                inputs: batch,
+            };
+            vectors.extend(embed::send_embeddings(&self.client, &call).await?);
+            Self::check_embedding_profile(&self.lock()?.config, profile)?;
+        }
+        Ok(EmbedResult { vectors, model: profile.model.clone() })
     }
 
     pub async fn run(&self, request: AiRequest) -> Result<AiResult, String> {

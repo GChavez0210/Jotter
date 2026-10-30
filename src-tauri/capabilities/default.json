@@ -94,6 +94,10 @@
     "allow-ai-save-key",
     "allow-ai-delete-key",
     "allow-ai-run",
+    "allow-ask-index-status",
+    "allow-ask-index-vault",
+    "allow-ask-vault",
+    "allow-ask-delete-index",
     "allow-ai-cancel",
     "allow-check-for-update",
     "allow-install-update"

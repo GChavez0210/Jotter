@@ -16,6 +16,7 @@ pub use jotter_core::platform;
 pub use jotter_core::recycle;
 pub mod reminders;
 pub use jotter_core::search;
+pub use jotter_core::semantic;
 pub mod snippets;
 pub mod spell;
 pub use jotter_core::tasks;
@@ -23,6 +24,7 @@ pub mod tray;
 pub use jotter_core::types;
 pub mod updates;
 pub use jotter_core::vault;
+pub use jotter_core::vector_store;
 pub use jotter_core::versions;
 
 use std::collections::HashMap;
@@ -1602,6 +1604,46 @@ async fn ai_run(
 }
 
 #[tauri::command]
+async fn ask_index_status(
+    state: State<'_, AppState>,
+    ai: State<'_, Arc<crate::ai::AiState>>,
+) -> Result<crate::ai::ask::IndexStatus, String> {
+    let root = require_active_vault(&state)?;
+    let data = app_data_dir(&state);
+    let ai = Arc::clone(&ai);
+    tauri::async_runtime::spawn_blocking(move || crate::ai::ask::index_status(&ai, &data, &root))
+        .await
+        .map_err(|e| format!("Checking the vault failed: {e}"))?
+}
+
+#[tauri::command]
+async fn ask_index_vault(
+    state: State<'_, AppState>,
+    ai: State<'_, Arc<crate::ai::AiState>>,
+) -> Result<crate::ai::ask::IndexReport, String> {
+    let root = require_active_vault(&state)?;
+    let data = app_data_dir(&state);
+    crate::ai::ask::index_vault(&ai, &data, &root).await
+}
+
+#[tauri::command]
+fn ask_delete_index(state: State<'_, AppState>) -> Result<(), String> {
+    let root = require_active_vault(&state)?;
+    crate::ai::ask::delete_index(&app_data_dir(&state), &root)
+}
+
+#[tauri::command]
+async fn ask_vault(
+    state: State<'_, AppState>,
+    ai: State<'_, Arc<crate::ai::AiState>>,
+    question: String,
+) -> Result<crate::ai::ask::Answer, String> {
+    let root = require_active_vault(&state)?;
+    let data = app_data_dir(&state);
+    crate::ai::ask::ask(&ai, &data, &root, &question).await
+}
+
+#[tauri::command]
 fn ai_cancel(ai: State<'_, Arc<crate::ai::AiState>>, operation_id: String) -> bool {
     ai.cancel(&operation_id)
 }
@@ -1763,6 +1805,10 @@ pub fn run() {
             ai_save_key,
             ai_delete_key,
             ai_run,
+            ask_index_status,
+            ask_index_vault,
+            ask_vault,
+            ask_delete_index,
             ai_cancel,
             check_for_update,
             install_update

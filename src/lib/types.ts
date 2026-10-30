@@ -257,6 +257,33 @@ export interface AiConfig {
   ollama: AiEndpoint;
   /** The user's writing style for Polish, the other rewrites, and summaries. */
   styleInstructions: string;
+  /** Which saved endpoint embeds notes for Ask your vault. Never `anthropic`. */
+  embeddingProvider: AiProvider;
+  embeddingModel: string;
+  /** Ask your vault sends note passages to the embedding provider, so it has its own switch. */
+  askVaultEnabled: boolean;
+}
+
+export interface AskIndexStatus {
+  notesToEmbed: number;
+  notesToRemove: number;
+  notesTotal: number;
+}
+
+export interface AskIndexReport {
+  embeddedNotes: number;
+  removedNotes: number;
+  passages: number;
+}
+
+export interface AskSource {
+  chunk: { path: string; heading: string; line: number; text: string };
+  score: number;
+}
+
+export interface AskAnswer {
+  answer: string;
+  sources: AskSource[];
 }
 
 /** `endpointChanged`: a key is saved, but for a different address than the current base URL. */

@@ -4,6 +4,21 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-10-30
+
+### Added
+
+- **Ask your vault.** Enable it in Settings → AI, choose an embedding provider and model, then open **AI: Ask Your Vault** from the command palette. Indexing sends notes to the embedding provider; answering sends matching passages to the chat provider and returns source links. OpenAI-compatible endpoints and Ollama support embeddings. The index stays outside the vault and can be deleted from Settings.
+- **Shared context for AI assistants.** The CLI commands `context` and `set-context`, and the MCP tools `get_context` and `update_context`, share `_context/Context.md` across assistants. Updates preserve the previous text in version history; read-only clients cannot write it.
+
+### Fixed
+
+- Recheck Ask consent before sending passages to chat and between embedding batches. Exclude changed and deleted notes from answers, including deletions while a question is pending.
+- Bind cached embeddings to their provider, endpoint, and model. Stop an operation if its embedding settings change. Existing indexes need rebuilding.
+- Split long paragraphs and code blocks into bounded passages without breaking Unicode or source line references. Escape prompt content and attributes so note text cannot forge passage or question delimiters.
+- Offer index cleanup when only notes have been deleted. Keep Ask and Settings dialogs separate and restore interface and accessibility test coverage.
+- Keep backup settings readable after choosing a folder, including long paths and narrow windows. Shorten Vault descriptions in English and Spanish.
+
 ## [0.5.2] - 2026-10-29
 
 ### Added

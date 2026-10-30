@@ -19,7 +19,7 @@
   import { backupStore, MAX_BACKUP_KEEP } from './stores/backups.svelte';
   import { updateStore } from './stores/updates.svelte';
   import { spellingStore } from './stores/spelling.svelte';
-  import { exportSettingsFile, importSettingsFile, openDictionariesFolder } from './ipc';
+  import { askDeleteIndex, exportSettingsFile, importSettingsFile, openDictionariesFolder } from './ipc';
   import { appStorage } from './appStorage';
   import { saveBeforeLeaving } from './saveBeforeLeaving';
   import { tabsStore } from './stores/tabs.svelte';
@@ -849,7 +849,7 @@
                 </div>
               </form>
 
-              <div class="setting-card">
+              <div class="setting-card column-card backup-card">
                 <div class="setting-info">
                   <div class="setting-label">{m.settings_backups()}</div>
                   <div class="setting-desc">
@@ -1090,6 +1090,61 @@
                   </form>
                 </div>
               {/if}
+
+              <div class="setting-card column-card">
+                <div class="setting-row-top">
+                  <div class="setting-info">
+                    <label for="toggle-ask" class="setting-label">{m.settings_ask_use()}</label>
+                    <div class="setting-desc">{m.settings_ask_use_desc()}</div>
+                  </div>
+                  <input
+                    id="toggle-ask"
+                    type="checkbox"
+                    class="fluent-toggle"
+                    checked={aiStore.status.config.askVaultEnabled}
+                    disabled={aiBusy}
+                    onchange={(e) => {
+                      const enabled = (e.currentTarget as HTMLInputElement).checked;
+                      void aiChange(() => aiStore.updateConfig((c) => (c.askVaultEnabled = enabled)));
+                    }}
+                  />
+                </div>
+                {#if aiStore.status.config.askVaultEnabled}
+                  <div class="setting-info">
+                    <div class="setting-label">{m.settings_ask_provider()}</div>
+                    <div class="setting-desc">{m.settings_ask_provider_desc()}</div>
+                  </div>
+                  <Segmented
+                    label={m.settings_ask_provider()}
+                    options={AI_PROVIDER_OPTIONS.filter((o) => o.value !== 'anthropic')}
+                    value={aiStore.status.config.embeddingProvider}
+                    onchange={(next) =>
+                      void aiChange(() => aiStore.updateConfig((c) => (c.embeddingProvider = next)))}
+                  />
+                  <label class="text-field">
+                    <span>{m.settings_ask_model()}</span>
+                    <input
+                      type="text"
+                      spellcheck="false"
+                      placeholder={aiStore.status.config.embeddingProvider === 'ollama' ? 'nomic-embed-text' : 'text-embedding-3-small'}
+                      value={aiStore.status.config.embeddingModel}
+                      onchange={(e) => {
+                        const value = (e.currentTarget as HTMLInputElement).value;
+                        void aiChange(() => aiStore.updateConfig((c) => (c.embeddingModel = value)));
+                      }}
+                    />
+                  </label>
+                  <div class="button-row">
+                    <Button
+                      variant="danger"
+                      disabled={aiBusy || !vaultStore.vaultSnapshot}
+                      onclick={() => void aiChange(() => askDeleteIndex(), m.settings_ask_index_deleted())}
+                    >
+                      {m.settings_ask_delete_index()}
+                    </Button>
+                  </div>
+                {/if}
+              </div>
 
               <div class="setting-card column-card">
                 <div class="setting-row-top">
@@ -1548,6 +1603,19 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--space-6);
+  }
+
+  .backup-card .setting-desc {
+    overflow-wrap: anywhere;
+  }
+
+  .backup-card .text-field {
+    flex: 1 1 180px;
+    min-width: 0;
+  }
+
+  .backup-card .button-row {
+    flex-wrap: wrap;
   }
 
   .setting-info {

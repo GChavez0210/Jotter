@@ -33,6 +33,7 @@
   import IconButton from './lib/ui/IconButton.svelte';
   import type { MarkdownFormatCommandId } from './lib/markdownCommands';
   import { aiStore } from './lib/stores/ai.svelte';
+  import { askStore } from './lib/stores/ask.svelte';
   import { updateStore } from './lib/stores/updates.svelte';
   import { clipboardStore } from './lib/stores/clipboard.svelte';
   import { settingsStore } from './lib/stores/settings.svelte';
@@ -296,6 +297,7 @@
     // Settings screen (Ctrl+,)
     if (isMod && !e.shiftKey && e.key === ',') {
       e.preventDefault();
+      askStore.close();
       settingsStore.showCommandPalette = false;
       settingsStore.showQuickSwitcher = false;
       settingsStore.showSettings = !settingsStore.showSettings;
@@ -305,6 +307,7 @@
     // Command Palette (Ctrl+P) — works everywhere, including Zen mode
     if (isMod && !e.shiftKey && keyLower === 'p') {
       e.preventDefault();
+      askStore.close();
       settingsStore.showQuickSwitcher = false;
       settingsStore.showCommandPalette = !settingsStore.showCommandPalette;
       return;
@@ -321,6 +324,7 @@
     if (isMod && !e.shiftKey && keyLower === 'o') {
       if (vaultStore.vaultSnapshot) {
         e.preventDefault();
+        askStore.close();
         settingsStore.showCommandPalette = false;
         settingsStore.showQuickSwitcher = !settingsStore.showQuickSwitcher;
       }
@@ -395,6 +399,11 @@
       }
       if (settingsStore.showSettings) {
         settingsStore.showSettings = false;
+        activeEditor?.focusEditor();
+        return;
+      }
+      if (askStore.show) {
+        askStore.close();
         activeEditor?.focusEditor();
         return;
       }
@@ -949,6 +958,29 @@
     {:catch}
       <Dialog label={m.lazy_load_failed()} onClose={() => { aiStore.closePanel(); activeEditor?.focusEditor(); }}>
         <LazyLoadError onClose={() => { aiStore.closePanel(); activeEditor?.focusEditor(); }} />
+      </Dialog>
+    {/await}
+  {/if}
+
+  {#if askStore.show}
+    {#await import('./lib/AskPanel.svelte') then { default: AskPanel }}
+      <AskPanel
+        onOpenNote={(path, line) => {
+          askStore.close();
+          void tabsStore.openNoteInTab(path, { lineNumber: line });
+        }}
+        onOpenSettings={() => {
+          askStore.close();
+          settingsStore.openSettings('ai');
+        }}
+        onClose={() => {
+          askStore.close();
+          activeEditor?.focusEditor();
+        }}
+      />
+    {:catch}
+      <Dialog label={m.lazy_load_failed()} onClose={() => askStore.close()}>
+        <LazyLoadError onClose={() => askStore.close()} />
       </Dialog>
     {/await}
   {/if}

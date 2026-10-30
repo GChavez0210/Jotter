@@ -60,6 +60,19 @@ pub struct AiConfig {
     /// The user's own style guide for Polish and the other rewrite and summary commands.
     #[serde(default = "default_style_instructions")]
     pub style_instructions: String,
+    /// Which saved endpoint answers embedding requests for "Ask your vault". Anthropic has none.
+    #[serde(default = "default_embedding_provider")]
+    pub embedding_provider: AiProvider,
+    #[serde(default)]
+    pub embedding_model: String,
+    /// Ask your vault sends note passages to the embedding provider, so it has its own switch,
+    /// off by default, separate from the general AI switch.
+    #[serde(default)]
+    pub ask_vault_enabled: bool,
+}
+
+fn default_embedding_provider() -> AiProvider {
+    AiProvider::OpenaiCompatible
 }
 
 pub const MAX_STYLE_INSTRUCTIONS: usize = 4000;
@@ -91,6 +104,9 @@ impl Default for AiConfig {
                 model: String::new(),
             },
             style_instructions: default_style_instructions(),
+            embedding_provider: default_embedding_provider(),
+            embedding_model: String::new(),
+            ask_vault_enabled: false,
         }
     }
 }
@@ -125,6 +141,13 @@ impl AiConfig {
             if !endpoint.base_url.is_empty() {
                 validate_base_url(provider, &endpoint.base_url)?;
             }
+        }
+        if self.embedding_provider == AiProvider::Anthropic {
+            return Err("Anthropic has no embeddings. Choose OpenAI-compatible or Ollama for Ask your vault.".into());
+        }
+        self.embedding_model = self.embedding_model.trim().to_string();
+        if self.embedding_model.len() > 200 {
+            return Err("The embedding model name is too long.".into());
         }
         self.style_instructions = self.style_instructions.trim().to_string();
         if self.style_instructions.chars().count() > MAX_STYLE_INSTRUCTIONS {

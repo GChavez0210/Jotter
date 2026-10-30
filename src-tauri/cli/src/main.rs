@@ -84,6 +84,13 @@ enum Command {
     Versions { path: String },
     /// Print one stored version of a note.
     Version { path: String, id: String },
+    /// Print the shared context note that every AI assistant reads first.
+    Context,
+    /// Replace the shared context note. Reads standard input unless --text is given.
+    SetContext {
+        #[arg(long)]
+        text: Option<String>,
+    },
     /// Serve the vault to an MCP client over standard input and output.
     Mcp,
 }
@@ -108,6 +115,8 @@ fn run(cli: Cli) -> Result<Value, String> {
         Command::Health => agent.health(),
         Command::Versions { path } => agent.versions(&path),
         Command::Version { path, id } => agent.version(&path, &id),
+        Command::Context => agent.context(),
+        Command::SetContext { text } => agent.set_context(&text_or_stdin(text)?),
         Command::Mcp => {
             mcp::serve(&agent, cli.read_only)?;
             Ok(Value::Null)

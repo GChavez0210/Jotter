@@ -212,7 +212,37 @@ impl AgentVault {
         let (_, clean) = versions::resolve_note_path(&self.root, path)?;
         Ok(json!({ "path": clean, "id": id, "content": versions::read(&self.versions_dir, &clean, id)? }))
     }
+
+    /// The shared context note every assistant reads first, and the other notes in its folder.
+    pub fn context(&self) -> Result<Value, String> {
+        let (abs, _) = vault::resolve_safe_vault_path(&self.root, CONTEXT_NOTE)?;
+        let content = if abs.exists() { Some(vault::read_vault_note(&self.root, CONTEXT_NOTE)?.content) } else { None };
+        let prefix = format!("{CONTEXT_FOLDER}/");
+        let others: Vec<String> = index::query_note_cards(&self.index()?)?
+            .into_iter()
+            .map(|card| card.path)
+            .filter(|path| path.starts_with(&prefix) && path != CONTEXT_NOTE)
+            .collect();
+        Ok(json!({ "path": CONTEXT_NOTE, "exists": content.is_some(), "content": content.unwrap_or_default(), "otherNotes": others }))
+    }
+
+    /// Replaces the context note. The text it replaces stays in version history.
+    pub fn set_context(&self, text: &str) -> Result<Value, String> {
+        self.writable()?;
+        let (abs, _) = vault::resolve_safe_vault_path(&self.root, CONTEXT_NOTE)?;
+        let text = with_final_newline(text);
+        if !abs.exists() {
+            return self.create(CONTEXT_NOTE, &text);
+        }
+        let previous = std::fs::read_to_string(&abs).map_err(|e| format!("Cannot read {CONTEXT_NOTE}: {e}"))?;
+        self.keep_previous(CONTEXT_NOTE, &previous);
+        let (doc, _) = vault::save_vault_note(&self.root, CONTEXT_NOTE, &text)?;
+        to_json(&doc)
+    }
 }
+
+const CONTEXT_FOLDER: &str = "_context";
+const CONTEXT_NOTE: &str = "_context/Context.md";
 
 fn with_final_newline(text: &str) -> String {
     if text.ends_with('\n') { text.to_string() } else { format!("{text}\n") }
@@ -244,6 +274,28 @@ mod tests {
         assert_eq!(agent.tags(None).unwrap()[0]["tag"], "work");
         assert_eq!(agent.tasks().unwrap()[0]["dueDate"], "2026-11-01");
         assert_eq!(agent.list(None).unwrap().as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn the_context_note_is_created_replaced_and_versioned() {
+        let (vault, data) = vault_with_notes();
+        let agent = open(&vault, &data, false);
+        assert_eq!(agent.context().unwrap()["exists"], false);
+        agent.set_context("Working on the Q4 plan").unwrap();
+        agent.set_context("Working on the launch").unwrap();
+        let context = agent.context().unwrap();
+        assert_eq!(context["exists"], true);
+        assert_eq!(context["content"], "Working on the launch\n");
+        let versions = agent.versions("_context/Context").unwrap();
+        assert_eq!(versions.as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn a_read_only_handle_reads_context_but_cannot_set_it() {
+        let (vault, data) = vault_with_notes();
+        let agent = open(&vault, &data, true);
+        assert!(agent.context().is_ok());
+        assert!(agent.set_context("x").is_err());
     }
 
     #[test]
