@@ -1,0 +1,19 @@
+[package]
+name = "jotter-cli"
+version = "0.5.2"
+description = "Command-line tool and MCP server for Jotter vaults"
+authors = ["Jotter Contributors"]
+license = "MIT"
+edition = "2021"
+
+[[bin]]
+name = "jotter"
+path = "src/main.rs"
+
+[dependencies]
+jotter-core = { path = "../core" }
+clap = { version = "4", features = ["derive", "env"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3.14"

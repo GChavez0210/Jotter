@@ -288,37 +288,62 @@ pub fn build_ics(calendar_name: &str, tasks: &[TaskEntry], now_ms: i64) -> Strin
     }
     fold_line(&format!("X-WR-CALNAME:{}", ics_escape(calendar_name)), &mut out);
 
-    // Identical tasks in one note would share a UID, which RFC 5545 forbids. The second and
-    // later copies add their occurrence index, so each UID stays stable across rewrites.
+    for (uid, task) in open_task_uids(tasks) {
+        write_vevent(&uid, task, &stamp, &mut out);
+    }
+    fold_line("END:VCALENDAR", &mut out);
+    out
+}
+
+/// Pairs each open task with its event UID. Identical tasks in one note would share a UID,
+/// which RFC 5545 forbids. The second and later copies add their occurrence index, so each UID
+/// stays stable across rewrites.
+pub fn open_task_uids(tasks: &[TaskEntry]) -> Vec<(String, &TaskEntry)> {
     let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut out = Vec::new();
     for task in tasks.iter().filter(|t| !t.done) {
         let key = format!("{}\n{}\n{}", task.path, task.text, task.due_date);
         let occurrence = seen.entry(key.clone()).or_insert(0);
         let uid = if *occurrence == 0 { fnv1a_64(&key) } else { fnv1a_64(&format!("{key}\n{occurrence}")) };
         *occurrence += 1;
-        fold_line("BEGIN:VEVENT", &mut out);
-        fold_line(&format!("UID:{uid:016x}@jotter"), &mut out);
-        fold_line(&format!("DTSTAMP:{stamp}"), &mut out);
-        let date = compact_date(&task.due_date);
-        match &task.due_time {
-            Some(time) => {
-                fold_line(&format!("DTSTART:{date}T{}00", time.replace(':', "")), &mut out);
-                fold_line("DURATION:PT30M", &mut out);
-            }
-            None => {
-                fold_line(&format!("DTSTART;VALUE=DATE:{date}"), &mut out);
-                fold_line(&format!("DTEND;VALUE=DATE:{}", next_day(&task.due_date)), &mut out);
-            }
-        }
-        let summary = if task.text.is_empty() { "Task" } else { task.text.as_str() };
-        fold_line(&format!("SUMMARY:{}", ics_escape(summary)), &mut out);
-        fold_line(
-            &format!("DESCRIPTION:{}", ics_escape(&format!("{} (line {})", task.path, task.line_number))),
-            &mut out,
-        );
-        fold_line("TRANSP:TRANSPARENT", &mut out);
-        fold_line("END:VEVENT", &mut out);
+        out.push((format!("{uid:016x}@jotter"), task));
     }
+    out
+}
+
+fn write_vevent(uid: &str, task: &TaskEntry, stamp: &str, out: &mut String) {
+    fold_line("BEGIN:VEVENT", out);
+    fold_line(&format!("UID:{uid}"), out);
+    fold_line(&format!("DTSTAMP:{stamp}"), out);
+    let date = compact_date(&task.due_date);
+    match &task.due_time {
+        Some(time) => {
+            fold_line(&format!("DTSTART:{date}T{}00", time.replace(':', "")), out);
+            fold_line("DURATION:PT30M", out);
+        }
+        None => {
+            fold_line(&format!("DTSTART;VALUE=DATE:{date}"), out);
+            fold_line(&format!("DTEND;VALUE=DATE:{}", next_day(&task.due_date)), out);
+        }
+    }
+    let summary = if task.text.is_empty() { "Task" } else { task.text.as_str() };
+    fold_line(&format!("SUMMARY:{}", ics_escape(summary)), out);
+    fold_line(
+        &format!("DESCRIPTION:{}", ics_escape(&format!("{} (line {})", task.path, task.line_number))),
+        out,
+    );
+    fold_line("TRANSP:TRANSPARENT", out);
+    fold_line("END:VEVENT", out);
+}
+
+/// One event in its own calendar object, the body of a CalDAV `PUT`. A CalDAV resource holds
+/// a single UID, and the object carries no `METHOD`, which servers reject on stored events.
+pub fn build_event_ics(uid: &str, task: &TaskEntry, now_ms: i64) -> String {
+    let mut out = String::new();
+    for line in ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Jotter//Task due dates//EN", "CALSCALE:GREGORIAN"] {
+        fold_line(line, &mut out);
+    }
+    write_vevent(uid, task, &utc_stamp(now_ms), &mut out);
     fold_line("END:VCALENDAR", &mut out);
     out
 }

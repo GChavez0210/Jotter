@@ -276,13 +276,27 @@ pub fn plan_from_notes(
     old_rel: &str,
     new_rel: &str,
 ) -> LinkUpdatePlan {
-    if !notes.iter().any(|(path, _)| path == old_rel) {
+    plan_entry_move(notes, attachments, old_rel, new_rel, false)
+}
+
+fn plan_entry_move(
+    notes: &[(String, String)], attachments: &[String], old_rel: &str, new_rel: &str, folder: bool,
+) -> LinkUpdatePlan {
+    let moved = |path: &str| -> String {
+        if path == old_rel { new_rel.to_string() }
+        else if folder {
+            path.strip_prefix(&format!("{old_rel}/"))
+                .map(|rest| format!("{new_rel}/{rest}"))
+                .unwrap_or_else(|| path.to_string())
+        } else { path.to_string() }
+    };
+    if !folder && !notes.iter().any(|(path, _)| path == old_rel) {
         return LinkUpdatePlan::default();
     }
     let before_paths: Vec<String> = notes.iter().map(|(path, _)| path.clone()).collect();
     let after_paths: Vec<String> = before_paths
         .iter()
-        .map(|path| if path == old_rel { new_rel.to_string() } else { path.clone() })
+        .map(|path| moved(path))
         .collect();
     let before = WikiLinkResolver::new(&before_paths);
     let after = WikiLinkResolver::new(&after_paths);
@@ -294,30 +308,30 @@ pub fn plan_from_notes(
         files_before.entry(path.to_lowercase()).or_insert_with(|| path.clone());
     }
     let parent = |p: &str| p.rsplit_once('/').map_or(String::new(), |(dir, _)| dir.to_lowercase());
-    let changes_folder = parent(old_rel) != parent(new_rel);
 
     let mut plan = LinkUpdatePlan::default();
     for (path, content) in notes {
-        let source_after = if path == old_rel { new_rel } else { path.as_str() };
+        let source_after = moved(path);
+        let changes_folder = parent(path) != parent(&source_after);
         let mut edits: Vec<ByteEdit> = Vec::new();
         for span in scan_links(content) {
             let insert = match span.kind {
                 SpanKind::Wiki => {
-                    if before.resolve(path, &span.text).as_deref() != Some(old_rel) {
-                        continue;
-                    }
-                    new_wiki_target(&span.text, new_rel, source_after, &after)
+                    let Some(found) = before.resolve(path, &span.text) else { continue };
+                    let target = moved(&found);
+                    if target == found { continue; }
+                    new_wiki_target(&span.text, &target, &source_after, &after)
                 }
                 SpanKind::Markdown { wrapped } => {
                     let Some(decoded) = local_destination(&span.text) else { continue };
                     match resolve_markdown(path, &decoded, &files_before) {
-                        Some((found, base)) if found == old_rel => new_markdown_target(
-                            &span.text, wrapped, &decoded, base, new_rel, source_after,
+                        Some((found, base)) if moved(&found) != found => new_markdown_target(
+                            &span.text, wrapped, &decoded, base, &moved(&found), &source_after,
                         ),
                         // The moved note's relative links would now start from the wrong folder.
-                        Some((found, MarkdownBase::Source)) if path == old_rel && changes_folder => {
+                        Some((found, MarkdownBase::Source)) if changes_folder => {
                             new_markdown_target(
-                                &span.text, wrapped, &decoded, MarkdownBase::Source, &found, source_after,
+                                &span.text, wrapped, &decoded, MarkdownBase::Source, &found, &source_after,
                             )
                         }
                         _ => continue,
@@ -441,20 +455,20 @@ pub fn apply_edits_to_string(content: &str, edits: &[TextEdit]) -> (String, Appl
     (out, result)
 }
 
-/// Builds the plan for renaming or moving the note `old_rel` to `new_rel`. Anything that is not
-/// a note has no links to update.
+/// Plans links for a note or a folder move, including attachments and outgoing relative links.
 pub fn plan_link_updates(vault_root: &Path, old_rel: &str, new_rel: &str) -> Result<LinkUpdatePlan, String> {
     let (old_abs, old_clean) = resolve_safe_vault_path(vault_root, old_rel)?;
-    if !old_abs.is_file() || !has_md_ext(&old_clean) {
+    if !old_abs.is_dir() && (!old_abs.is_file() || !has_md_ext(&old_clean)) {
         return Ok(LinkUpdatePlan::default());
     }
-    let (_, new_clean) = resolve_safe_vault_path(vault_root, &ensure_md_extension(new_rel))?;
+    let target = if old_abs.is_dir() { new_rel.to_string() } else { ensure_md_extension(new_rel) };
+    let (_, new_clean) = resolve_safe_vault_path(vault_root, &target)?;
     let notes: Vec<(String, String)> = scan_dir_files_from_disk(vault_root, vault_root)?
         .into_iter()
         .map(|note| (note.path, note.content))
         .collect();
     let attachments = collect_attachments(vault_root)?;
-    Ok(plan_from_notes(&notes, &attachments, &old_clean, &new_clean))
+    Ok(plan_entry_move(&notes, &attachments, &old_clean, &new_clean, old_abs.is_dir()))
 }
 
 /// Applies `edits` to the note at `rel_path` and saves it. Returns what changed and how to undo it.

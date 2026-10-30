@@ -115,6 +115,11 @@ Jotter periodically keeps the previous saved text of a note so you can recover f
 
 Versions live in Jotter's application data folder, never in the vault, so a sync client never copies them between computers. A save stores a version only when the newest one is at least five minutes old, and older versions are thinned as they age: everything from the last day, one a day for a month, then one a week for a year. A missing note keeps its history for at least a month after Jotter first detects its absence, so restoring it from the Recycle Bin brings the history back. Turn the whole feature off in **Settings → Vault → Keep version history**.
 
+### Updates
+Jotter checks GitHub for a newer release about fifteen seconds after it starts and once a day after that. When one exists, an **Update** button appears in the status bar. Select it to read what changed and to choose **Install and restart**. Jotter saves your open notes, downloads the update, checks its signature against the key built into the app, installs it, and restarts. An update never installs without your confirmation.
+
+**Settings → About** turns the automatic check off and has a **Check for updates** button, and the command palette has **Check for Updates**. The check sends nothing but the request itself, which GitHub sees as it does any download. A Linux `.deb` install cannot replace itself, so the dialog tells you to download the new package instead. The AppImage and the Windows installers update in place.
+
 ### Daily Notes
 `Ctrl+Shift+D` opens today's note, `Daily/YYYY-MM-DD.md`. If the note does not exist, Jotter creates it from the template note `Templates/Daily.md`, replacing `{{date}}`, `{{title}}` and `{{time}}`. Without a template note, Jotter uses a built-in one. Set the folder and template in **Settings → Vault**.
 
@@ -155,6 +160,26 @@ Launching Jotter while it already runs brings the open window to the front, whet
 Put `.css` files in the app data `snippets` folder, then turn each one on in **Settings → System → CSS snippets**. Snippets load after the theme, so they can override its colors, fonts and spacing. **Open folder** opens the snippets folder, and **Reload** picks up edits.
 
 ---
+
+## Command line and MCP server
+
+`jotter` is a command-line tool that lets scripts and AI agents work on a vault without the app. Build it with `cargo build --release -p jotter-cli` from `src-tauri/`. It reads and writes the Markdown files directly, so the app does not need to be running. Every answer is JSON.
+
+The desktop executable is `jotter-desktop`; the CLI executable is `jotter`. Both can be built in the same workspace without overwriting each other.
+
+```
+jotter --vault ~/Notes search "quarterly plan"
+jotter --vault ~/Notes read "Projects/Plan"
+echo "- call the bank" | jotter --vault ~/Notes append Inbox --create
+jotter --vault ~/Notes rename "Projects/Plan" "Projects/Roadmap"
+```
+
+Set `JOTTER_VAULT` instead of repeating `--vault`. The commands are `search`, `list`, `read`, `create`, `append`, `rename`, `delete`, `backlinks`, `tags`, `tasks`, `health`, `versions`, and `version`. Run `jotter --help` for the options.
+
+- **Safe writes.** Writes use the app's atomic write path. Before `append` or a link rewrite replaces a note's text, the CLI saves that text to the note's version history, so the app's timeline shows it and can restore it. `delete` moves to the Recycle Bin. `rename` moves version history and rewrites links to the note or folder unless you pass `--no-update-links`.
+- **Limits.** Pass `--read-only` to refuse every write. A command works on the one vault you name, and paths cannot leave it. The CLI has no access to the AI keys in your keychain.
+- **MCP.** `jotter --vault ~/Notes mcp` serves the same operations as tools over standard input and output, for any MCP client. Add `--read-only` to list and run only the tools that do not change the vault. For Claude Code, run `claude mcp add jotter -- jotter --vault ~/Notes --read-only mcp`.
+- **Index.** Each read builds a fresh index from the files, so a very large vault takes a moment per call and the answer is always current.
 
 ## Accessibility
 
@@ -280,6 +305,17 @@ The installers are unsigned until signing is set up, so Windows SmartScreen warn
 - Secrets `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, and `AZURE_TENANT_ID` for an app registration with the *Trusted Signing Certificate Profile Signer* role.
 - Variables `TRUSTED_SIGNING_ENDPOINT` (such as `https://eus.codesigning.azure.net`), `TRUSTED_SIGNING_ACCOUNT`, and `TRUSTED_SIGNING_PROFILE`.
 
+#### Update signing
+
+Installed copies of Jotter update themselves from the latest published release, and refuse any download not signed with the private key that matches the `pubkey` in `src-tauri/tauri.conf.json`. That key is separate from the Windows code signing above. To turn it on:
+
+1. Keep the private key and its password outside the repository. `npx tauri signer generate -w <path>` creates a pair. The public half goes in `plugins.updater.pubkey`.
+2. Add the repository secrets `TAURI_SIGNING_PRIVATE_KEY` (the key file's contents) and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+3. Push a tag. With the secret present, the workflow adds `src-tauri/tauri.updater.conf.json` to the build, which turns on `createUpdaterArtifacts`. The Windows installers and Linux AppImage gain `.sig` files, and the release gains a `latest.json` feed. Release uploads run sequentially so each build preserves the platforms already in the feed. The `.deb` is installed through the package manager and has no updater signature.
+4. Publish the draft release. The app reads `https://github.com/GChavez0210/Jotter/releases/latest/download/latest.json`, which points at the newest published, non-draft, non-prerelease release.
+
+Without the secret, the workflow still builds unsigned packages, and local builds need no key. If you lose the private key or its password, installed copies cannot verify any later release. Ship a new build with a new public key by hand, and every user must install it manually. The release body is the version's section of `CHANGELOG.md`, extracted by `scripts/release-notes.mjs`, and the app shows it before the update installs. A tag build fails if that section is missing.
+
 Application data lives outside vaults: `%LOCALAPPDATA%\Jotter` on Windows, `~/Library/Application Support/Jotter` on macOS, and `~/.local/share/Jotter` on Linux. The macOS config keeps native traffic lights and uses an opaque window. Shared-vault filename checks retain conservative rules so files can move between systems. On macOS, restore deleted notes through Finder Trash.
 
 ## Verification & Quality Checks
@@ -300,6 +336,8 @@ npm run build
 ```
 
 After building on Windows, run the isolated desktop checks with `node scripts/verify-desktop.mjs`. The script uses the release executable, a disposable vault, separate app data, and a separate WebView2 profile under `src-tauri/target/desktop-verification/`. It exercises real rendering, Recycle Bin restore, save failures, tray residency, and delayed saves. Screenshots and results stay in that directory. It does not install the app. Close any running Jotter first: the app allows one instance, so a second launch hands over to the first and exits.
+
+Run `node scripts/verify-cli-desktop.mjs` after building both release binaries to check the CLI against the native app. It verifies clean-note reloads, shared version history, conflict choices for dirty notes, and a read-only MCP session. It delays autosave briefly to make the dirty-note check reproducible. Results use a separate disposable directory under `src-tauri/target/cli-desktop-verification/`.
 
 The main run leaves the window set to hide on close, so the close button's default quit path needs its own run: `JOTTER_CLOSE_ONLY=1 node scripts/verify-desktop.mjs` starts a fresh profile and confirms a native close saves a last-moment edit and then exits.
 

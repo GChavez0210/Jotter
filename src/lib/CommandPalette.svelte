@@ -6,6 +6,8 @@
   import { aiStore } from './stores/ai.svelte';
   import { settingsStore } from './stores/settings.svelte';
   import { tabsStore } from './stores/tabs.svelte';
+  import { clipboardStore } from './stores/clipboard.svelte';
+  import { updateStore } from './stores/updates.svelte';
   import { vaultStore } from './stores/vault.svelte';
   import { m } from './i18n.svelte';
   import { toggleSplitNote } from './panes';
@@ -130,6 +132,17 @@
         settingsStore.splitMode === 'preview'
           ? settingsStore.closeSplit()
           : settingsStore.openSplitPreview(),
+    },
+    {
+      id: 'check-updates',
+      category: m.cmd_cat_navigation(),
+      label: m.cmd_check_updates(),
+      action: () => {
+        void updateStore.check(true).then((found) => {
+          if (found) updateStore.openDialog();
+          else clipboardStore.setStatus(updateStore.error || m.update_none());
+        });
+      },
     },
     ...(vaultStore.vaultSnapshot
       ? [

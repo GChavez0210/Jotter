@@ -97,6 +97,8 @@ export class SettingsStore {
   taskReminders = $state(true);
   /** Keep a copy of a note's text before each save, so earlier versions can be restored. */
   versionHistory = $state(true);
+  /** Ask the release feed for a newer version at startup and once a day. */
+  autoUpdateCheck = $state(true);
   /** The note whose version history the timeline shows, or `null` while it is closed. */
   versionHistoryNote = $state<string | null>(null);
   /** Hiding to the tray needs the tray icon, so the two settings move together. */
@@ -619,6 +621,11 @@ export class SettingsStore {
     this.persist('jotter.versionHistory', String(enabled));
   }
 
+  setAutoUpdateCheck(enabled: boolean) {
+    this.autoUpdateCheck = enabled;
+    this.persist('jotter.autoUpdateCheck', String(enabled));
+  }
+
   /** Opens the timeline for a note. The dialog loads that note's versions when it appears. */
   openVersionHistory(relPath: string | null) {
     this.versionHistoryNote = relPath;
@@ -783,6 +790,7 @@ export class SettingsStore {
       if (savedTemplatesFolder !== null) this.templatesFolder = savedTemplatesFolder;
       this.taskReminders = appStorage.getItem('jotter.taskReminders') !== 'false';
       this.versionHistory = appStorage.getItem('jotter.versionHistory') !== 'false';
+      this.autoUpdateCheck = appStorage.getItem('jotter.autoUpdateCheck') !== 'false';
       this.quickCaptureEnabled = appStorage.getItem('jotter.quickCaptureEnabled') === 'true';
       const savedCaptureShortcut = appStorage.getItem('jotter.quickCaptureShortcut');
       if (savedCaptureShortcut) this.quickCaptureShortcut = savedCaptureShortcut;

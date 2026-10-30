@@ -1836,3 +1836,29 @@ test('restored content updates an existing tab through its platform spelling', a
   assert.equal(tabsStore.activeTab?.dirty, false);
   tabsStore.resetTabs();
 });
+
+
+test('external conflicts block autosave and close until the user keeps their edits', async () => {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  dirtyTab();
+  const writes: string[] = [];
+  control.save = async (path, content) => { writes.push(content); return { relPath: path, title: path, content }; };
+  try {
+    tabsStore.scheduleAutosave('A.md');
+    await tabsStore.handleExternalPathsChanged(['A.md']);
+    mock.timers.tick(1000);
+    await Promise.resolve();
+    assert.deepEqual(writes, []);
+    assert.equal(await tabsStore.flushAllAutosaves(), false);
+    await tabsStore.closeTab('A.md');
+    assert.equal(tabsStore.openTabs.length, 1);
+    tabsStore.handleEditorDocChange('A.md', 'more local edits');
+    mock.timers.tick(1000);
+    await Promise.resolve();
+    assert.deepEqual(writes, []);
+    tabsStore.dismissExternalChangeBanner('A.md');
+    mock.timers.tick(1000);
+    await tabsStore.flushAutosaveFor('A.md');
+    assert.deepEqual(writes, ['more local edits']);
+  } finally { tabsStore.clearAllTimers(); mock.timers.reset(); }
+});

@@ -40,7 +40,15 @@ const COMMANDS: &[&str] = &[
     "export_settings_file",
     "import_settings_file",
     "write_task_calendar",
+    "caldav_set_password",
+    "caldav_has_password",
+    "caldav_forget",
+    "caldav_sync",
     "configure_task_reminders",
+    "configure_backups",
+    "get_backup_status",
+    "run_backup_now",
+    "pick_backup_folder",
     "list_pinned_notes",
     "set_note_pinned",
     "list_note_versions",
@@ -70,6 +78,8 @@ const COMMANDS: &[&str] = &[
     "ai_delete_key",
     "ai_run",
     "ai_cancel",
+    "check_for_update",
+    "install_update",
 ];
 
 fn main() {

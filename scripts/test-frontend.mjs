@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 
 await mkdir(resolve('src-tauri/target/frontend-tests'), {recursive:true});
 const outputs = [];
-for (const suite of ['frontend', 'settings']) {
+for (const suite of ['frontend', 'settings', 'updates', 'backups']) {
 const output = resolve(`src-tauri/target/frontend-tests/${suite}.mjs`);
 outputs.push(output);
 await build({

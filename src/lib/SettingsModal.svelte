@@ -15,6 +15,9 @@
   import { vaultStore } from './stores/vault.svelte';
   import { PROVIDER_NAMES } from './syncConflicts';
   import { taskCalendarStore } from './stores/taskCalendar.svelte';
+  import { caldavStore } from './stores/caldav.svelte';
+  import { backupStore, MAX_BACKUP_KEEP } from './stores/backups.svelte';
+  import { updateStore } from './stores/updates.svelte';
   import { spellingStore } from './stores/spelling.svelte';
   import { exportSettingsFile, importSettingsFile, openDictionariesFolder } from './ipc';
   import { appStorage } from './appStorage';
@@ -135,6 +138,17 @@
   let aiNotice = $state('');
   let aiBusy = $state(false);
   let keyDraft = $state('');
+  const backupDateFormat = $derived(new Intl.DateTimeFormat(i18n.locale, { dateStyle: 'medium', timeStyle: 'short' }));
+  let caldavUrlDraft = $state('');
+  let caldavUserDraft = $state('');
+  let caldavPasswordDraft = $state('');
+  // Show the saved address and user name when the vault changes, never the password.
+  $effect(() => {
+    const { url, username } = caldavStore.config;
+    caldavUrlDraft = url;
+    caldavUserDraft = username;
+    caldavPasswordDraft = '';
+  });
   let styleDraft = $state<string | null>(null);
   const aiProvider = $derived<AiProvider>(aiStore.status?.config.provider ?? 'openai-compatible');
   const aiEndpoint = $derived(aiStore.endpoint(aiProvider));
@@ -774,6 +788,121 @@
                   {/if}
                 </div>
               </div>
+
+              <form
+                class="setting-card"
+                onsubmit={(e) => {
+                  e.preventDefault();
+                  void caldavStore.connect(caldavUrlDraft, caldavUserDraft, caldavPasswordDraft).then(() => {
+                    caldavPasswordDraft = '';
+                  });
+                }}
+              >
+                <div class="setting-info">
+                  <div class="setting-label">{m.settings_caldav()}</div>
+                  <div class="setting-desc">
+                    {m.settings_caldav_desc()}
+                    {m.settings_caldav_keys_stay()}
+                    {#if caldavStore.lastReport && !caldavStore.lastError}
+                      <br />{m.settings_caldav_last({
+                        sent: caldavStore.lastReport.createdOrUpdated,
+                        removed: caldavStore.lastReport.deleted,
+                      })}
+                    {/if}
+                    {#if caldavStore.lastError}
+                      <div class="rebuild-status" role="alert">{caldavStore.lastError}</div>
+                    {/if}
+                  </div>
+                </div>
+                <div class="field-row">
+                  <label class="text-field">
+                    <span>{m.settings_caldav_url()}</span>
+                    <input type="url" spellcheck="false" autocomplete="off" bind:value={caldavUrlDraft} />
+                  </label>
+                  <label class="text-field">
+                    <span>{m.settings_caldav_username()}</span>
+                    <input type="text" spellcheck="false" autocomplete="off" bind:value={caldavUserDraft} />
+                  </label>
+                  <label class="text-field">
+                    <span>{caldavStore.hasPassword ? m.settings_caldav_replace_password() : m.settings_caldav_password()}</span>
+                    <input type="password" spellcheck="false" autocomplete="off" bind:value={caldavPasswordDraft} />
+                  </label>
+                </div>
+                <div class="button-row">
+                  <Button
+                    type="submit"
+                    disabled={caldavStore.busy ||
+                      !caldavUrlDraft.trim() ||
+                      !caldavUserDraft.trim() ||
+                      (!caldavPasswordDraft && !caldavStore.hasPassword)}
+                  >
+                    {m.settings_caldav_save()}
+                  </Button>
+                  {#if caldavStore.enabled}
+                    <Button disabled={caldavStore.busy} onclick={() => void caldavStore.syncNow()}>
+                      {m.settings_caldav_sync_now()}
+                    </Button>
+                  {/if}
+                  {#if caldavStore.config.url || caldavStore.hasPassword}
+                    <Button variant="danger" onclick={() => void caldavStore.turnOff()}>{m.common_turn_off()}</Button>
+                  {/if}
+                </div>
+              </form>
+
+              <div class="setting-card">
+                <div class="setting-info">
+                  <div class="setting-label">{m.settings_backups()}</div>
+                  <div class="setting-desc">
+                    {m.settings_backups_desc()}
+                    {#if backupStore.settings.folder}
+                      <br />{m.settings_backups_writing()} <code>{backupStore.settings.folder}</code>
+                      <br />
+                      {backupStore.status.lastBackupMs
+                        ? m.settings_backups_last({ time: backupDateFormat.format(backupStore.status.lastBackupMs) })
+                        : m.settings_backups_never()}
+                    {/if}
+                    {#if backupStore.lastError || backupStore.status.lastError}
+                      <div class="rebuild-status" role="alert">{backupStore.lastError || backupStore.status.lastError}</div>
+                    {/if}
+                  </div>
+                </div>
+                {#if backupStore.settings.folder}
+                  <div class="field-row">
+                    <label class="text-field">
+                      <span>{m.settings_backups_interval()}</span>
+                      <select
+                        value={backupStore.settings.intervalHours}
+                        onchange={(e) => void backupStore.setInterval(Number((e.currentTarget as HTMLSelectElement).value))}
+                      >
+                        <option value={6}>{m.settings_backups_every_6_hours()}</option>
+                        <option value={24}>{m.settings_backups_daily()}</option>
+                        <option value={168}>{m.settings_backups_weekly()}</option>
+                      </select>
+                    </label>
+                    <label class="text-field">
+                      <span>{m.settings_backups_keep()}</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max={MAX_BACKUP_KEEP}
+                        value={backupStore.settings.keep}
+                        onchange={(e) => void backupStore.setKeep(Number((e.currentTarget as HTMLInputElement).value))}
+                      />
+                    </label>
+                  </div>
+                {/if}
+                <div class="button-row">
+                  <Button icon="folder-open" onclick={() => void backupStore.chooseFolder()}>
+                    {backupStore.settings.folder ? m.settings_change_folder() : m.settings_choose_folder()}
+                  </Button>
+                  {#if backupStore.settings.folder}
+                    <Button disabled={backupStore.busy} onclick={() => void backupStore.backupNow()}>
+                      {m.settings_backups_now()}
+                    </Button>
+                    <Button onclick={() => void backupStore.turnOff()}>{m.common_turn_off()}</Button>
+                  {/if}
+                </div>
+              </div>
             {/if}
 
             <div class="setting-card">
@@ -1202,6 +1331,51 @@
               <p class="about-desc">
                 {m.settings_about_desc()}
               </p>
+
+              <div class="about-updates">
+                <div class="setting-card">
+                  <div class="setting-info">
+                    <label for="toggle-auto-update" class="setting-label">{m.settings_updates()}</label>
+                    <div class="setting-desc">{m.settings_updates_desc()}</div>
+                  </div>
+                  <input
+                    id="toggle-auto-update"
+                    type="checkbox"
+                    class="fluent-toggle"
+                    checked={settingsStore.autoUpdateCheck}
+                    onchange={(e) => settingsStore.setAutoUpdateCheck((e.currentTarget as HTMLInputElement).checked)}
+                  />
+                </div>
+                <div class="update-row">
+                  <Button
+                    icon="arrow-clockwise"
+                    disabled={updateStore.checking || updateStore.installing}
+                    onclick={() => void updateStore.check(true)}
+                  >
+                    {updateStore.checking ? m.settings_checking_updates() : m.settings_check_updates()}
+                  </Button>
+                  <span class="update-result" role="status">
+                    {#if updateStore.error}
+                      {updateStore.error}
+                    {:else if updateStore.info}
+                      {m.settings_update_found({ version: updateStore.info.version })}
+                    {:else if updateStore.upToDate}
+                      {m.update_none()}
+                    {/if}
+                  </span>
+                  {#if updateStore.info}
+                    <Button
+                      variant="primary"
+                      onclick={() => {
+                        updateStore.openDialog();
+                        onClose();
+                      }}
+                    >
+                      {m.settings_update_view()}
+                    </Button>
+                  {/if}
+                </div>
+              </div>
             </div>
           </section>
         {/if}
@@ -1308,6 +1482,28 @@
     color: var(--text-muted);
     font-size: var(--fs-13);
     font-variant-numeric: tabular-nums;
+  }
+
+  .about-updates {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    margin-top: var(--space-5);
+  }
+
+  .update-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .update-result {
+    flex: 1 1 160px;
+    min-width: 0;
+    color: var(--text-secondary);
+    font-size: var(--fs-13);
+    overflow-wrap: anywhere;
   }
 
   .about-desc {

@@ -281,7 +281,7 @@ fn read_versions(note_dir: &Path) -> Vec<NoteVersion> {
             })
         })
         .collect();
-    versions.sort_by(|a, b| b.saved_at_ms.cmp(&a.saved_at_ms));
+    versions.sort_by_key(|v| std::cmp::Reverse(v.saved_at_ms));
     versions
 }
 

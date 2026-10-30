@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::{params, Connection, OptionalExtension};
 
-use crate::clipboard::strip_markdown_to_plain;
+use crate::plain::strip_markdown_to_plain;
 use crate::links::{extract_tags, parse_wiki_links_with_lines, split_yaml_frontmatter};
 use crate::tasks::parse_due_tasks;
 use crate::types::{
