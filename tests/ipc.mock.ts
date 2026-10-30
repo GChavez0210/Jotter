@@ -12,11 +12,12 @@ export const pickTaskCalendarPath = (name: string) => calendarControl.pick(name)
 export const writeTaskCalendar = async (path: string) => {calendarControl.writes.push(path); return true;};
 export const configureBackups = async (_config: unknown) => {};
 export const backupControl = {
+  pick: async (_title?: string): Promise<string | null> => null,
   status: async (): Promise<import('../src/lib/types').BackupStatus> => ({ lastBackupMs: null, lastError: null }),
 };
 export const getBackupStatus = () => backupControl.status();
 export const runBackupNow = async () => '';
-export const pickBackupFolder = async (_title?: string): Promise<string | null> => null;
+export const pickBackupFolder = (title?: string) => backupControl.pick(title);
 export const caldavSetPassword = async (_password: string) => {};
 export const caldavHasPassword = async () => false;
 export const caldavForget = async () => {};
@@ -75,8 +76,19 @@ export const spellSuggest = async () => [] as string[];
 export const spellAddWord = async () => {};
 export const openSnippetsFolder = async () => {};
 
-import type { AiConfig, AiRequest, AiResult, AiStatus } from '../src/lib/types';
+import type { AiConfig, AiRequest, AiResult, AiStatus, AskAnswer, AskIndexReport, AskIndexStatus } from '../src/lib/types';
+export const askControl = {
+  status: async (): Promise<AskIndexStatus> => ({ notesToEmbed: 0, notesToRemove: 0, notesTotal: 2 }),
+  index: async (): Promise<AskIndexReport> => ({ embeddedNotes: 0, removedNotes: 0, passages: 0 }),
+  ask: async (_question: string): Promise<AskAnswer> => ({ answer: 'An answer', sources: [] }),
+  deleteIndex: async (): Promise<void> => {},
+};
+export const askIndexStatus = () => askControl.status();
+export const askIndexVault = () => askControl.index();
+export const askVault = (question: string) => askControl.ask(question);
+export const askDeleteIndex = () => askControl.deleteIndex();
 export const aiControl = {
+  getStatus: async (): Promise<AiStatus> => {throw Error('no AI in tests');},
   run: async (req: AiRequest): Promise<AiResult> => ({
     operationId: req.operationId, text: req.text, provider: 'ollama', model: 'm',
     usage: {inputTokens: null, outputTokens: null},
@@ -86,7 +98,7 @@ export const aiControl = {
 };
 export const aiRun = (req: AiRequest) => aiControl.run(req);
 export const aiCancel = async (id: string) => {aiControl.cancels.push(id); return true;};
-export const aiGetStatus = async () => {throw Error('no AI in tests');};
+export const aiGetStatus = () => aiControl.getStatus();
 export const aiSaveConfig = (config: AiConfig) => aiControl.saveConfig(config);
 export const aiSaveKey = aiGetStatus;
 export const aiDeleteKey = aiGetStatus;

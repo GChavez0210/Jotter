@@ -82,6 +82,162 @@ async function auditPage(page, context) {
   return result.map((violation) => ({ ...violation, context }));
 }
 
+async function configureAsk(page) {
+  await page.evaluate(async () => {
+    const {aiStore, aiControl} = window.__review;
+    const endpoint = {baseUrl: 'http://localhost:11434', model: 'chat-model'};
+    const status = {
+      config: {
+        enabled: true, provider: 'ollama', openaiCompatible: {...endpoint}, anthropic: {...endpoint}, ollama: {...endpoint},
+        styleInstructions: '', askVaultEnabled: true, embeddingProvider: 'ollama', embeddingModel: 'embed-model',
+      },
+      keys: [], credentialStore: 'Test credentials', defaultStyleInstructions: '',
+    };
+    aiControl.getStatus = async () => status;
+    aiControl.saveConfig = async config => ({...status, config});
+    await aiStore.reload();
+  });
+}
+
+test('Ask cleans deleted-only indexes, prevents duplicate submits, and discards closed-panel replies', async () => {
+  const bundle = await bundleHarness('AppHarness');
+  const browser = await launchBrowser();
+  try {
+    const page = await openHarness(browser, bundle);
+    await configureAsk(page);
+    await page.evaluate(() => {
+      const {askControl, askStore} = window.__review;
+      askControl.status = async () => ({notesToEmbed: 0, notesToRemove: 1, notesTotal: 1});
+      askControl.index = async () => {
+        askControl.status = async () => ({notesToEmbed: 0, notesToRemove: 0, notesTotal: 1});
+        return {embeddedNotes: 0, removedNotes: 1, passages: 0};
+      };
+      window.__askCalls = 0;
+      askControl.ask = async () => {
+        window.__askCalls++;
+        return new Promise(resolve => {window.__finishAsk = resolve;});
+      };
+      askStore.open();
+    });
+    await page.getByRole('button', {name: 'Remove deleted notes', exact: true}).click();
+    await expect(page.getByText('Removed index entries: 1.', {exact: true})).toBeVisible();
+    await page.locator('#ask-question').fill('Question');
+    await page.getByRole('button', {name: 'Ask', exact: true}).click();
+    await expect(page.getByRole('button', {name: 'Ask', exact: true})).toBeDisabled();
+    await page.locator('#ask-question').press('Control+Enter');
+    assert.equal(await page.evaluate(() => window.__askCalls), 1);
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await page.evaluate(() => window.__review.askStore.open());
+    await expect(page.locator('#ask-question')).toHaveValue('');
+    await page.evaluate(() => window.__finishAsk({answer: 'Old reply', sources: []}));
+    await expect(page.locator('.answer')).toHaveCount(0);
+    await page.evaluate(() => {window.__review.askControl.ask = async () => {throw Error('Provider unavailable');};});
+    await page.locator('#ask-question').fill('Retry');
+    await page.getByRole('button', {name: 'Ask', exact: true}).click();
+    await expect(page.getByRole('alert')).toHaveText(/Provider unavailable/);
+    await expect(page.getByRole('button', {name: 'Ask', exact: true})).toBeEnabled();
+  } finally { await browser.close(); }
+});
+
+test('Ask replaces Settings, keeps modal focus, and passes accessibility in its main states', async () => {
+  const bundle = await bundleHarness('AppHarness');
+  const browser = await launchBrowser();
+  try {
+    const page = await openHarness(browser, bundle);
+    await configureAsk(page);
+    await page.keyboard.press('Control+,');
+    await page.getByRole('button', {name: 'AI', exact: true}).click();
+    const providers = page.getByRole('radiogroup', {name: 'Embedding provider', exact: true});
+    await expect(providers.getByRole('radio')).toHaveCount(2);
+    await expect(providers.getByRole('radio', {name: 'Anthropic', exact: true})).toHaveCount(0);
+    await page.keyboard.press('Control+p');
+    await page.getByPlaceholder('Type a command').fill('Ask Your Vault');
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('dialog')).toHaveCount(1);
+    await expect(page.getByRole('dialog')).toHaveAttribute('aria-label', 'Ask your vault');
+    await expect(page.locator('#ask-question')).toBeFocused();
+    for (const shortcut of ['Control+,', 'Control+p', 'Control+o']) {
+      await page.keyboard.press(shortcut);
+      await expect(page.getByRole('dialog')).toHaveCount(1);
+      await expect(page.getByRole('dialog', {name: 'Ask your vault', exact: true})).toHaveCount(0);
+      await page.keyboard.press('Escape');
+      await page.evaluate(() => window.__review.askStore.open());
+      await expect(page.locator('#ask-question')).toBeFocused();
+    }
+    for (let i = 0; i < 8; i++) {
+      await page.keyboard.press('Tab');
+      assert.equal(await page.getByRole('dialog').evaluate(el => el.contains(document.activeElement)), true);
+    }
+    const violations = [];
+    for (const theme of ['light', 'dark', 'high-contrast']) {
+      await page.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme);
+      violations.push(...await auditPage(page, `${theme}: Ask ready`));
+    }
+    await page.evaluate(() => {
+      const source = {path: 'Work/Audit.md', heading: 'Audit', line: 3, text: 'One passage'};
+      window.__review.askControl.ask = async () => ({answer: 'Answer with two passages from one line', sources: [
+        {chunk: source, score: 1}, {chunk: {...source, text: 'Another passage'}, score: 0.9},
+      ]});
+    });
+    await page.locator('#ask-question').fill('Question');
+    await page.getByRole('button', {name: 'Ask', exact: true}).click();
+    await expect(page.locator('.answer')).toBeVisible();
+    await expect(page.locator('.source')).toHaveCount(2);
+    for (const theme of ['light', 'dark', 'high-contrast']) {
+      await page.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme);
+      violations.push(...await auditPage(page, `${theme}: Ask answer`));
+    }
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await page.evaluate(async () => {
+      await window.__review.aiStore.updateConfig(c => {c.askVaultEnabled = false;});
+      window.__review.askStore.open();
+    });
+    await expect(page.getByRole('button', {name: 'Open AI settings', exact: true})).toBeVisible();
+    await expect(page.locator('#ask-question')).toHaveCount(0);
+    for (const theme of ['light', 'dark', 'high-contrast']) {
+      await page.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme);
+      violations.push(...await auditPage(page, `${theme}: Ask off`));
+    }
+    assert.deepEqual(violations, [], JSON.stringify(violations, null, 2));
+  } finally { await browser.close(); }
+});
+
+test('backup settings fit after choosing a folder, including long paths and narrow windows', async () => {
+  const bundle = await bundleHarness('AppHarness');
+  const browser = await launchBrowser();
+  try {
+    const page = await openHarness(browser, bundle);
+    await page.evaluate(() => {
+      window.__review.backupControl.pick = async () => 'C:\\Backups\\' + 'LongFolderName'.repeat(30);
+    });
+    await page.keyboard.press('Control+,');
+    await page.getByRole('button', {name: 'Vault', exact: true}).click();
+    const card = page.locator('.setting-card').filter({has: page.getByText('Vault backups', {exact: true})});
+    await card.getByRole('button', {name: 'Choose folder', exact: true}).click();
+    await expect(card.getByRole('button', {name: 'Back up now', exact: true})).toBeVisible();
+    for (const width of [1160, 760]) {
+      await page.setViewportSize({width, height: 900});
+      const layout = await card.evaluate(el => {
+        const info = el.querySelector('.setting-info').getBoundingClientRect();
+        const fields = el.querySelector('.field-row').getBoundingClientRect();
+        const buttons = el.querySelector('.button-row').getBoundingClientRect();
+        const content = el.closest('.settings-content');
+        return {
+          infoWidth: info.width, cardWidth: el.clientWidth,
+          fieldsBelowInfo: fields.top >= info.bottom,
+          buttonsBelowFields: buttons.top >= fields.bottom,
+          overflow: content.scrollWidth - content.clientWidth,
+        };
+      });
+      assert.ok(layout.infoWidth >= layout.cardWidth - 1, JSON.stringify(layout));
+      assert.ok(layout.fieldsBelowInfo && layout.buttonsBelowFields, JSON.stringify(layout));
+      assert.ok(layout.overflow <= 1, JSON.stringify(layout));
+    }
+  } finally { await browser.close(); }
+});
+
 test('updates keep keyboard focus, close with Escape, and block other dialogs during installation', async () => {
   const bundle = await bundleHarness('AppHarness');
   const browser = await launchBrowser();

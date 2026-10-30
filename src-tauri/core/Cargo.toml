@@ -1,6 +1,6 @@
 [package]
 name = "jotter-core"
-version = "0.5.2"
+version = "0.5.3"
 description = "Vault logic shared by the Jotter app and its command-line tool"
 authors = ["Jotter Contributors"]
 license = "MIT"

@@ -43,7 +43,12 @@ const TOOLS: &[Tool] = &[
     Tool { name: "list_versions", description: "Stored versions of a note, newest first.", writes: false, params: &[PATH] },
     Tool { name: "read_version", description: "Read one stored version of a note.", writes: false,
         params: &[PATH, ("id", "string", "Version id from list_versions.", true)] },
+    Tool { name: "get_context", description: "Read the shared context note: what the user is working on, shared by every AI assistant. Call this first in a new conversation.", writes: false, params: &[] },
+    Tool { name: "update_context", description: "Replace the shared context note. Read it first and keep what is still true. The previous text stays in version history.", writes: true,
+        params: &[("text", "string", "Full Markdown for the context note.", true)] },
 ];
+
+const INSTRUCTIONS: &str = "Jotter is the user's note vault. Call get_context at the start of a conversation to learn what the user is working on. When the user's focus, decisions, or open questions change, call update_context so other assistants see the change.";
 
 fn schema(tool: &Tool) -> Value {
     let properties: serde_json::Map<String, Value> = tool
@@ -82,6 +87,8 @@ pub fn call_tool(agent: &AgentVault, read_only: bool, name: &str, args: &Value) 
         "vault_health" => agent.health(),
         "list_versions" => agent.versions(text(args, "path")?),
         "read_version" => agent.version(text(args, "path")?, text(args, "id")?),
+        "get_context" => agent.context(),
+        "update_context" => agent.set_context(text(args, "text")?),
         _ => Err(format!("Unknown tool '{name}'")),
     }
 }
@@ -96,6 +103,7 @@ pub fn handle(agent: &AgentVault, read_only: bool, message: &Value) -> Option<Va
             "protocolVersion": params.get("protocolVersion").and_then(Value::as_str).unwrap_or(DEFAULT_PROTOCOL_VERSION),
             "capabilities": { "tools": {} },
             "serverInfo": { "name": "jotter", "version": env!("CARGO_PKG_VERSION") },
+            "instructions": INSTRUCTIONS,
         })),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({

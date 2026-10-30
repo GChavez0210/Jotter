@@ -13,6 +13,10 @@ use super::*;
 
 /// Serves one HTTP request on 127.0.0.1 and returns the raw request it received.
 fn fake_server(reply: serde_json::Value, delay: Duration) -> (String, JoinHandle<String>) {
+    fake_server_with_hook(reply, delay, || {})
+}
+
+fn fake_server_with_hook(reply: serde_json::Value, delay: Duration, hook: impl FnOnce() + Send + 'static) -> (String, JoinHandle<String>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
     let handle = std::thread::spawn(move || {
@@ -37,6 +41,7 @@ fn fake_server(reply: serde_json::Value, delay: Duration) -> (String, JoinHandle
                 }
             }
         }
+        hook();
         std::thread::sleep(delay);
         let body = reply.to_string();
         let _ = write!(
@@ -243,4 +248,224 @@ fn credential_origin_is_checked_even_if_settings_still_authorize_the_old_address
     assert!(error.contains("different address"), "{error}");
     let restarted = AiState::new(state.settings_path.clone(), secrets);
     assert!(restarted.prepare().is_err());
+}
+
+#[test]
+fn embeddings_use_the_embedding_model_and_the_saved_key() {
+    let (base, server) = fake_server(json!({"data":[{"index":0,"embedding":[0.25,0.75]}]}), Duration::ZERO);
+    let (_dir, state, _) = state_with(AiProvider::Anthropic, &base);
+    state.save_key(AiProvider::OpenaiCompatible, "sk-test").unwrap();
+    let mut config = state.status().unwrap().config;
+    config.embedding_provider = AiProvider::OpenaiCompatible;
+    config.embedding_model = "embed-test".into();
+    config.ask_vault_enabled = true;
+    state.save_config(config).unwrap();
+
+    let result = block_on(state.embed(&["hello".to_string()])).unwrap();
+    assert_eq!(result.vectors, vec![vec![0.25, 0.75]]);
+    assert_eq!(result.model, "embed-test");
+    let raw = server.join().unwrap();
+    assert!(raw.starts_with("POST /embeddings"));
+    assert!(raw.to_ascii_lowercase().contains("authorization: bearer sk-test"));
+    assert!(raw.contains("\"model\":\"embed-test\""));
+}
+
+#[test]
+fn embeddings_need_a_model_and_refuse_anthropic() {
+    let (_dir, state, _) = state_with(AiProvider::OpenaiCompatible, "http://127.0.0.1:9");
+    let err = block_on(state.embed(&["x".to_string()])).unwrap_err();
+    assert!(err.contains("Ask your vault is off"));
+    let mut config = state.status().unwrap().config;
+    config.ask_vault_enabled = true;
+    state.save_config(config).unwrap();
+    let err = block_on(state.embed(&["x".to_string()])).unwrap_err();
+    assert!(err.contains("embedding model"));
+    let mut config = state.status().unwrap().config;
+    config.embedding_provider = AiProvider::Anthropic;
+    assert!(state.save_config(config).is_err());
+}
+
+#[test]
+fn indexing_embeds_new_notes_once_and_skips_unchanged_ones() {
+    let vault = tempfile::tempdir().unwrap();
+    std::fs::write(vault.path().join("Rent.md"), "# Rent\nRent is 900 a month.\n").unwrap();
+    let data = tempfile::tempdir().unwrap();
+
+    let (base, server) = fake_server(json!({"data":[{"index":0,"embedding":[1.0,0.0]}]}), Duration::ZERO);
+    let (_dir, state, _) = state_with(AiProvider::OpenaiCompatible, &base);
+    let mut config = state.status().unwrap().config;
+    config.embedding_model = "embed-test".into();
+    config.ask_vault_enabled = true;
+    state.save_config(config).unwrap();
+
+    let status = ask::index_status(&state, data.path(), vault.path()).unwrap();
+    assert_eq!((status.notes_to_embed, status.notes_total), (1, 1));
+    let report = block_on(ask::index_vault(&state, data.path(), vault.path())).unwrap();
+    assert_eq!((report.embedded_notes, report.passages), (1, 1));
+    server.join().unwrap();
+
+    // The fake server is gone, so a second run that tried to embed would fail.
+    let again = block_on(ask::index_vault(&state, data.path(), vault.path())).unwrap();
+    assert_eq!(again.embedded_notes, 0);
+}
+
+fn enable_ask(state: &AiState) -> EmbeddingProfile {
+    let mut config = state.status().unwrap().config;
+    config.embedding_model = "embed-test".into();
+    config.ask_vault_enabled = true;
+    state.save_config(config).unwrap();
+    state.embedding_profile().unwrap()
+}
+
+fn seed_ask_note(state: &AiState, data: &std::path::Path, vault: &std::path::Path) {
+    let file = crate::index::scan_dir_files_from_disk(vault, vault).unwrap().remove(0);
+    let chunks = crate::semantic::chunk_note(&file.path, &file.content).into_iter()
+        .map(|chunk| crate::semantic::StoredChunk { chunk, vector: vec![1.0, 0.0] }).collect::<Vec<_>>();
+    crate::vector_store::VectorStore::open(&ask::store_path(data, vault)).unwrap()
+        .replace_note(&file.path, file.fs_modified_ms, &state.embedding_profile().unwrap().identity(), &chunks).unwrap();
+}
+
+#[test]
+fn embedding_identity_includes_provider_and_full_endpoint() {
+    let vault = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    std::fs::write(vault.path().join("A.md"), "Body").unwrap();
+    let (_dir, state, _) = state_with(AiProvider::OpenaiCompatible, "http://127.0.0.1:9/v1");
+    let original = enable_ask(&state);
+    seed_ask_note(&state, data.path(), vault.path());
+    assert_eq!(ask::index_status(&state, data.path(), vault.path()).unwrap().notes_to_embed, 0);
+    let mut config = state.status().unwrap().config;
+    config.embedding_provider = AiProvider::Ollama;
+    state.save_config(config).unwrap();
+    assert_ne!(state.embedding_profile().unwrap().identity(), original.identity());
+    assert_eq!(ask::index_status(&state, data.path(), vault.path()).unwrap().notes_to_embed, 1);
+    let mut config = state.status().unwrap().config;
+    config.embedding_provider = AiProvider::OpenaiCompatible;
+    config.openai_compatible.base_url = "http://127.0.0.1:9/other".into();
+    state.save_config(config).unwrap();
+    assert_eq!(ask::index_status(&state, data.path(), vault.path()).unwrap().notes_to_embed, 1);
+}
+
+#[test]
+fn deleted_and_modified_notes_are_never_used_as_answer_sources() {
+    let vault = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let note = vault.path().join("A.md");
+    std::fs::write(&note, "Sensitive text").unwrap();
+    let (_dir, state, _) = state_with(AiProvider::OpenaiCompatible, "http://127.0.0.1:9");
+    let profile = enable_ask(&state);
+    seed_ask_note(&state, data.path(), vault.path());
+    std::fs::remove_file(&note).unwrap();
+    assert_eq!(ask::index_status(&state, data.path(), vault.path()).unwrap().notes_to_remove, 1);
+    assert!(block_on(ask::ask(&state, data.path(), vault.path(), "Question")).unwrap_err().contains("Index the vault first"));
+    let mut store = crate::vector_store::VectorStore::open(&ask::store_path(data.path(), vault.path())).unwrap();
+    assert!(store.load(&profile.identity()).unwrap().is_empty());
+
+    std::fs::write(&note, "Current text").unwrap();
+    let chunk = crate::semantic::StoredChunk { chunk: crate::semantic::Chunk {
+        path: "A.md".into(), heading: String::new(), line: 1, text: "Old text".into(),
+    }, vector: vec![1.0, 0.0] };
+    store.replace_note("A.md", 1, &profile.identity(), &[chunk]).unwrap();
+    assert!(block_on(ask::ask(&state, data.path(), vault.path(), "Question")).unwrap_err().contains("Index the vault first"));
+}
+
+#[test]
+fn turning_ask_off_during_query_embedding_prevents_chat() {
+    let vault = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    std::fs::write(vault.path().join("A.md"), "Sensitive text").unwrap();
+    let state_slot = Arc::new(Mutex::new(None::<Arc<AiState>>));
+    let slot = state_slot.clone();
+    let (base, server) = fake_server_with_hook(json!({"data":[{"index":0,"embedding":[1.0,0.0]}]}), Duration::ZERO, move || {
+        let state = slot.lock().unwrap().clone().unwrap();
+        let mut config = state.status().unwrap().config;
+        config.ask_vault_enabled = false;
+        state.save_config(config).unwrap();
+    });
+    let (_dir, state, _) = state_with(AiProvider::OpenaiCompatible, &base);
+    let state = Arc::new(state);
+    let profile = enable_ask(&state);
+    seed_ask_note(&state, data.path(), vault.path());
+    *state_slot.lock().unwrap() = Some(state.clone());
+    let error = block_on(ask::ask(&state, data.path(), vault.path(), "Question")).unwrap_err();
+    assert_eq!(error, ASK_OFF);
+    assert!(server.join().unwrap().starts_with("POST /embeddings"));
+    assert_eq!(block_on(state.chat_for_vault(&profile, "System", "Sensitive text")).unwrap_err(), ASK_OFF);
+    assert!(block_on(state.embed(&[])).is_err());
+}
+
+#[test]
+fn changing_models_during_indexing_never_stores_mislabeled_vectors() {
+    let vault = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    std::fs::write(vault.path().join("A.md"), "First note").unwrap();
+    std::fs::write(vault.path().join("B.md"), "Second note").unwrap();
+    let state_slot = Arc::new(Mutex::new(None::<Arc<AiState>>));
+    let slot = state_slot.clone();
+    let (base, server) = fake_server_with_hook(json!({"data":[{"index":0,"embedding":[1.0,0.0]}]}), Duration::ZERO, move || {
+        let state = slot.lock().unwrap().clone().unwrap();
+        let mut config = state.status().unwrap().config;
+        config.embedding_model = "other-model".into();
+        state.save_config(config).unwrap();
+    });
+    let (_dir, state, _) = state_with(AiProvider::OpenaiCompatible, &base);
+    let state = Arc::new(state);
+    let profile = enable_ask(&state);
+    *state_slot.lock().unwrap() = Some(state.clone());
+    assert!(block_on(ask::index_vault(&state, data.path(), vault.path())).unwrap_err().contains("settings changed"));
+    server.join().unwrap();
+    let store = crate::vector_store::VectorStore::open(&ask::store_path(data.path(), vault.path())).unwrap();
+    assert!(store.load(&profile.identity()).unwrap().is_empty());
+    assert!(store.load(&state.embedding_profile().unwrap().identity()).unwrap().is_empty());
+}
+
+#[test]
+fn deleting_a_note_during_question_embedding_prevents_sending_it_to_chat() {
+    let vault = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let note = vault.path().join("A.md");
+    std::fs::write(&note, "Sensitive text").unwrap();
+    let (base, server) = fake_server_with_hook(json!({"data":[{"index":0,"embedding":[1.0,0.0]}]}), Duration::ZERO, move || {
+        std::fs::remove_file(note).unwrap();
+    });
+    let (_dir, state, _) = state_with(AiProvider::OpenaiCompatible, &base);
+    enable_ask(&state);
+    seed_ask_note(&state, data.path(), vault.path());
+    assert!(block_on(ask::ask(&state, data.path(), vault.path(), "Question")).unwrap_err().contains("deleted"));
+    server.join().unwrap();
+}
+
+#[test]
+fn turning_ask_off_stops_later_embedding_batches() {
+    let state_slot = Arc::new(Mutex::new(None::<Arc<AiState>>));
+    let slot = state_slot.clone();
+    let rows = (0..EMBED_BATCH).map(|i| json!({"index": i, "embedding": [1.0, 0.0]})).collect::<Vec<_>>();
+    let (base, server) = fake_server_with_hook(json!({"data": rows}), Duration::ZERO, move || {
+        let state = slot.lock().unwrap().clone().unwrap();
+        let mut config = state.status().unwrap().config;
+        config.ask_vault_enabled = false;
+        state.save_config(config).unwrap();
+    });
+    let (_dir, state, _) = state_with(AiProvider::OpenaiCompatible, &base);
+    let state = Arc::new(state);
+    enable_ask(&state);
+    *state_slot.lock().unwrap() = Some(state.clone());
+    assert_eq!(block_on(state.embed(&vec!["Text".to_string(); EMBED_BATCH + 1])).unwrap_err(), ASK_OFF);
+    server.join().unwrap();
+}
+
+#[test]
+fn embedding_requests_keep_origin_bound_keys_and_respect_the_general_ai_switch() {
+    let (_dir, state, _) = state_with(AiProvider::OpenaiCompatible, "http://127.0.0.1:9");
+    enable_ask(&state);
+    state.save_key(AiProvider::OpenaiCompatible, "sk-test").unwrap();
+    let mut config = state.status().unwrap().config;
+    config.openai_compatible.base_url = "http://127.0.0.1:10".into();
+    state.save_config(config).unwrap();
+    assert!(block_on(state.embed(&["Secret".into()])).unwrap_err().contains("base URL changed"));
+    let mut config = state.status().unwrap().config;
+    config.enabled = false;
+    state.save_config(config).unwrap();
+    assert!(state.embedding_profile().unwrap_err().contains("AI is off"));
+    assert!(block_on(state.embed(&["Secret".into()])).unwrap_err().contains("AI is off"));
 }

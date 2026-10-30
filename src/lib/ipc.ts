@@ -13,6 +13,9 @@ import type {
   AiRequest,
   AiResult,
   AiStatus,
+  AskAnswer,
+  AskIndexReport,
+  AskIndexStatus,
   BacklinkEntry,
   VaultHealthReport,
   LinkUpdatePlan,
@@ -447,6 +450,24 @@ export async function aiSaveKey(provider: AiProvider, key: string): Promise<AiSt
 
 export async function aiDeleteKey(provider: AiProvider): Promise<AiStatus> {
   return invoke<AiStatus>('ai_delete_key', { provider });
+}
+
+/** How many notes an index run would send to the embedding provider. Sends nothing. */
+export async function askIndexStatus(): Promise<AskIndexStatus> {
+  return invoke<AskIndexStatus>('ask_index_status');
+}
+
+/** Embeds new and changed notes. Sends their text to the embedding provider. */
+export async function askIndexVault(): Promise<AskIndexReport> {
+  return invoke<AskIndexReport>('ask_index_vault');
+}
+
+export async function askVault(question: string): Promise<AskAnswer> {
+  return invoke<AskAnswer>('ask_vault', { question });
+}
+
+export async function askDeleteIndex(): Promise<void> {
+  return invoke<void>('ask_delete_index');
 }
 
 export async function aiRun(request: AiRequest): Promise<AiResult> {

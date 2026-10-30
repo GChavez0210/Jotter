@@ -115,6 +115,16 @@ Jotter periodically keeps the previous saved text of a note so you can recover f
 
 Versions live in Jotter's application data folder, never in the vault, so a sync client never copies them between computers. A save stores a version only when the newest one is at least five minutes old, and older versions are thinned as they age: everything from the last day, one a day for a month, then one a week for a year. A missing note keeps its history for at least a month after Jotter first detects its absence, so restoring it from the Recycle Bin brings the history back. Turn the whole feature off in **Settings → Vault → Keep version history**.
 
+### Backing Up and Restoring a Vault
+**Settings → Vault → Vault backups** writes a ZIP of the whole vault to a folder you pick, on a schedule (every 6 hours, daily, or weekly) or when you press **Back up now**. Jotter keeps the number of copies you choose and deletes the oldest. Choose a folder outside the vault, such as a synced folder or an external drive. A backup folder inside the vault is skipped, and so are symbolic links.
+
+A backup is an ordinary ZIP of the vault folder, so you restore it without Jotter's help:
+
+1. Unzip the backup into a new, empty folder.
+2. In Jotter, choose **Open vault** and select that folder. This works on a new installation or a different computer.
+
+Version history, pins, and settings live in Jotter's application data folder, not in the vault, so a backup does not include them. A restored vault starts with no version history. To keep your settings, use **Export settings** in Settings → System.
+
 ### Updates
 Jotter checks GitHub for a newer release about fifteen seconds after it starts and once a day after that. When one exists, an **Update** button appears in the status bar. Select it to read what changed and to choose **Install and restart**. Jotter saves your open notes, downloads the update, checks its signature against the key built into the app, installs it, and restarts. An update never installs without your confirmation.
 
@@ -174,11 +184,12 @@ echo "- call the bank" | jotter --vault ~/Notes append Inbox --create
 jotter --vault ~/Notes rename "Projects/Plan" "Projects/Roadmap"
 ```
 
-Set `JOTTER_VAULT` instead of repeating `--vault`. The commands are `search`, `list`, `read`, `create`, `append`, `rename`, `delete`, `backlinks`, `tags`, `tasks`, `health`, `versions`, and `version`. Run `jotter --help` for the options.
+Set `JOTTER_VAULT` instead of repeating `--vault`. The commands are `search`, `list`, `read`, `create`, `append`, `rename`, `delete`, `backlinks`, `tags`, `tasks`, `health`, `versions`, `version`, `context`, and `set-context`. Run `jotter --help` for the options.
 
 - **Safe writes.** Writes use the app's atomic write path. Before `append` or a link rewrite replaces a note's text, the CLI saves that text to the note's version history, so the app's timeline shows it and can restore it. `delete` moves to the Recycle Bin. `rename` moves version history and rewrites links to the note or folder unless you pass `--no-update-links`.
 - **Limits.** Pass `--read-only` to refuse every write. A command works on the one vault you name, and paths cannot leave it. The CLI has no access to the AI keys in your keychain.
 - **MCP.** `jotter --vault ~/Notes mcp` serves the same operations as tools over standard input and output, for any MCP client. Add `--read-only` to list and run only the tools that do not change the vault. For Claude Code, run `claude mcp add jotter -- jotter --vault ~/Notes --read-only mcp`.
+- **Shared context.** `_context/Context.md` holds what you are working on. The MCP tools `get_context` and `update_context` (and the `context` and `set-context` commands) read and replace it, and the server tells each client to call `get_context` first. Every assistant connected to the same vault, such as Claude and ChatGPT, sees the same note. `update_context` is a write, so it is absent under `--read-only`; the previous text stays in version history.
 - **Index.** Each read builds a fresh index from the files, so a very large vault takes a moment per call and the answer is always current.
 
 ## Accessibility

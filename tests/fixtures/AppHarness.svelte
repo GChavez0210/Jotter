@@ -8,9 +8,11 @@
   import { tabsStore } from '../../src/lib/stores/tabs.svelte';
   import { vaultStore } from '../../src/lib/stores/vault.svelte';
   import type { VaultNode } from '../../src/lib/types';
-  import { control, versionControl, updateControl } from '../ipc.mock';
+  import { control, versionControl, updateControl, backupControl, askControl, aiControl } from '../ipc.mock';
+  import { aiStore } from '../../src/lib/stores/ai.svelte';
+  import { askStore } from '../../src/lib/stores/ask.svelte';
   import { updateStore } from '../../src/lib/stores/updates.svelte';
-  Object.assign(window, { __review: { tabsStore, settingsStore, control, versionControl, updateStore, updateControl } });
+  Object.assign(window, { __review: { tabsStore, settingsStore, control, versionControl, updateStore, updateControl, backupControl, askControl, aiControl, aiStore, askStore } });
 
   const NOTE = `# Audit\n\nA paragraph with a [[Wiki link]] and a #tag.\n\n- [ ] A task 📅 2026-12-01\n\n| Column | Value |\n| --- | --- |\n| One | 1 |\n`;
 

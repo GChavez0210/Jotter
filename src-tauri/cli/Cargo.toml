@@ -1,6 +1,6 @@
 [package]
 name = "jotter-cli"
-version = "0.5.2"
+version = "0.5.3"
 description = "Command-line tool and MCP server for Jotter vaults"
 authors = ["Jotter Contributors"]
 license = "MIT"
