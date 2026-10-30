@@ -184,6 +184,12 @@ test('Ask replaces Settings, keeps modal focus, and passes accessibility in its 
     await page.getByRole('button', {name: 'Ask', exact: true}).click();
     await expect(page.locator('.answer')).toBeVisible();
     await expect(page.locator('.source')).toHaveCount(2);
+    for (const box of await page.locator('.source').evaluateAll(els => els.map(el => {
+      const {width, height} = el.getBoundingClientRect();
+      return {width, height};
+    }))) {
+      assert.ok(box.width >= 24 && box.height >= 24, JSON.stringify(box));
+    }
     for (const theme of ['light', 'dark', 'high-contrast']) {
       await page.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme);
       violations.push(...await auditPage(page, `${theme}: Ask answer`));

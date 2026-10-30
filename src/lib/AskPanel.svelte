@@ -223,6 +223,8 @@
   }
 
   .source {
+    min-width: 24px;
+    min-height: 24px;
     padding: var(--space-1) 0;
     border: 0;
     background: transparent;
