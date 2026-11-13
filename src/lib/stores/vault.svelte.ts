@@ -28,6 +28,15 @@ import { tabsStore } from './tabs.svelte';
 import { invalidateImagePreviews } from '../imagePreviewCache';
 import { noteMoveDestination } from '../noteMove';
 import { fillTemplate, formatIsoDate } from '../templates';
+import {
+  PENDING_EXTRACTION_KEY,
+  buildExtractedNote,
+  linkTargetFor,
+  hasLinkUnsafeChars,
+  parsePendingExtraction,
+  splitPadding,
+  type PendingExtraction,
+} from '../extractNote';
 import { applyToOpenNote, reverseEdits } from '../linkUpdates';
 import { captureEdit, normalizeCaptureNote } from '../quickCapture';
 import { m, trashName } from '../i18n.svelte';
@@ -476,6 +485,70 @@ class VaultStore {
     const saved = await quickCaptureAppend(path, text);
     this.bumpIndexVersion();
     return saved;
+  }
+
+  /**
+   * Moves selected text into a new note and swaps it for a link. The order protects the text:
+   * the new note is written and read back first, and `apply` replaces the selection only
+   * after that. `apply` returns false when the source note changed since the selection was
+   * captured, and then the original text stays. A record of the work in progress survives a
+   * crash, so the next launch can say what was left behind.
+   */
+  async extractToNote(args: {
+    sourceRel: string;
+    text: string;
+    name: string;
+    folder: string;
+    backLink: boolean;
+    apply: (linkText: string) => boolean;
+  }): Promise<{ path: string; replaced: boolean }> {
+    const dest = `${args.folder ? `${args.folder}/` : ''}${args.name}.md`;
+    if (hasLinkUnsafeChars(dest)) throw new Error(m.extract_path_link_chars({ path: dest }));
+    const backTarget = args.backLink
+      ? linkTargetFor(args.sourceRel, (t) => this.resolveWikiTarget(t, dest))
+      : null;
+    if (backTarget && hasLinkUnsafeChars(backTarget)) {
+      throw new Error(m.extract_path_link_chars({ path: args.sourceRel }));
+    }
+    if (this.allFiles.some((f) => sameNotePath(f.relPath, dest))) {
+      throw new Error(m.extract_exists({ path: dest }));
+    }
+    const backLinkLine = args.backLink
+      ? m.extract_back_line({
+          link: `[[${backTarget}]]`,
+        })
+      : null;
+    const content = buildExtractedNote({
+      title: args.name,
+      body: splitPadding(args.text).core,
+      backLinkLine,
+    });
+
+    const pending: PendingExtraction = { source: args.sourceRel, dest, startedMs: Date.now() };
+    appStorage.setItem(PENDING_EXTRACTION_KEY, JSON.stringify(pending));
+    try {
+      // The record has to reach the disk before the note does.
+      await appStorage.flush();
+      const [snapshot, written] = await createNote(dest, content);
+      this.vaultSnapshot = snapshot;
+      this.bumpIndexVersion();
+      if (written.content.replace(/\r\n/g, '\n') !== content) {
+        throw new Error(m.extract_verify_failed({ path: dest }));
+      }
+      const link = linkTargetFor(dest, (t) => this.resolveWikiTarget(t, args.sourceRel));
+      const replaced = args.apply(`[[${link}]]`);
+      return { path: dest, replaced };
+    } finally {
+      appStorage.removeItem(PENDING_EXTRACTION_KEY);
+    }
+  }
+
+  /** Reports an extraction that a crash or a forced quit cut short, then forgets it. */
+  reportInterruptedExtraction() {
+    const pending = parsePendingExtraction(appStorage.getItem(PENDING_EXTRACTION_KEY));
+    if (!pending) return;
+    appStorage.removeItem(PENDING_EXTRACTION_KEY);
+    clipboardStore.setStatus(m.extract_interrupted({ dest: pending.dest, source: pending.source }));
   }
 
   /** Puts the links changed by the last rename back as they were. */
