@@ -444,8 +444,14 @@ pub fn delete_vault_entry(vault_root: &Path, rel_path: &str) -> Result<VaultSnap
         return Err(format!("Entry to delete does not exist: '{clean_rel}'"));
     }
 
-    trash::delete(&abs_path)
-        .map_err(|e| format!("Failed to move '{clean_rel}' to Recycle Bin: {e}"))?;
+    crate::os_trash::move_to_trash(&abs_path).map_err(|e| match e {
+        crate::os_trash::TrashError::NotRecyclable => format!(
+            "Cannot move '{clean_rel}' to the Recycle Bin: Windows would delete it permanently. Jotter left it in place."
+        ),
+        crate::os_trash::TrashError::Failed(e) => {
+            format!("Failed to move '{clean_rel}' to Recycle Bin: {e}")
+        }
+    })?;
 
     scan_vault_snapshot(vault_root)
 }
