@@ -513,6 +513,45 @@ pub fn remove_recent_vault(storage_file: &Path, path_to_remove: &str) -> Vec<Rec
 mod tests {
     use super::*;
 
+    /// Removes a fixture this test sent to the real trash, so test runs do not pile up there.
+    /// macOS cannot list its trash, so the fixture stays there.
+    fn purge_test_entry_from_trash(root: &Path, name: &str) {
+        #[cfg(any(
+            windows,
+            all(
+                unix,
+                not(target_os = "macos"),
+                not(target_os = "ios"),
+                not(target_os = "android")
+            )
+        ))]
+        {
+            let parent = fs::canonicalize(root).unwrap();
+            let items: Vec<_> = trash::os_limited::list()
+                .unwrap()
+                .into_iter()
+                .filter(|item| {
+                    item.name.to_string_lossy() == name
+                        && fs::canonicalize(&item.original_parent).ok().as_deref()
+                            == Some(parent.as_path())
+                })
+                .collect();
+            if !items.is_empty() {
+                trash::os_limited::purge_all(items).unwrap();
+            }
+        }
+        #[cfg(not(any(
+            windows,
+            all(
+                unix,
+                not(target_os = "macos"),
+                not(target_os = "ios"),
+                not(target_os = "android")
+            )
+        )))]
+        let _ = (root, name);
+    }
+
     #[test]
     fn rename_never_overwrites_a_distinct_case_variant() {
         let temp = tempfile::tempdir().unwrap();
@@ -629,10 +668,22 @@ mod tests {
         assert!(!root.join("Daily/2026-10-18.md").exists());
         assert!(root.join("Daily/2026-10-19.md").exists());
 
-        // Delete folder (moves to Windows Recycle Bin via trash crate)
-        let snap_after_del = delete_vault_entry(root, "Daily").unwrap();
-        assert_eq!(snap_after_del.note_count, 0);
-        assert!(snap_after_del.tree.is_empty());
+        // Delete folder. A Windows process that cannot recycle, such as one at low integrity,
+        // must refuse and keep the folder instead of deleting it permanently.
+        match delete_vault_entry(root, "Daily") {
+            Ok(snap_after_del) => {
+                assert_eq!(snap_after_del.note_count, 0);
+                assert!(snap_after_del.tree.is_empty());
+                purge_test_entry_from_trash(root, "Daily");
+            }
+            Err(e) => {
+                assert!(
+                    cfg!(windows) && e.contains("would delete it permanently"),
+                    "{e}"
+                );
+                assert!(root.join("Daily/2026-10-19.md").exists());
+            }
+        }
         // .obsidian was never touched
         assert!(root.join(".obsidian/config.md").exists());
     }
