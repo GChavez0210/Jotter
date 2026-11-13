@@ -19,5 +19,10 @@ trash = "5.2"
 tantivy = { version = "0.27", default-features = false }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
+[target.'cfg(windows)'.dependencies]
+# Same versions `trash` already pulls in. Used to recycle without falling back to permanent deletion.
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_Com", "Win32_UI_Shell"] }
+windows-core = "0.62"
+
 [dev-dependencies]
 tempfile = "3.14"
