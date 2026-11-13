@@ -2518,6 +2518,8 @@ dependencies = [
  "tantivy",
  "tempfile",
  "trash",
+ "windows",
+ "windows-core",
 ]
 
 [[package]]
