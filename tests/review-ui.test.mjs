@@ -553,3 +553,31 @@ test('the right editor offers reload for dirty external changes and receives hea
     await expect.poll(()=>page.evaluate(()=>window.__review.tabsStore.docStats.cursorLine)).toBe(5);
   } finally { await browser.close(); }
 });
+
+
+test('search ignores cleared replies and Enter never opens stale or invisible results', async () => {
+  const browser = await launchBrowser();
+  try {
+    const page = await openHarness(browser, await bundleHarness('SearchHarness'));
+    const input = page.getByRole('searchbox');
+    await input.fill('first');
+    await expect.poll(() => page.evaluate(() => window.__review.pending.length)).toBe(1);
+    await page.evaluate(() => window.__review.pending[0].resolve([{path:'First.md',title:'First',snippet:'first',snippetHtml:'first',matches:[],lineNumber:1,matchCount:1}]));
+    await expect(page.locator('.hit-card')).toHaveCount(1);
+    await input.fill('second');
+    await expect.poll(() => page.evaluate(() => window.__review.pending.length)).toBe(2);
+    await input.press('Enter');
+    assert.deepEqual(await page.evaluate(() => window.__review.opened), []);
+    await input.fill('');
+    await page.evaluate(() => window.__review.pending[1].resolve([{path:'Second.md',title:'Second',snippet:'second',snippetHtml:'second',matches:[],lineNumber:1,matchCount:1}]));
+    await expect(page.locator('.hit-card')).toHaveCount(0);
+    await input.press('Enter');
+    assert.deepEqual(await page.evaluate(() => window.__review.opened), []);
+    await input.fill('third');
+    await expect.poll(() => page.evaluate(() => window.__review.pending.length)).toBe(3);
+    await page.evaluate(() => window.__review.pending[2].resolve([{path:'Third.md',title:'Third',snippet:'third',snippetHtml:'third',matches:[],lineNumber:1,matchCount:1}]));
+    await expect(page.locator('.hit-card')).toHaveCount(1);
+    await input.press('Enter');
+    assert.deepEqual(await page.evaluate(() => window.__review.opened), ['Third.md']);
+  } finally { await browser.close(); }
+});

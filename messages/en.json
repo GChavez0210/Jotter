@@ -481,6 +481,7 @@
     }
   ],
   "search_empty_hint": "Search the text of every note in this vault.",
+  "search_syntax_hint": "Use quotes for a phrase, AND, OR, NOT, or - to combine words, and title:, body:, tag:, or path: to filter. Wildcard: end a phrase with * to match a longer last word.",
   "search_first_match": "First match on line {line}",
   "search_label": "Search vault notes",
   "search_no_match": "No notes matched {query}.",

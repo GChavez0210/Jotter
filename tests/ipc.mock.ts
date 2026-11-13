@@ -133,7 +133,10 @@ export const queryCalendarDays = async () => [];
 export const queryCalendarDateNotes = async () => [];
 export const queryDueTasks = async () => [];
 export const listDeletedEntries = async () => [];
-export const searchVault = async () => [];
+export const searchControl = {
+  search: async (_query: string, _limit?: number): Promise<import('../src/lib/types').SearchHit[]> => [],
+};
+export const searchVault = (query: string, limit?: number) => searchControl.search(query, limit);
 export const getVaultHealth = async () => ({
   brokenLinks: {items: [], total: 0}, unusedAttachments: {items: [], total: 0},
   emptyNotes: {items: [], total: 0}, duplicateTitles: {items: [], total: 0},

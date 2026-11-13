@@ -722,21 +722,16 @@ fn get_notes_by_tag(
     query_notes_by_tag(&conn, &tag)
 }
 
-#[tauri::command]
+/// Runs a search on a worker thread. It reads only the index, never a note file, so it needs no
+/// vault lock. A newer search cancels an older one that is still running, which then returns
+/// `search-cancelled`.
+#[tauri::command(async)]
 fn search_vault(
     state: State<'_, AppState>,
     query: String,
     limit: Option<usize>,
 ) -> Result<Vec<SearchHit>, String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
-    let vault_root = state
-        .active_vault
-        .lock()
-        .map_err(|e| format!("Failed to lock active vault state: {e}"))?
-        .clone();
-    state
-        .search_index
-        .search(vault_root.as_deref(), &query, limit.unwrap_or(40))
+    state.search_index.search(&query, limit.unwrap_or(40))
 }
 
 #[tauri::command]

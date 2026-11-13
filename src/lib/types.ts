@@ -104,10 +104,20 @@ export interface TagSummary {
   count: number;
 }
 
+/** A span of a snippet to highlight, in UTF-16 code units, so `snippet.slice(start, end)` is the match. */
+export interface MatchRange {
+  start: number;
+  end: number;
+}
+
 export interface SearchHit {
   path: string;
   title: string;
+  /** The snippet as HTML. The panel does not render it; `snippet` and `matches` replace it. */
   snippetHtml: string;
+  /** The snippet as plain text. */
+  snippet: string;
+  matches: MatchRange[];
   lineNumber: number;
   matchCount: number;
 }
