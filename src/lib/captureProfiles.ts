@@ -32,9 +32,11 @@ export const MAX_PROFILES = 20;
 const MAX_NAME = 60;
 const MAX_PATH = 240;
 const MAX_SEGMENT = 120;
-// A full list of profiles has to fit the settings export's value limit of 100,000 characters.
+// The export allows JSON escaping to expand every profile string by up to six characters.
 const MAX_TEMPLATE = 3000;
 const MAX_TITLE = 80;
+export const MAX_PROFILES_JSON_LENGTH =
+  MAX_PROFILES * (6 * (80 + MAX_NAME + 2 * MAX_PATH + MAX_TEMPLATE) + 120) + 2;
 
 export type CapturePresetKind = 'idea' | 'task' | 'meeting' | 'journal';
 

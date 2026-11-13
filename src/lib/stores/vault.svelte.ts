@@ -516,7 +516,8 @@ class VaultStore {
         this.bumpIndexVersion();
         return path;
       } catch (err) {
-        const exists = err instanceof Error && /already exists/i.test(err.message);
+        const message = err instanceof Error ? err.message : String(err);
+        const exists = /already exists/i.test(message);
         if (!exists || attempt >= 2) throw err;
         const fresh = await getVaultSnapshot();
         if (fresh) this.vaultSnapshot = fresh;

@@ -1,3 +1,4 @@
+import { captureControl } from './ipc.mock';
 import { systemStore } from '../src/lib/stores/system.svelte';
 import { settingsStore } from '../src/lib/stores/settings.svelte';
 import { systemControl } from './ipc.mock';
@@ -2030,4 +2031,55 @@ test('a compact capture edit adds one line break and a normal one a blank line',
   assert.equal(captureEdit('# Tasks\n\n- [ ] a\n', '- [ ] b', true)?.insert, '\n- [ ] b\n');
   assert.equal(captureEdit('# Tasks\n\n- [ ] a\n', '- [ ] b')?.insert, '\n\n- [ ] b\n');
   assert.equal(captureEdit('', '- [ ] b', true)?.insert, '- [ ] b\n');
+});
+
+
+test('capture retries string IPC collisions using a refreshed snapshot and stops after three attempts', async () => {
+  const previousProfiles = settingsStore.captureProfiles;
+  const previousSnapshot = vaultStore.vaultSnapshot;
+  const create = captureControl.create;
+  const snapshot = captureControl.snapshot;
+  const empty: import('../src/lib/types').VaultSnapshot = { rootPath: 'V', name: 'V', tree: [], noteCount: 0 };
+  const occupied = { ...empty, noteCount: 1, tree: [{ name: 'Entry.md', relPath: 'Ideas/Entry.md', kind: 'file' as const, modifiedMs: 0, createdMs: 0, children: [] }] };
+  try {
+    settingsStore.captureProfiles = [{ ...preset('idea'), fileName: 'Entry' }];
+    vaultStore.vaultSnapshot = empty;
+    const paths: string[] = [];
+    captureControl.snapshot = async () => occupied;
+    captureControl.create = async (path, content) => {
+      paths.push(path);
+      if (paths.length === 1) throw "A note or folder already exists at 'Ideas/Entry.md'";
+      return [occupied, { relPath: path, title: path, content: content ?? '' }];
+    };
+    assert.equal(await vaultStore.captureWithProfile('idea', 'text'), 'Ideas/Entry 2.md');
+    assert.deepEqual(paths, ['Ideas/Entry.md', 'Ideas/Entry 2.md']);
+    let attempts = 0;
+    captureControl.create = async () => { attempts++; throw 'already exists'; };
+    await assert.rejects(vaultStore.captureWithProfile('idea', 'text'), (err) => err === 'already exists');
+    assert.equal(attempts, 3);
+    attempts = 0;
+    captureControl.create = async () => { attempts++; throw 'disk full'; };
+    await assert.rejects(vaultStore.captureWithProfile('idea', 'text'), (err) => err === 'disk full');
+    assert.equal(attempts, 1);
+  } finally {
+    settingsStore.captureProfiles = previousProfiles;
+    vaultStore.vaultSnapshot = previousSnapshot;
+    captureControl.create = create;
+    captureControl.snapshot = snapshot;
+  }
+});
+
+test('capture forwards compact appends through the IPC mock', async () => {
+  const previousTabs = tabsStore.openTabs;
+  const previousCompact = [...captureControl.compact];
+  try {
+    tabsStore.openTabs = [];
+    captureControl.compact.length = 0;
+    await vaultStore.captureEntry('Tasks.md', '- [ ] task', true);
+    await vaultStore.captureEntry('Inbox.md', 'idea');
+    assert.deepEqual(captureControl.compact, [true, false]);
+  } finally {
+    tabsStore.openTabs = previousTabs;
+    captureControl.compact = previousCompact;
+  }
 });

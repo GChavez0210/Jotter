@@ -292,6 +292,17 @@ export async function listenQuickCaptureOpen(handler: () => void): Promise<Unlis
   return listen<null>('quick-capture-open', () => handler());
 }
 
+const CAPTURE_PROFILE_EVENT = 'capture-profile-selected';
+
+/** The main window owns settings writes; secondary windows only send the changed key. */
+export async function selectCaptureProfile(id: string): Promise<void> {
+  await emitTo('main', CAPTURE_PROFILE_EVENT, id);
+}
+
+export async function listenCaptureProfileSelections(handler: (id: string) => void): Promise<UnlistenFn> {
+  return listen<string>(CAPTURE_PROFILE_EVENT, ({ payload }) => handler(payload));
+}
+
 /** The main window takes capture entries from the capture window and answers each one. */
 export async function listenCaptureRequests(
   handler: (request: CaptureRequest) => Promise<string>

@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { appStorage } from './appStorage';
-  import { CAPTURE_TIMEOUT_ERROR, hideCaptureWindow, listenQuickCaptureOpen, requestCapture } from './ipc';
+  import { CAPTURE_TIMEOUT_ERROR, hideCaptureWindow, listenQuickCaptureOpen, requestCapture, selectCaptureProfile } from './ipc';
   import { settingsStore } from './stores/settings.svelte';
   import { INBOX_PROFILE_ID, readProfiles, type CaptureProfile } from './captureProfiles';
   import { i18n, m } from './i18n.svelte';
@@ -26,7 +26,10 @@
 
   function chooseProfile(id: string) {
     profile = id;
-    appStorage.setItem('jotter.quickCaptureProfile', id);
+    void selectCaptureProfile(id).catch((err) => {
+      failed = true;
+      status = captureErrorMessage(String(err));
+    });
     box?.focus();
   }
 
@@ -43,7 +46,7 @@
 
   /** The window outlives the main window's settings changes, so it rereads them each time it opens. */
   async function reloadSettings() {
-    await appStorage.load();
+    await appStorage.load({ readOnly: true });
     profiles = readStoredProfiles();
     const saved = appStorage.getItem('jotter.quickCaptureProfile');
     profile = saved && profiles.some((p) => p.id === saved) ? saved : INBOX_PROFILE_ID;
@@ -65,7 +68,7 @@
     if (!entry || saving) return;
     saving = true;
     try {
-      await appStorage.load();
+      await appStorage.load({ readOnly: true });
       const note = appStorage.getItem('jotter.quickCaptureNote') || 'Inbox.md';
       // The main window saves it, so a note open there keeps any unsaved typing.
       await requestCapture(note, entry, profile);

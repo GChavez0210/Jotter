@@ -25,6 +25,7 @@
     setTrayLabels,
     renderNoteHtmlPreview,
     listenCaptureRequests,
+    listenCaptureProfileSelections,
   } from './lib/ipc';
   import { enhanceRenderedHtml } from './lib/richBlocks';
   import { INBOX_PROFILE_ID } from './lib/captureProfiles';
@@ -66,6 +67,7 @@
   let unlistenFsEvents: UnlistenFn | null = null;
   let unlistenQuit: UnlistenFn | null = null;
   let unlistenCapture: UnlistenFn | null = null;
+  let unlistenCaptureProfile: UnlistenFn | null = null;
   let missingWikiLinkPrompt = $state<{
     noteTarget: string;
     heading?: string;
@@ -561,6 +563,14 @@
         // ignore in browser preview
       });
 
+    void listenCaptureProfileSelections((id) => {
+      void settingsStore.rememberCaptureProfile(id).catch((err) => {
+        console.warn('Could not save capture profile selection', err);
+      });
+    }).then((unlisten) => { unlistenCaptureProfile = unlisten; }).catch(() => {
+      // The browser preview has no secondary windows.
+    });
+
     // The quick capture window sends its entries here, where the open notes live.
     void listenCaptureRequests((request) =>
       request.profile && request.profile !== INBOX_PROFILE_ID
@@ -607,6 +617,7 @@
     unlistenFsEvents?.();
     unlistenQuit?.();
     unlistenCapture?.();
+    unlistenCaptureProfile?.();
     tabsStore.clearAllTimers();
   });
 

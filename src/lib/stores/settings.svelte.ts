@@ -384,6 +384,13 @@ export class SettingsStore {
     this.persist('jotter.quickCaptureProfile', id);
   }
 
+  /** Persists a secondary window's selection using the main window's current settings. */
+  async rememberCaptureProfile(id: string) {
+    const valid = this.captureProfiles.some((profile) => profile.id === id);
+    this.setQuickCaptureProfile(valid ? id : INBOX_PROFILE_ID);
+    await appStorage.flush();
+  }
+
   /** Loads and applies only the look of the app, for secondary windows that must not touch the window. */
   initAppearance() {
     const theme = appStorage.getItem('jotter.themePref');
