@@ -4,6 +4,14 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 
 ## [Unreleased]
 
+### Added
+
+- **Search filters and operators.** Search accepts `title:`, `body:`, `tag:`, and `path:` filters, `AND`, `OR`, `NOT`, `+`, `-`, parentheses, phrases with slop, and a prefix match on the last word while you type. Arrow keys move between results, and `Enter` opens the first.
+
+### Changed
+
+- Search builds snippets and highlight ranges from the index and no longer reads note files, so results always match what was ranked. Long lines show a window around the first match. Searches run on a worker thread, and a newer search cancels an older one.
+
 ## [0.5.3] - 2026-10-30
 
 ### Added

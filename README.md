@@ -139,6 +139,18 @@ Notes and folders you delete go to the Recycle Bin. The **Recently deleted** sid
 ### Typo-Tolerant Search
 Full-text search (`Ctrl+Shift+F`) also finds words one or two letters off, so `recieve` finds `receive`. Exact matches rank first. Words of three letters or fewer, quoted phrases, and queries with operators such as `AND` or `title:` match exactly.
 
+### Search Syntax
+Full-text search reads only the index. It never opens a note file, so a result always shows the text that was ranked. Each result has a snippet around its first match, with every match highlighted.
+
+- Plain words match titles and text. Title matches rank higher. The last word also matches longer words while you type, so `proj` finds `project`.
+- `"quoted words"` match as a phrase. `"quick bro"*` lets the last word match longer words, and `"quick fox"~3` allows up to three words between them.
+- `AND`, `OR`, `NOT`, `+word`, `-word`, and parentheses combine terms. Without an operator, every term has to match once a query uses any operator, quote, or filter.
+- Filters narrow the search: `title:budget`, `body:budget`, `tag:project` (also finds `project/alpha`), `tag:project/alpha`, and `path:daily` (any word of the note's path). Filters combine with terms, as in `tag:work AND path:2026 invoice`.
+- `Enter` in the search box opens the first result. `Down` moves into the results, `Up` and `Down` move between them, `Up` from the first result returns to the box, and `Esc` returns to the box.
+- A newer search cancels an older one that is still running.
+
+Match ranges reach the interface as UTF-16 code unit offsets into the snippet text, the unit JavaScript strings use, so notes with accents, CJK text, and emoji highlight the right characters. The command-line `search` result also keeps `snippetHtml`, and adds `snippet` and `matches`.
+
 ### Spell Check
 The editor underlines misspelled words. Right-click a word for suggestions, or add it to your personal dictionary. Turn spell check off in **Settings → Editor**.
 

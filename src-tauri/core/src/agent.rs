@@ -79,7 +79,7 @@ impl AgentVault {
         let files = index::scan_dir_files_from_disk(&self.root, &self.root)?;
         let search = VaultSearchIndex::new()?;
         search.rebuild_from_scanned(&files)?;
-        let hits = search.search(Some(&self.root), query, limit.clamp(1, 200))?;
+        let hits = search.search(query, limit.clamp(1, 200))?;
         to_json(&hits)
     }
 

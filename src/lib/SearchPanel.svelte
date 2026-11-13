@@ -11,48 +11,28 @@
   let results = $state<SearchHit[]>([]);
   let searching = $state(false);
   let searchInputEl: HTMLInputElement | undefined = $state();
+  let resultsEl: HTMLUListElement | undefined = $state();
+  let searchSeq = 0;
 
   interface SnippetSegment {
     text: string;
     highlighted: boolean;
   }
 
-  function decodeHtmlEntities(input: string): string {
-    return input
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'");
-  }
-
-  function parseHighlightedSnippet(snippetHtml: string): SnippetSegment[] {
+  /**
+   * Splits a snippet at the match ranges the backend sent. The ranges count UTF-16 code units,
+   * which is what `String.slice` indexes by, so they apply to the text as it is.
+   */
+  function snippetSegments(hit: SearchHit): SnippetSegment[] {
     const segments: SnippetSegment[] = [];
-    const regex = /<mark>([\s\S]*?)<\/mark>/gi;
-    let lastIndex = 0;
-    let match: RegExpExecArray | null;
-
-    while ((match = regex.exec(snippetHtml)) !== null) {
-      if (match.index > lastIndex) {
-        segments.push({
-          text: decodeHtmlEntities(snippetHtml.slice(lastIndex, match.index)),
-          highlighted: false,
-        });
-      }
-      segments.push({
-        text: decodeHtmlEntities(match[1]),
-        highlighted: true,
-      });
-      lastIndex = regex.lastIndex;
+    let at = 0;
+    for (const { start, end } of hit.matches) {
+      if (start < at || end > hit.snippet.length || end <= start) continue;
+      if (start > at) segments.push({ text: hit.snippet.slice(at, start), highlighted: false });
+      segments.push({ text: hit.snippet.slice(start, end), highlighted: true });
+      at = end;
     }
-
-    if (lastIndex < snippetHtml.length) {
-      segments.push({
-        text: decodeHtmlEntities(snippetHtml.slice(lastIndex)),
-        highlighted: false,
-      });
-    }
-
+    if (at < hit.snippet.length) segments.push({ text: hit.snippet.slice(at), highlighted: false });
     return segments;
   }
 
@@ -68,22 +48,19 @@
     }
 
     searching = true;
+    // Only the newest request may update the list. The backend also cancels an older search
+    // that is still running when a newer one starts.
+    const mine = ++searchSeq;
     const timer = setTimeout(() => {
       void searchVault(q, 50)
         .then((hits) => {
-          if (query.trim() === q) {
-            results = hits;
-          }
+          if (mine === searchSeq) results = hits;
         })
         .catch(() => {
-          if (query.trim() === q) {
-            results = [];
-          }
+          if (mine === searchSeq) results = [];
         })
         .finally(() => {
-          if (query.trim() === q) {
-            searching = false;
-          }
+          if (mine === searchSeq) searching = false;
         });
     }, 90);
 
@@ -93,6 +70,45 @@
   export function focusSearchInput() {
     searchInputEl?.focus();
     searchInputEl?.select();
+  }
+
+  function hitButtons(): HTMLButtonElement[] {
+    return Array.from(resultsEl?.querySelectorAll<HTMLButtonElement>('.hit-card') ?? []);
+  }
+
+  /** Arrow keys move from the box into the results and between them; Up from the first returns. */
+  function onInputKeydown(e: KeyboardEvent) {
+    if (e.isComposing) return;
+    if (e.key === 'ArrowDown') {
+      const first = hitButtons()[0];
+      if (first) {
+        e.preventDefault();
+        first.focus();
+      }
+    } else if (e.key === 'Enter' && results[0]) {
+      e.preventDefault();
+      handleSelectHit(results[0]);
+    }
+  }
+
+  function onResultsKeydown(e: KeyboardEvent) {
+    const buttons = hitButtons();
+    const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    if (at === -1) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      buttons[Math.min(at + 1, buttons.length - 1)].focus();
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (at === 0) searchInputEl?.focus();
+      else buttons[at - 1].focus();
+    } else if (e.key === 'Home' || e.key === 'End') {
+      e.preventDefault();
+      buttons[e.key === 'Home' ? 0 : buttons.length - 1].focus();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      searchInputEl?.focus();
+    }
   }
 
   function handleSelectHit(hit: SearchHit) {
@@ -113,6 +129,7 @@
         placeholder={m.search_placeholder()}
         aria-label={m.search_label()}
         bind:value={query}
+        onkeydown={onInputKeydown}
       />
       {#if query}
         <button
@@ -143,13 +160,15 @@
     {#if !query.trim()}
       <div class="empty-hint">
         {m.search_empty_hint()}
+        <span class="syntax-hint">{m.search_syntax_hint()}</span>
       </div>
     {:else if !searching && results.length === 0}
       <div class="empty-hint">
         {noMatchParts[0]}<strong>"{query.trim()}"</strong>{noMatchParts[1]}
       </div>
     {:else}
-      <ul class="results-list" aria-label={m.search_results()}>
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+      <ul class="results-list" aria-label={m.search_results()} bind:this={resultsEl} onkeydown={onResultsKeydown}>
         {#each results as hit (hit.path)}
           <li>
             <button
@@ -168,7 +187,7 @@
                 <div class="hit-path">{hit.path}</div>
               {/if}
               <div class="hit-snippet">
-                {#each parseHighlightedSnippet(hit.snippetHtml) as seg, i (i)}
+                {#each snippetSegments(hit) as seg, i (i)}
                   {#if seg.highlighted}
                     <mark class="snippet-mark">{seg.text}</mark>
                   {:else}
@@ -338,6 +357,12 @@
     font-size: var(--fs-12);
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .syntax-hint {
+    display: block;
+    margin-top: var(--space-2);
+    font-size: var(--fs-12);
   }
 
   .hit-snippet {

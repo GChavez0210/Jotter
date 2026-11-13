@@ -16,7 +16,7 @@ dirs = "7"
 comrak = { version = "0.31", default-features = false }
 rusqlite = { version = "0.32", features = ["bundled"] }
 trash = "5.2"
-tantivy = { version = "0.27", default-features = false }
+tantivy = { version = "0.27", default-features = false, features = ["lz4-compression"] }
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 
 [dev-dependencies]

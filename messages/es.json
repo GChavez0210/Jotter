@@ -481,6 +481,7 @@
     }
   ],
   "search_empty_hint": "Busca en el texto de todas las notas de esta bóveda.",
+  "search_syntax_hint": "Usa comillas para una frase, AND, OR, NOT o - para combinar palabras, y title:, body:, tag: o path: para filtrar. Termina una frase con * para que la última palabra coincida con otras más largas.",
   "search_first_match": "Primera coincidencia en la línea {line}",
   "search_label": "Buscar en las notas de la bóveda",
   "search_no_match": "Ninguna nota coincide con {query}.",
