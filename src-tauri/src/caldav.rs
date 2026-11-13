@@ -259,6 +259,8 @@ mod tests {
                 while std::time::Instant::now() < until {
                     match listener.accept() {
                         Ok((mut stream, _)) => {
+                            // Accepted sockets inherit nonblocking mode on Windows.
+                            stream.set_nonblocking(false).unwrap();
                             stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
                             {
                                 let mut reader = std::io::BufReader::new(&mut stream);

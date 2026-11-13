@@ -76,7 +76,7 @@ The order protects your text:
 - The replacement is one undo step, so `Ctrl+Z` restores the text. It does not delete the new note, which stays in the vault.
 - A selection that cuts through a code block, link, math, tag, or the properties is refused, as for AI commands.
 - Jotter keeps a record while it works. If Jotter closes in the middle, the next launch tells you which note it had created and that the source is unchanged.
-- The link is the bare note name, or the folder path when another note with the same name would win.
+- The link is the bare note name, or the folder path when another note with the same name would win. Extraction refuses destination paths containing `[ ] # ^ |`. If the link back would need those characters, turn off the backlink or rename the source first.
 
 ### Outlining
 Markdown lists work as an outline:

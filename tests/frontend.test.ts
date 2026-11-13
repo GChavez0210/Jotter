@@ -2019,3 +2019,24 @@ test('an extraction cut short by a crash is reported once and forgotten', () => 
   assert.equal(parsePendingExtraction('{"source":1}'), null);
   assert.equal(parsePendingExtraction('nope'), null);
 }));
+
+
+test('extraction rejects unsafe destination folders before creating a note or replacing text', async () => withMemoryStorage(async () => {
+  for (const char of ['[', ']', '#', '^', '|']) {
+    resetExtractionState();
+    let applied = false;
+    await assert.rejects(vaultStore.extractToNote({ ...extractArgs(() => { applied = true; return true; }), folder: `Projects${char}2026` }));
+    assert.equal(createControl.calls.length, 0);
+    assert.equal(applied, false);
+    assert.equal(appStorage.getItem(PENDING_EXTRACTION_KEY), null);
+  }
+}));
+
+test('extraction rejects an unsafe backlink before writing and permits disabling that backlink', async () => withMemoryStorage(async () => {
+  resetExtractionState();
+  const args = { ...extractArgs(() => true), sourceRel: 'Notes/Source#2026.md' };
+  await assert.rejects(vaultStore.extractToNote(args));
+  assert.equal(createControl.calls.length, 0);
+  assert.equal(appStorage.getItem(PENDING_EXTRACTION_KEY), null);
+  assert.equal((await vaultStore.extractToNote({ ...args, backLink: false })).replaced, true);
+}));

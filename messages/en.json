@@ -174,6 +174,7 @@
   "extract_no_selection": "Select the text to extract first.",
   "extract_name_required": "Enter a name for the new note.",
   "extract_name_link_chars": "A name cannot contain [ ] # ^ or |, because they would break the link.",
+  "extract_path_link_chars": "This path contains [ ] # ^ or |, which cannot be used in an extraction link: {path}",
   "extract_exists": "A note named {path} already exists.",
   "extract_verify_failed": "Jotter created {path} but could not confirm its text, so the original was not changed. Check the new note.",
   "extract_done": "Extracted to {path}.",

@@ -32,6 +32,7 @@ import {
   PENDING_EXTRACTION_KEY,
   buildExtractedNote,
   linkTargetFor,
+  hasLinkUnsafeChars,
   parsePendingExtraction,
   splitPadding,
   type PendingExtraction,
@@ -502,12 +503,19 @@ class VaultStore {
     apply: (linkText: string) => boolean;
   }): Promise<{ path: string; replaced: boolean }> {
     const dest = `${args.folder ? `${args.folder}/` : ''}${args.name}.md`;
+    if (hasLinkUnsafeChars(dest)) throw new Error(m.extract_path_link_chars({ path: dest }));
+    const backTarget = args.backLink
+      ? linkTargetFor(args.sourceRel, (t) => this.resolveWikiTarget(t, dest))
+      : null;
+    if (backTarget && hasLinkUnsafeChars(backTarget)) {
+      throw new Error(m.extract_path_link_chars({ path: args.sourceRel }));
+    }
     if (this.allFiles.some((f) => sameNotePath(f.relPath, dest))) {
       throw new Error(m.extract_exists({ path: dest }));
     }
     const backLinkLine = args.backLink
       ? m.extract_back_line({
-          link: `[[${linkTargetFor(args.sourceRel, (t) => this.resolveWikiTarget(t, dest))}]]`,
+          link: `[[${backTarget}]]`,
         })
       : null;
     const content = buildExtractedNote({

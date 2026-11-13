@@ -4,7 +4,7 @@
   import Button from './ui/Button.svelte';
   import { vaultStore } from './stores/vault.svelte';
   import { clipboardStore } from './stores/clipboard.svelte';
-  import { hasLinkUnsafeChars, suggestExtractName } from './extractNote';
+  import { hasLinkUnsafeChars, linkTargetFor, suggestExtractName } from './extractNote';
   import { sameNotePath } from './notePaths';
   import { validateEntryName } from './validation';
   import { m } from './i18n.svelte';
@@ -46,6 +46,11 @@
     for (const part of cleanFolder ? cleanFolder.split('/') : []) {
       const folderError = validateEntryName(part);
       if (folderError) return folderError;
+    }
+    if (hasLinkUnsafeChars(destination)) return m.extract_path_link_chars({ path: destination });
+    if (backLink) {
+      const target = linkTargetFor(sourceRel, (t) => vaultStore.resolveWikiTarget(t, destination));
+      if (hasLinkUnsafeChars(target)) return m.extract_path_link_chars({ path: sourceRel });
     }
     if (vaultStore.allFiles.some((f) => sameNotePath(f.relPath, destination))) {
       return m.extract_exists({ path: destination });
