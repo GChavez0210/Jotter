@@ -4,6 +4,10 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 
 ## [Unreleased]
 
+### Added
+
+- **Markdown table editing.** `Tab`, `Shift+Tab`, and `Enter` move between cells and align the table. New command palette entries format a table, insert, delete, and move rows and columns, and set column alignment. Each operation is one undo step and leaves cell text unchanged.
+
 ## [0.5.3] - 2026-10-30
 
 ### Added
