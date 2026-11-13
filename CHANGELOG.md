@@ -4,6 +4,10 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 
 ## [Unreleased]
 
+### Added
+
+- **Window size and position are remembered.** Jotter reopens its main window where and how large it was, including maximized. A saved position on a monitor that is no longer connected is ignored.
+
 ## [0.5.3] - 2026-10-30
 
 ### Added

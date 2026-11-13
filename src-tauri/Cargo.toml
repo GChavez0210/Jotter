@@ -47,6 +47,7 @@ tempfile = "3.14"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-single-instance = "2"
+tauri-plugin-window-state = "2"
 # Native TLS, as with `reqwest` above: the default rustls stack builds `ring`, which needs a C
 # toolchain that Windows on ARM lacks.
 tauri-plugin-updater = { version = "2", default-features = false, features = ["native-tls", "system-proxy", "zip"] }
