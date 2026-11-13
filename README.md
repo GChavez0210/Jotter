@@ -167,9 +167,9 @@ Turn on **Settings → System → Summon hotkey** to show or hide Jotter from an
 Launching Jotter while it already runs brings the open window to the front, whether it sits in the tray, is minimized, or is behind another app.
 
 ### Window Size and Position
-Jotter reopens its main window with the size, position, and maximized state it had when it closed. It saves them as you move and resize the window and again when Jotter quits, so a crash or a quit from the tray keeps the last layout. If the saved position is on a monitor that is no longer connected, Jotter ignores the position and opens the window centered on a visible screen. The first launch is centered at 1120 × 760.
+Jotter reopens its main window with the size, position, and maximized state it had when it closed. It tracks changes as you move and resize the window, then saves them when Jotter quits normally, including from the tray, or before installing an update. A crash can lose changes made since the last normal exit. If the saved position is on a monitor that is no longer connected, Jotter ignores the position and opens the window centered on a visible screen. The first launch is centered at 1120 × 760.
 
-Jotter does not restore hidden or fullscreen state: the window always opens visible, and zen focus mode does not bring a fullscreen launch with it. The quick capture window is not remembered. The saved layout lives in the app data folder as `.window-state.json`, outside your vault. Delete that file to reset the window.
+The geometry plugin does not restore hidden or fullscreen state, so the window opens visible. Jotter separately restores the zen focus preference, which can start a fullscreen session. The quick capture window is not remembered. The saved layout lives in Tauri’s app configuration folder as `.window-state.json`, outside your vault. On Windows the path is `%APPDATA%\com.jotter.desktop\.window-state.json`, separate from Jotter’s `%LOCALAPPDATA%\Jotter` data folder. Delete that file to reset the window.
 
 ### CSS Snippets
 Put `.css` files in the app data `snippets` folder, then turn each one on in **Settings → System → CSS snippets**. Snippets load after the theme, so they can override its colors, fonts and spacing. **Open folder** opens the snippets folder, and **Reload** picks up edits.
