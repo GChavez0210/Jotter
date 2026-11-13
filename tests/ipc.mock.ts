@@ -28,10 +28,16 @@ export const openVault = async () => {control.openCalls++; return {rootPath:'B',
 export const closeVault = async () => {control.closeCalls++;};
 export const createFolder = async () => {};
 export const createNewVault = openVault;
-export const createNote = async () => {};
+export const captureControl = {
+  create: async (_path: string, _content?: string): Promise<[import('../src/lib/types').VaultSnapshot, import('../src/lib/types').NoteDocument]> => { throw new Error('create not configured'); },
+  snapshot: async (): Promise<import('../src/lib/types').VaultSnapshot | null> => null,
+  selected: [] as string[],
+  compact: [] as boolean[],
+};
+export const createNote = (path: string, content?: string) => captureControl.create(path, content);
 export const deleteEntry = async () => {};
 export const getRecentVaults = async () => [];
-export const getVaultSnapshot = async () => null;
+export const getVaultSnapshot = () => captureControl.snapshot();
 export const rebuildVaultIndex = async () => 0;
 export const restoreDeletedEntry = async () => {};
 export const removeRecentVaultEntry = async () => [];
@@ -42,7 +48,13 @@ export const linkControl = {
 };
 export const planLinkUpdates = (oldPath: string, newPath: string) => linkControl.plan(oldPath, newPath);
 export const applyLinkEdits = (path: string, edits: import('../src/lib/types').TextEdit[]) => linkControl.apply(path, edits);
-export const quickCaptureAppend = async (relPath: string, _text: string) => relPath;
+export const quickCaptureAppend = async (relPath: string, _text: string, compact = false) => { captureControl.compact.push(compact); return relPath; };
+export const selectCaptureProfile = async (id: string) => { captureControl.selected.push(id); };
+export const listenCaptureProfileSelections = async (_handler: (id: string) => void) => () => {};
+export const listenQuickCaptureOpen = async (_handler: () => void) => () => {};
+export const hideCaptureWindow = async () => {};
+export const requestCapture = async () => '';
+export const CAPTURE_TIMEOUT_ERROR = 'capture-timeout';
 
 export const pinControl = { pinned: [] as string[] };
 export const listPinnedNotes = async () => pinControl.pinned;

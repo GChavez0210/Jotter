@@ -25,8 +25,10 @@
     setTrayLabels,
     renderNoteHtmlPreview,
     listenCaptureRequests,
+    listenCaptureProfileSelections,
   } from './lib/ipc';
   import { enhanceRenderedHtml } from './lib/richBlocks';
+  import { INBOX_PROFILE_ID } from './lib/captureProfiles';
   import { setOpenNoteEditApplier } from './lib/linkUpdates';
   import { clampSplitRatio } from './lib/layout';
   import { openInActivePane, toggleSplitNote } from './lib/panes';
@@ -65,6 +67,7 @@
   let unlistenFsEvents: UnlistenFn | null = null;
   let unlistenQuit: UnlistenFn | null = null;
   let unlistenCapture: UnlistenFn | null = null;
+  let unlistenCaptureProfile: UnlistenFn | null = null;
   let missingWikiLinkPrompt = $state<{
     noteTarget: string;
     heading?: string;
@@ -560,8 +563,20 @@
         // ignore in browser preview
       });
 
+    void listenCaptureProfileSelections((id) => {
+      void settingsStore.rememberCaptureProfile(id).catch((err) => {
+        console.warn('Could not save capture profile selection', err);
+      });
+    }).then((unlisten) => { unlistenCaptureProfile = unlisten; }).catch(() => {
+      // The browser preview has no secondary windows.
+    });
+
     // The quick capture window sends its entries here, where the open notes live.
-    void listenCaptureRequests((request) => vaultStore.captureEntry(request.note, request.text))
+    void listenCaptureRequests((request) =>
+      request.profile && request.profile !== INBOX_PROFILE_ID
+        ? vaultStore.captureWithProfile(request.profile, request.text)
+        : vaultStore.captureEntry(request.note, request.text)
+    )
       .then((unlisten) => {
         unlistenCapture = unlisten;
       })
@@ -602,6 +617,7 @@
     unlistenFsEvents?.();
     unlistenQuit?.();
     unlistenCapture?.();
+    unlistenCaptureProfile?.();
     tabsStore.clearAllTimers();
   });
 

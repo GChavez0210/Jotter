@@ -11,17 +11,23 @@ const SAVE_DELAY_MS = 200;
  * Tauri backend is missing (a browser preview, the unit tests), calls pass through to
  * `localStorage` so the app keeps working.
  */
-class AppStorage {
+export class AppStorage {
+  private readOnly = false;
   private map: Map<string, string> | null = null;
   private timer: ReturnType<typeof setTimeout> | undefined;
   private pending: Promise<void> = Promise.resolve();
 
   /** Reads the settings file. The first run copies the old `localStorage` values into it. */
-  async load(): Promise<void> {
+  async load({ readOnly = false }: { readOnly?: boolean } = {}): Promise<void> {
+    this.readOnly = readOnly;
     try {
       const raw = await loadAppSettings();
       if (raw !== null) {
         this.map = parseStored(raw);
+        return;
+      }
+      if (readOnly) {
+        this.map = null;
         return;
       }
       const migrated = new Map<string, string>();
@@ -44,12 +50,14 @@ class AppStorage {
   }
 
   setItem(key: string, value: string): void {
+    if (this.readOnly) throw new Error('Secondary windows cannot write settings');
     if (!this.map) return localStorage.setItem(key, value);
     this.map.set(key, value);
     this.scheduleSave();
   }
 
   removeItem(key: string): void {
+    if (this.readOnly) throw new Error('Secondary windows cannot write settings');
     if (!this.map) return localStorage.removeItem(key);
     this.map.delete(key);
     this.scheduleSave();
@@ -72,7 +80,7 @@ class AppStorage {
    * entries, such as the last vault, stay as they are.
    */
   async replaceTransferable(incoming: Record<string, string>): Promise<void> {
-    if (!this.map) throw new Error('Settings storage is not available');
+    if (this.readOnly || !this.map) throw new Error('Settings storage is not available');
     if (Object.keys(incoming).length === 0 || !Object.entries(incoming).every(([key, value]) => isTransferableEntry(key, value))) {
       throw new Error('Invalid settings import');
     }
@@ -95,6 +103,7 @@ class AppStorage {
     clearTimeout(this.timer);
     this.timer = undefined;
     const map = this.map;
+    if (this.readOnly) return this.pending;
     if (!map) return this.pending;
     const json = serialize(map);
     this.pending = this.pending.catch(() => undefined).then(() => saveAppSettings(json));

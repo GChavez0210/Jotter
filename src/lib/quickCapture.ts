@@ -13,6 +13,8 @@ export interface CaptureRequest {
   id: string;
   note: string;
   text: string;
+  /** The capture profile to use. Without it, the entry goes to `note` as typed. */
+  profile?: string;
 }
 
 export type CaptureResult = { id: string; path: string } | { id: string; error: string };
@@ -25,16 +27,18 @@ export function normalizeCaptureNote(note: string): string {
 
 /**
  * The edit that appends `text` to a note, matching the backend: trailing whitespace goes, then
- * one blank line, the trimmed entry, and a final line break. Null when the entry is empty.
+ * one blank line (or one line break when `compact`), the trimmed entry, and a final line
+ * break. Null when the entry is empty.
  */
-export function captureEdit(doc: string, text: string): TextEdit | null {
+export function captureEdit(doc: string, text: string, compact = false): TextEdit | null {
   const entry = text.trim();
   if (!entry) return null;
   const from = doc.trimEnd().length;
+  const gap = from === 0 ? '' : compact ? '\n' : '\n\n';
   return {
     from,
     to: doc.length,
     expected: doc.slice(from),
-    insert: `${from > 0 ? '\n\n' : ''}${entry}\n`,
+    insert: `${gap}${entry}\n`,
   };
 }
