@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
 
 use tantivy::collector::TopDocs;
+use tantivy::query_grammar::{UserInputAst, UserInputLeaf};
 use tantivy::query::{BooleanQuery, BoostQuery, FuzzyTermQuery, Occur, Query, QueryParser, RegexQuery};
 use tantivy::schema::{Field, Schema, Value, STORED, STRING, TEXT};
 use tantivy::tokenizer::TextAnalyzer;
@@ -296,37 +297,17 @@ impl VaultSearchIndex {
             vec![self.title_field, self.body_field],
         );
         query_parser.set_field_boost(self.title_field, 2.0);
-        let (exact, _errors) = query_parser.parse_query_lenient(query_str);
-
         if uses_query_syntax(query_str) {
-            // Separate terms all have to match, so `path:projects bank` narrows the search.
-            let mut query_parser = QueryParser::for_index(
-                &self.index,
-                vec![self.title_field, self.body_field],
-            );
-            query_parser.set_field_boost(self.title_field, 2.0);
             query_parser.set_conjunction_by_default();
-            let (exact, _errors) = query_parser.parse_query_lenient(query_str);
-            let mut terms: Vec<HighlightTerm> = Vec::new();
-            exact.query_terms(&mut |term, _| {
-                let field = term.field();
-                if field != self.title_field && field != self.body_field && field != self.tag_field {
-                    return;
-                }
-                if let Some(text) = term.value().as_str() {
-                    let candidate = HighlightTerm {
-                        text: text.to_string(),
-                        max_edits: 0,
-                        prefix: false,
-                    };
-                    if !terms.contains(&candidate) {
-                        terms.push(candidate);
-                    }
-                }
-            });
+            let (mut ast, _errors) = tantivy::query_grammar::parse_query_lenient(query_str);
+            normalize_required_negations(&mut ast);
+            let mut terms = Vec::new();
+            self.highlight_terms(&ast, &mut terms);
+            let (exact, _errors) = query_parser.build_query_from_user_input_ast_lenient(ast);
             return (exact, terms);
         }
 
+        let (exact, _errors) = query_parser.parse_query_lenient(query_str);
         let words = self.analyzed_terms(query_str);
         let last = words.len().saturating_sub(1);
         let mut terms = Vec::with_capacity(words.len());
@@ -360,8 +341,44 @@ impl VaultSearchIndex {
         (Box::new(BooleanQuery::new(clauses)), terms)
     }
 
-    /// Runs `text` through the body field's tokenizer, so fuzzy terms match indexed terms.
+    fn highlight_terms(&self, ast: &UserInputAst, terms: &mut Vec<HighlightTerm>) {
+        match ast {
+            UserInputAst::Clause(clauses) => {
+                for (occur, child) in clauses {
+                    if *occur != Some(tantivy::query_grammar::Occur::MustNot) {
+                        self.highlight_terms(child, terms);
+                    }
+                }
+            }
+            UserInputAst::Boost(child, _) => self.highlight_terms(child, terms),
+            UserInputAst::Leaf(leaf) => {
+                if let UserInputLeaf::Literal(literal) = leaf.as_ref() {
+                    if literal.field_name.as_deref().is_some_and(|field| !matches!(field, "title" | "body" | "tag")) {
+                        return;
+                    }
+                    let words = self.analyzed_words(&literal.phrase);
+                    let last = words.len().saturating_sub(1);
+                    for (i, text) in words.into_iter().enumerate() {
+                        let candidate = HighlightTerm { text, max_edits: 0, prefix: literal.prefix && i == last };
+                        if !terms.contains(&candidate) {
+                            terms.push(candidate);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn analyzed_terms(&self, text: &str) -> Vec<String> {
+        let mut terms = Vec::new();
+        for word in self.analyzed_words(text) {
+            if !terms.contains(&word) { terms.push(word); }
+        }
+        terms
+    }
+
+    /// Keeps repeated words so a phrase's prefix applies to its actual last token.
+    fn analyzed_words(&self, text: &str) -> Vec<String> {
         let Ok(mut analyzer) = self.index.tokenizer_for_field(self.body_field) else {
             return Vec::new();
         };
@@ -369,11 +386,33 @@ impl VaultSearchIndex {
         let mut stream = analyzer.token_stream(text);
         while stream.advance() {
             let token = stream.token().text.clone();
-            if !terms.contains(&token) {
-                terms.push(token);
-            }
+            terms.push(token);
         }
         terms
+    }
+}
+
+/// Tantivy parses `a AND NOT b` as a required, purely negative child clause. Move the
+/// exclusion to its parent so it excludes `b` instead of requiring an empty result set.
+fn normalize_required_negations(ast: &mut UserInputAst) {
+    use tantivy::query_grammar::Occur as InputOccur;
+    match ast {
+        UserInputAst::Clause(clauses) => {
+            for (occur, child) in clauses {
+                normalize_required_negations(child);
+                if occur.unwrap_or(InputOccur::Must) == InputOccur::Must {
+                    if let UserInputAst::Clause(inner) = child {
+                        if inner.len() == 1 && inner[0].0 == Some(InputOccur::MustNot) {
+                            let (_, excluded) = inner.remove(0);
+                            *occur = Some(InputOccur::MustNot);
+                            *child = excluded;
+                        }
+                    }
+                }
+            }
+        }
+        UserInputAst::Boost(child, _) => normalize_required_negations(child),
+        UserInputAst::Leaf(_) => {}
     }
 }
 
@@ -903,6 +942,38 @@ mod tests {
             "All {} concurrent upserts across both threads must be present in the index",
             per_thread_count * 2
         );
+    }
+
+    #[test]
+    fn and_not_excludes_terms_and_groups_without_changing_quoted_words() {
+        let idx = index_of(&[
+            scanned("A.md", "A", "quick brown fox", &[]),
+            scanned("B.md", "B", "quick blue bird", &[]),
+            scanned("C.md", "C", "quick AND NOT literal", &[]),
+        ]);
+        assert_eq!(paths(&idx.search("quick AND NOT missing", 10).unwrap()), vec!["A.md", "B.md", "C.md"]);
+        assert_eq!(paths(&idx.search("quick AND NOT blue", 10).unwrap()), vec!["A.md", "C.md"]);
+        assert_eq!(paths(&idx.search("quick AND NOT (blue OR literal)", 10).unwrap()), vec!["A.md"]);
+        assert_eq!(paths(&idx.search("(quick AND NOT blue) AND fox", 10).unwrap()), vec!["A.md"]);
+        assert_eq!(paths(&idx.search("\"AND NOT\"", 10).unwrap()), vec!["C.md"]);
+        assert_eq!(paths(&idx.search("quick AND -blue", 10).unwrap()), vec!["A.md", "C.md"]);
+    }
+
+    #[test]
+    fn phrase_prefix_highlights_the_expanded_last_word() {
+        let idx = index_of(&[
+            scanned("A.md", "A", "café 日本語 😀 quick brown fox", &[]),
+            scanned("B.md", "B", "quick blue bird", &[]),
+        ]);
+        for query in ["\"quick bro\"*", "body:\"quick bro\"*", "\"quick bro\"* AND fox"] {
+            let hits = idx.search(query, 10).unwrap();
+            assert_eq!(paths(&hits), vec!["A.md"]);
+            let expected = if query.ends_with("fox") { vec!["quick", "brown", "fox"] } else { vec!["quick", "brown"] };
+            assert_eq!(highlighted(&hits[0]), expected);
+        }
+        let repeated = index_of(&[scanned("Repeat.md", "Repeat", "bro quick brown", &[])]);
+        let hits = repeated.search("\"bro quick bro\"*", 10).unwrap();
+        assert_eq!(highlighted(&hits[0]), vec!["bro", "quick", "brown"]);
     }
 
     /// Timing for the acceptance target: common queries under 100 ms at p95 on 10,000 notes.

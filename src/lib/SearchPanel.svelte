@@ -41,6 +41,7 @@
     const version = vaultStore.indexVersion;
     void version;
 
+    const mine = ++searchSeq;
     if (!q) {
       results = [];
       searching = false;
@@ -50,7 +51,6 @@
     searching = true;
     // Only the newest request may update the list. The backend also cancels an older search
     // that is still running when a newer one starts.
-    const mine = ++searchSeq;
     const timer = setTimeout(() => {
       void searchVault(q, 50)
         .then((hits) => {
@@ -64,7 +64,10 @@
         });
     }, 90);
 
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(timer);
+      searchSeq++;
+    };
   });
 
   export function focusSearchInput() {
@@ -85,7 +88,7 @@
         e.preventDefault();
         first.focus();
       }
-    } else if (e.key === 'Enter' && results[0]) {
+    } else if (e.key === 'Enter' && query.trim() && !searching && results[0]) {
       e.preventDefault();
       handleSelectHit(results[0]);
     }
