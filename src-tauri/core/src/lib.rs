@@ -8,6 +8,7 @@ pub mod index;
 pub mod link_update;
 pub mod links;
 pub mod md_scan;
+pub mod os_trash;
 pub mod plain;
 pub mod platform;
 pub mod recycle;
