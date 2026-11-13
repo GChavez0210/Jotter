@@ -4,6 +4,7 @@ import { foldAll, unfoldAll } from '@codemirror/language';
 import { m } from './i18n.svelte';
 import { toggleZoom } from './outliner';
 import { addDueDate } from './dueDates';
+import { runTableCommand, type TableCommandId } from './tables';
 
 export type MarkdownFormatCommandId =
   | 'bold'
@@ -29,7 +30,8 @@ export type MarkdownFormatCommandId =
   | 'zoom_toggle'
   | 'fold_all'
   | 'unfold_all'
-  | 'due_date';
+  | 'due_date'
+  | `table_${TableCommandId}`;
 
 /**
  * Wraps or unwraps the current selection (or word at cursor) with a symmetric marker
@@ -402,6 +404,9 @@ export function runMarkdownCommand(
       return unfoldAll(view);
     case 'due_date':
       return addDueDate(view);
+    default:
+      // The remaining ids are `table_*` commands for the table under the cursor.
+      return runTableCommand(view, cmd.slice('table_'.length) as TableCommandId);
   }
 }
 

@@ -76,6 +76,16 @@ Markdown lists work as an outline:
 - Click the arrow in the left margin to fold an item's children, or focus the arrow and press Enter or Space. `Ctrl+Shift+[` folds and `Ctrl+Shift+]` unfolds at the cursor, including heading sections.
 - `Ctrl+.` shows only the item at the cursor and its children. Press `Ctrl+.` again on that item, or click **Show whole note**, to zoom out.
 
+### Tables
+Run **Insert Markdown Table** from the command palette to add a table. With the cursor in a table:
+
+- `Tab` and `Shift+Tab` move to the next and previous cell and align the whole table. `Tab` in the last cell adds a row.
+- `Enter` moves to the same column in the next row, or adds a row after the last one.
+- The command palette lists **Format Table** and the `Table:` commands, which insert, delete, and move rows and columns and set a column's alignment. The header row cannot move or be deleted, and the last column cannot be deleted.
+- Each command is one undo step. Formatting changes only the spacing around cells, so escaped pipes (`\|`), inline code, and HTML stay as written.
+- Write a pipe inside a cell as `\|`. Like GitHub, Jotter treats an unescaped pipe in inline code as a cell boundary.
+- A table with a row that has more cells than its header is left alone, because aligning it would drop text or add columns. Tables in code blocks are ignored.
+
 ### Task Due Dates
 Due dates inside backtick code spans stay literal and do not create calendar events or due-date chips.
 
@@ -243,8 +253,8 @@ Shortcut labels use Ctrl on Windows/Linux and Cmd on macOS. Folding uses Cmd+Opt
 | `Ctrl+Shift+8` | Toggle bullet list (`- `) |
 | `Ctrl+Shift+9` | Toggle task list checkbox (`- [ ] `) |
 | `Ctrl+Shift+.` | Toggle blockquote (`> `) |
-| `Tab` | Insert a pending calculation result; in a list, nest the item under the one above |
-| `Shift+Tab` | Move a list item out one level |
+| `Tab` | Insert a pending calculation result; in a table, go to the next cell; in a list, nest the item under the one above |
+| `Shift+Tab` | Go to the previous table cell, or move a list item out one level |
 | `Alt+↑` / `Alt+↓` | Move the list item, with its children, or the line |
 | `Ctrl+.` | Zoom into the list item at the cursor; again on that item to zoom out |
 | `Ctrl+Shift+[` / `Ctrl+Shift+]` | Fold / unfold the list item or heading section at the cursor |
