@@ -1694,6 +1694,9 @@ pub fn run() {
     #[cfg(desktop)]
     let builder = builder.plugin(tauri_plugin_updater::Builder::new().build());
 
+    #[cfg(desktop)]
+    let builder = builder.plugin(window_state_plugin());
+
     builder
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
@@ -1815,6 +1818,53 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Jotter Tauri application");
+}
+
+/// What the main window remembers between launches: its size, its position, and whether it was
+/// maximized. Visibility is left out so a window hidden in the tray when Jotter quit does not
+/// make the next launch start hidden. Fullscreen is left out because zen focus mode turns it on
+/// and off, and a launch should not start in a mode the user entered for one session.
+#[cfg(desktop)]
+const WINDOW_STATE_FLAGS: tauri_plugin_window_state::StateFlags =
+    tauri_plugin_window_state::StateFlags::SIZE
+        .union(tauri_plugin_window_state::StateFlags::POSITION)
+        .union(tauri_plugin_window_state::StateFlags::MAXIMIZED);
+
+/// Windows that are not remembered: the quick capture window sizes and places itself.
+#[cfg(desktop)]
+const WINDOW_STATE_SKIPPED: &[&str] = &["capture"];
+
+/// Saves the main window's geometry when Jotter closes and restores it at the next launch. The
+/// plugin ignores a saved position that no connected monitor shows, so unplugging a screen does
+/// not strand the window off-screen.
+#[cfg(desktop)]
+fn window_state_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri_plugin_window_state::Builder::default()
+        .with_state_flags(WINDOW_STATE_FLAGS)
+        .with_denylist(WINDOW_STATE_SKIPPED)
+        .build()
+}
+
+#[cfg(all(test, desktop))]
+mod window_state_tests {
+    use super::*;
+    use tauri_plugin_window_state::StateFlags;
+
+    #[test]
+    fn the_main_window_keeps_geometry_but_not_visibility_or_fullscreen() {
+        assert!(WINDOW_STATE_FLAGS.contains(StateFlags::SIZE));
+        assert!(WINDOW_STATE_FLAGS.contains(StateFlags::POSITION));
+        assert!(WINDOW_STATE_FLAGS.contains(StateFlags::MAXIMIZED));
+        assert!(!WINDOW_STATE_FLAGS.contains(StateFlags::VISIBLE));
+        assert!(!WINDOW_STATE_FLAGS.contains(StateFlags::FULLSCREEN));
+        assert!(!WINDOW_STATE_FLAGS.contains(StateFlags::DECORATIONS));
+    }
+
+    #[test]
+    fn the_capture_window_is_not_remembered() {
+        assert!(WINDOW_STATE_SKIPPED.contains(&"capture"));
+        assert!(!WINDOW_STATE_SKIPPED.contains(&"main"));
+    }
 }
 
 #[cfg(test)]
