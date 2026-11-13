@@ -4,6 +4,10 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 
 ## [Unreleased]
 
+### Added
+
+- **Extract selection to a linked note.** The command palette's **Extract Selection to Note** creates a note from the selected text and replaces the selection with a link, with an optional link back. The new note is written and read back before the source changes, the replacement is one undo step, and a crash mid-way is reported at the next launch.
+
 ## [0.5.3] - 2026-10-30
 
 ### Added

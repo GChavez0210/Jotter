@@ -16,7 +16,9 @@ import assert from 'node:assert/strict';
 import { EditorState } from '@codemirror/state';
 import { tabsStore } from '../src/lib/stores/tabs.svelte';
 import { vaultStore, fillDailyTemplate } from '../src/lib/stores/vault.svelte';
-import { control } from './ipc.mock';
+import { control, createControl } from './ipc.mock';
+import { appStorage } from '../src/lib/appStorage';
+import { PENDING_EXTRACTION_KEY, buildExtractedNote, extractionChange, hasLinkUnsafeChars, linkTargetFor, parsePendingExtraction, splitPadding, suggestExtractName } from '../src/lib/extractNote';
 import { pinControl } from './ipc.mock';
 import { activeHeadingIndex, outlineDepths, parseOutline } from '../src/lib/outline';
 import { captureEditorOperation } from '../src/lib/editorOperations';
@@ -1862,3 +1864,158 @@ test('external conflicts block autosave and close until the user keeps their edi
     assert.deepEqual(writes, ['more local edits']);
   } finally { tabsStore.clearAllTimers(); mock.timers.reset(); }
 });
+
+// Extract selection to a linked note --------------------------------------------------
+
+test('the suggested note name comes from the first line, without Markdown or unsafe characters', () => {
+  assert.equal(suggestExtractName('## Plan: Q3 / budget?\nmore'), 'Plan Q3 budget');
+  assert.equal(suggestExtractName('- [ ] Call **the** bank'), 'Call the bank');
+  assert.equal(suggestExtractName('\n\n> See [[Notes/Alpha|the alpha]] and [site](https://x.y)'), 'See the alpha and site');
+  assert.equal(suggestExtractName('???'), '?'.replace('?', '').trim());
+  assert.equal(suggestExtractName('...hidden.'), 'hidden');
+  const long = suggestExtractName('word '.repeat(40));
+  assert.ok(long.length <= 60 && !long.endsWith(' '), long);
+  assert.equal(hasLinkUnsafeChars('a [b]'), true);
+  assert.equal(hasLinkUnsafeChars('Plain name'), false);
+});
+
+test('the extracted note keeps the selection under a title with a link back', () => {
+  assert.equal(
+    buildExtractedNote({ title: 'Idea', body: '  first\r\nsecond  \n', backLinkLine: 'Extracted from [[Src]].' }),
+    '# Idea\n\nfirst\nsecond\n\nExtracted from [[Src]].\n'
+  );
+  assert.equal(buildExtractedNote({ title: 'Idea', body: 'text', backLinkLine: null }), '# Idea\n\ntext\n');
+  // A selection that already starts with a level-one heading is not given a second title.
+  assert.equal(
+    buildExtractedNote({ title: 'X', body: '\n# Own title\nbody', backLinkLine: 'Back.' }),
+    '# Own title\nbody\n\nBack.\n'
+  );
+  assert.deepEqual(splitPadding('\n\n  text here \n'), { lead: '\n\n  ', core: 'text here', trail: ' \n' });
+});
+
+test('links use the bare name unless another note with that name would win', () => {
+  const found = (relPath: string) => () => ({ relPath });
+  assert.equal(linkTargetFor('Notes/Idea.md', found('Notes/Idea.md')), 'Idea');
+  assert.equal(linkTargetFor('Notes/Idea.md', found('Other/Idea.md')), 'Notes/Idea');
+  assert.equal(linkTargetFor('Notes/Idea.md', () => null), 'Notes/Idea');
+  assert.equal(linkTargetFor('Idea.md', found('idea.md')), 'Idea');
+});
+
+test('extraction replaces only the selected text, keeps its padding, and undoes in one step', () => {
+  const doc = 'before\n\nthe moved text\n\nafter';
+  const from = doc.indexOf('\n\nthe moved');
+  const to = doc.indexOf('text\n\nafter') + 4;
+  const text = doc.slice(from, to);
+  let state = EditorState.create({ doc, extensions: [history()], selection: { anchor: from, head: to } });
+  state = state.update(extractionChange({ from, to, text }, '[[Moved]]')).state;
+  assert.equal(state.doc.toString(), 'before\n\n[[Moved]]\n\nafter');
+  assert.equal(state.selection.main.head, 'before\n\n[[Moved]]'.length);
+  assert.equal(undoDepth(state), 1);
+  let restored = state;
+  undo({ state, dispatch: (tr) => (restored = tr.state) });
+  assert.equal(restored.doc.toString(), doc);
+});
+
+const extractArgs = (apply: (link: string) => boolean) => ({
+  sourceRel: 'Notes/Source.md',
+  text: '\nmoved text\n',
+  name: 'Moved',
+  folder: 'Notes',
+  backLink: true,
+  apply,
+});
+
+/** Runs `body` with a throwaway `localStorage`, which app storage uses before settings load. */
+async function withMemoryStorage(body: () => void | Promise<void>) {
+  const memory = new Map<string, string>();
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+    getItem: (k: string) => memory.get(k) ?? null,
+    setItem: (k: string, v: string) => void memory.set(k, v),
+    removeItem: (k: string) => void memory.delete(k),
+    key: () => null,
+    length: 0,
+  } });
+  try {
+    await body();
+  } finally {
+    if (previous) Object.defineProperty(globalThis, 'localStorage', previous);
+    else Reflect.deleteProperty(globalThis, 'localStorage');
+  }
+}
+
+function resetExtractionState() {
+  createControl.calls.length = 0;
+  createControl.create = async (path, content) => [
+    { rootPath: 'V', name: 'V', tree: [{ name: 'Moved.md', relPath: path, kind: 'file', modifiedMs: 0, createdMs: 0, children: [] }], noteCount: 1 },
+    { relPath: path, title: path, content: content ?? '' },
+  ];
+  appStorage.removeItem(PENDING_EXTRACTION_KEY);
+  vaultStore.vaultSnapshot = { rootPath: 'V', name: 'V', tree: [], noteCount: 0 };
+}
+
+test('extraction writes the note first and replaces the selection only after that', async () => withMemoryStorage(async () => {
+  resetExtractionState();
+  const order: string[] = [];
+  createControl.create = async (path, content) => {
+    order.push('create');
+    // The recovery record is already stored while the note is being written.
+    assert.ok(parsePendingExtraction(appStorage.getItem(PENDING_EXTRACTION_KEY)));
+    return [
+      { rootPath: 'V', name: 'V', tree: [{ name: 'Moved.md', relPath: path, kind: 'file', modifiedMs: 0, createdMs: 0, children: [] }], noteCount: 1 },
+      { relPath: path, title: path, content: content ?? '' },
+    ];
+  };
+  const result = await vaultStore.extractToNote(extractArgs((link) => { order.push(`apply ${link}`); return true; }));
+  assert.deepEqual(order, ['create', 'apply [[Moved]]']);
+  assert.deepEqual(result, { path: 'Notes/Moved.md', replaced: true });
+  assert.equal(appStorage.getItem(PENDING_EXTRACTION_KEY), null);
+}));
+
+test('a note that cannot be created leaves the source untouched', async () => withMemoryStorage(async () => {
+  resetExtractionState();
+  createControl.create = async () => { throw new Error('disk full'); };
+  let applied = false;
+  await assert.rejects(
+    vaultStore.extractToNote(extractArgs(() => { applied = true; return true; })),
+    /disk full/
+  );
+  assert.equal(applied, false);
+  assert.equal(appStorage.getItem(PENDING_EXTRACTION_KEY), null);
+}));
+
+test('a note whose text cannot be confirmed leaves the source untouched', async () => withMemoryStorage(async () => {
+  resetExtractionState();
+  createControl.create = async (path) => [
+    { rootPath: 'V', name: 'V', tree: [], noteCount: 0 },
+    { relPath: path, title: path, content: 'truncated' },
+  ];
+  let applied = false;
+  await assert.rejects(vaultStore.extractToNote(extractArgs(() => { applied = true; return true; })));
+  assert.equal(applied, false);
+}));
+
+test('a source that changed meanwhile keeps its text and reports it', async () => withMemoryStorage(async () => {
+  resetExtractionState();
+  const result = await vaultStore.extractToNote(extractArgs(() => false));
+  assert.deepEqual(result, { path: 'Notes/Moved.md', replaced: false });
+}));
+
+test('extraction refuses a name that already exists before writing anything', async () => withMemoryStorage(async () => {
+  resetExtractionState();
+  vaultStore.vaultSnapshot = {
+    rootPath: 'V', name: 'V', noteCount: 1,
+    tree: [{ name: 'moved.md', relPath: 'Notes/moved.md', kind: 'file', modifiedMs: 0, createdMs: 0, children: [] }],
+  };
+  await assert.rejects(vaultStore.extractToNote(extractArgs(() => true)));
+  assert.equal(createControl.calls.length, 0);
+}));
+
+test('an extraction cut short by a crash is reported once and forgotten', () => withMemoryStorage(() => {
+  resetExtractionState();
+  appStorage.setItem(PENDING_EXTRACTION_KEY, JSON.stringify({ source: 'A.md', dest: 'B.md', startedMs: 1 }));
+  vaultStore.reportInterruptedExtraction();
+  assert.equal(appStorage.getItem(PENDING_EXTRACTION_KEY), null);
+  assert.equal(parsePendingExtraction('{"source":1}'), null);
+  assert.equal(parsePendingExtraction('nope'), null);
+}));

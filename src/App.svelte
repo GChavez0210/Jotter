@@ -229,6 +229,38 @@
     activeEditor?.executeMarkdownCommand(cmd);
   }
 
+  /** The text and note behind the Extract dialog, captured when the command ran. */
+  let extractRequest = $state<{
+    text: string;
+    sourceRel: string;
+    apply: (linkText: string) => boolean;
+  } | null>(null);
+
+  /** Starts extracting the selection into a new note, if the selection can be moved safely. */
+  function startExtractSelection() {
+    const editor = activeEditor;
+    const sourceRel =
+      settingsStore.effectivePane === 'secondary' ? splitTab?.relPath : tabsStore.activeTabPath;
+    if (!editor || !sourceRel || !editor.hasSelection()) {
+      clipboardStore.setStatus(m.extract_no_selection());
+      return;
+    }
+    try {
+      const target = editor.captureAiTarget('selection');
+      if (!target) {
+        clipboardStore.setStatus(m.extract_no_selection());
+        return;
+      }
+      extractRequest = {
+        text: target.text,
+        sourceRel,
+        apply: (linkText) => editor.applyExtraction(target, linkText),
+      };
+    } catch (err) {
+      clipboardStore.setStatus(err instanceof Error ? err.message : String(err));
+    }
+  }
+
   function handleWikiLinkClick(noteTarget: string, heading?: string) {
     const cleanNote = noteTarget.trim();
     if (!cleanNote && heading) {
@@ -572,9 +604,10 @@
     void vaultStore.refreshRecentVaults().then(() => {
       try {
         const lastVault = appStorage.getItem('jotter.lastVaultPath');
-        if (lastVault) {
-          void vaultStore.openVaultByPath(lastVault);
-        }
+        // Say what an interrupted extraction left behind once the vault is back.
+        void (lastVault ? vaultStore.openVaultByPath(lastVault) : Promise.resolve()).finally(() =>
+          vaultStore.reportInterruptedExtraction()
+        );
       } catch {
         // ignore
       }
@@ -888,6 +921,24 @@
     {/await}
   {/if}
 
+  {#if extractRequest}
+    {#await import('./lib/ExtractDialog.svelte') then { default: ExtractDialog }}
+      <ExtractDialog
+        text={extractRequest.text}
+        sourceRel={extractRequest.sourceRel}
+        apply={extractRequest.apply}
+        onClose={() => {
+          extractRequest = null;
+          activeEditor?.focusEditor();
+        }}
+      />
+    {:catch}
+      <Dialog label={m.lazy_load_failed()} onClose={() => { extractRequest = null; activeEditor?.focusEditor(); }}>
+        <LazyLoadError onClose={() => { extractRequest = null; activeEditor?.focusEditor(); }} />
+      </Dialog>
+    {/await}
+  {/if}
+
   {#if settingsStore.showTemplatePicker}
     {#await import('./lib/TemplatePicker.svelte') then { default: TemplatePicker }}
       <TemplatePicker
@@ -922,6 +973,7 @@
     {#await import('./lib/CommandPalette.svelte') then { default: CommandPalette }}
       <CommandPalette
         onFormat={handleFormatCommand}
+        onExtractSelection={startExtractSelection}
         onCopyTrigger={() => activeEditor?.triggerCopyFromToolbar()}
         onPastePlainTrigger={() => activeEditor?.triggerPastePlainFromToolbar()}
         onRefreshInspector={() => void refreshInspectorPreview()}

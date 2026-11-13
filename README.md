@@ -66,6 +66,18 @@ sum                # 73.5, every result since the last blank line
 ### Properties
 The note header shows the note's YAML frontmatter as a form. Each property has a type: text, list, number, checkbox, date, or date and time. Click a property's icon to change its type. **Add property** appears when you hover over the line under the title. Edits change only that property's lines in the file, so comments and formatting elsewhere in the frontmatter stay as they are, and `Ctrl+Z` undoes them. Values the form cannot edit, such as nested maps, show as read-only text; edit them in Source mode. Live mode hides the raw YAML; Source mode shows it.
 
+### Extract Selection to a Note
+Select text in a note, then run **Extract Selection to Note** from the command palette. Jotter asks for a name and a folder, which start as the selection's first line and the current note's folder. It creates the note, replaces the selection with a `[[link]]`, and by default adds an `Extracted from [[Source]].` line to the new note. A selection that already starts with a `# Heading` keeps that heading as the title.
+
+The order protects your text:
+
+- The new note is written and read back from disk first. If that fails, the source note is not touched.
+- The selection is replaced only if the note has not changed since you selected it. Otherwise the new note stays and the original text is left in place, and Jotter says so.
+- The replacement is one undo step, so `Ctrl+Z` restores the text. It does not delete the new note, which stays in the vault.
+- A selection that cuts through a code block, link, math, tag, or the properties is refused, as for AI commands.
+- Jotter keeps a record while it works. If Jotter closes in the middle, the next launch tells you which note it had created and that the source is unchanged.
+- The link is the bare note name, or the folder path when another note with the same name would win.
+
 ### Outlining
 Markdown lists work as an outline:
 

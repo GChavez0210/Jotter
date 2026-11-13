@@ -16,6 +16,7 @@
 
   interface Props {
     onFormat: (cmd: MarkdownFormatCommandId) => void;
+    onExtractSelection: () => void;
     onCopyTrigger: () => void;
     onPastePlainTrigger: () => void;
     onRefreshInspector: () => void;
@@ -26,6 +27,7 @@
 
   let {
     onFormat,
+    onExtractSelection,
     onCopyTrigger,
     onPastePlainTrigger,
     onRefreshInspector,
@@ -311,6 +313,12 @@
       category: m.cmd_cat_format(),
       label: m.cmd_fmt_table(),
       action: () => onFormat('table'),
+    },
+    {
+      id: 'fmt-extract',
+      category: m.cmd_cat_format(),
+      label: m.extract_command(),
+      action: onExtractSelection,
     },
     {
       id: 'fmt-link',

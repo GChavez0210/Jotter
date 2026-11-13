@@ -28,7 +28,22 @@ export const openVault = async () => {control.openCalls++; return {rootPath:'B',
 export const closeVault = async () => {control.closeCalls++;};
 export const createFolder = async () => {};
 export const createNewVault = openVault;
-export const createNote = async () => {};
+export const createControl = {
+  calls: [] as string[],
+  create: async (path: string, content?: string): Promise<[import('../src/lib/types').VaultSnapshot, import('../src/lib/types').NoteDocument]> => [
+    {
+      rootPath: 'V',
+      name: 'V',
+      tree: [{ name: path.split('/').pop() ?? path, relPath: path, kind: 'file', modifiedMs: 0, createdMs: 0, children: [] }],
+      noteCount: 1,
+    },
+    { relPath: path, title: path, content: content ?? '' },
+  ],
+};
+export const createNote = (path: string, content?: string) => {
+  createControl.calls.push(path);
+  return createControl.create(path, content);
+};
 export const deleteEntry = async () => {};
 export const getRecentVaults = async () => [];
 export const getVaultSnapshot = async () => null;
