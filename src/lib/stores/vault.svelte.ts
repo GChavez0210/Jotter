@@ -19,6 +19,7 @@ import {
   planLinkUpdates,
   applyLinkEdits,
   quickCaptureAppend,
+  pastePlainFromClipboard,
 } from '../ipc';
 import type { LinkUpdatePlan, RecentVault, TextEdit, VaultNode, VaultSnapshot } from '../types';
 import { appStorage } from '../appStorage';
@@ -27,7 +28,8 @@ import { settingsStore } from './settings.svelte';
 import { tabsStore } from './tabs.svelte';
 import { invalidateImagePreviews } from '../imagePreviewCache';
 import { noteMoveDestination } from '../noteMove';
-import { fillTemplate, formatIsoDate } from '../templates';
+import { fillTemplate, formatIsoDate, templateUsesClipboard } from '../templates';
+import { planCapture } from '../captureProfiles';
 import { applyToOpenNote, reverseEdits } from '../linkUpdates';
 import { captureEdit, normalizeCaptureNote } from '../quickCapture';
 import { m, trashName } from '../i18n.svelte';
@@ -319,7 +321,10 @@ class VaultStore {
     try {
       const template = (await readNote(templateRelPath)).content;
       const title = noteName.replace(/\.md$/i, '');
-      const content = fillTemplate(template, { now: new Date(), title, prompts });
+      const clipboard = templateUsesClipboard(template)
+        ? await pastePlainFromClipboard().catch(() => '')
+        : undefined;
+      const content = fillTemplate(template, { now: new Date(), title, prompts, clipboard });
       return await this.createNoteInVault(parentFolderRel, noteName, content);
     } catch (err) {
       clipboardStore.setStatus(
@@ -465,17 +470,58 @@ class VaultStore {
    * the entry in the editor, keeping any unsaved typing; otherwise open tabs are saved first so
    * the write on disk cannot clash with them.
    */
-  async captureEntry(note: string, text: string): Promise<string> {
+  async captureEntry(note: string, text: string, compact = false): Promise<string> {
     const path = normalizeCaptureNote(note);
     const tab = tabsStore.openTabs.find((t) => sameNotePath(t.relPath, path));
     if (tab && tab.relPath === tabsStore.activeTabPath) {
-      const edit = captureEdit(tab.content, text);
+      const edit = captureEdit(tab.content, text, compact);
       if (edit && applyToOpenNote(tab.relPath, [edit])) return tab.relPath;
     }
     if (!(await tabsStore.flushAllAutosaves())) throw new Error(m.capture_unsaved());
-    const saved = await quickCaptureAppend(path, text);
+    const saved = await quickCaptureAppend(path, text, compact);
     this.bumpIndexVersion();
     return saved;
+  }
+
+  /**
+   * Captures an entry with one of the user's capture profiles and returns the note's path. The
+   * clipboard is read once, and only when the profile uses it. A profile that no longer exists
+   * falls back to the inbox note, so an entry is never lost to a stale setting.
+   */
+  async captureWithProfile(profileId: string, text: string): Promise<string> {
+    const profile = settingsStore.captureProfiles.find((p) => p.id === profileId);
+    if (!profile) return this.captureEntry(settingsStore.quickCaptureNote, text);
+
+    const usesClipboard = [profile.template, profile.target, profile.fileName].some(templateUsesClipboard);
+    const clipboard = usesClipboard ? await pastePlainFromClipboard().catch(() => '') : undefined;
+    const now = new Date();
+    const plan = () =>
+      planCapture(profile, {
+        text,
+        clipboard,
+        now,
+        noteExists: (path) => this.allFiles.some((f) => sameNotePath(f.relPath, path)),
+      });
+
+    if (profile.mode === 'append') {
+      const { path, content, compact } = plan();
+      return this.captureEntry(path, content, compact);
+    }
+    // A note made elsewhere since the last scan can take the name, so refresh and plan again.
+    for (let attempt = 0; ; attempt++) {
+      const { path, content } = plan();
+      try {
+        const [snapshot] = await createNote(path, content);
+        this.vaultSnapshot = snapshot;
+        this.bumpIndexVersion();
+        return path;
+      } catch (err) {
+        const exists = err instanceof Error && /already exists/i.test(err.message);
+        if (!exists || attempt >= 2) throw err;
+        const fresh = await getVaultSnapshot();
+        if (fresh) this.vaultSnapshot = fresh;
+      }
+    }
   }
 
   /** Puts the links changed by the last rename back as they were. */

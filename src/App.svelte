@@ -27,6 +27,7 @@
     listenCaptureRequests,
   } from './lib/ipc';
   import { enhanceRenderedHtml } from './lib/richBlocks';
+  import { INBOX_PROFILE_ID } from './lib/captureProfiles';
   import { setOpenNoteEditApplier } from './lib/linkUpdates';
   import { clampSplitRatio } from './lib/layout';
   import { openInActivePane, toggleSplitNote } from './lib/panes';
@@ -561,7 +562,11 @@
       });
 
     // The quick capture window sends its entries here, where the open notes live.
-    void listenCaptureRequests((request) => vaultStore.captureEntry(request.note, request.text))
+    void listenCaptureRequests((request) =>
+      request.profile && request.profile !== INBOX_PROFILE_ID
+        ? vaultStore.captureWithProfile(request.profile, request.text)
+        : vaultStore.captureEntry(request.note, request.text)
+    )
       .then((unlisten) => {
         unlistenCapture = unlisten;
       })

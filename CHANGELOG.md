@@ -4,6 +4,11 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 
 ## [Unreleased]
 
+### Added
+
+- **Capture profiles.** Quick capture can add an entry to a chosen note or create a new note for it. Idea, Task, Meeting, and Journal presets are included, and each profile has its own folder, note name, and text. Add profiles in Settings and pick one in the capture window.
+- **Template clipboard and conditionals.** Templates can use `{{clipboard}}` and `{{text}}`, and `{{#if name}}…{{else}}…{{/if}}` keeps one branch depending on whether a variable has text. Existing variables and prompts behave as before.
+
 ## [0.5.3] - 2026-10-30
 
 ### Added

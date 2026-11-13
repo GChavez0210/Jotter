@@ -1496,10 +1496,11 @@ fn quick_capture_append(
     state: State<'_, AppState>,
     rel_path: String,
     text: String,
+    compact: Option<bool>,
 ) -> Result<String, String> {
     let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
     let vault_root = require_active_vault(&state)?;
-    let rel = crate::capture::append_to_note(&vault_root, &rel_path, &text)?;
+    let rel = crate::capture::append_to_note(&vault_root, &rel_path, &text, compact.unwrap_or(false))?;
     let scanned = scan_single_file_from_disk(&vault_root, &vault_root.join(&rel))?;
     {
         let conn = state

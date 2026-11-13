@@ -4,6 +4,7 @@
   import { appStorage } from './appStorage';
   import { CAPTURE_TIMEOUT_ERROR, hideCaptureWindow, listenQuickCaptureOpen, requestCapture } from './ipc';
   import { settingsStore } from './stores/settings.svelte';
+  import { INBOX_PROFILE_ID, readProfiles, type CaptureProfile } from './captureProfiles';
   import { i18n, m } from './i18n.svelte';
 
   let text = $state('');
@@ -11,10 +12,41 @@
   let failed = $state(false);
   let saving = $state(false);
   let box: HTMLTextAreaElement | undefined = $state();
+  let profiles = $state<CaptureProfile[]>([]);
+  let profile = $state<string>(INBOX_PROFILE_ID);
+
+  function readStoredProfiles(): CaptureProfile[] {
+    try {
+      const raw = appStorage.getItem('jotter.captureProfiles');
+      return raw ? readProfiles(JSON.parse(raw)) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function chooseProfile(id: string) {
+    profile = id;
+    appStorage.setItem('jotter.quickCaptureProfile', id);
+    box?.focus();
+  }
+
+  /** Turns a capture error from the main window into a message in the interface language. */
+  function captureErrorMessage(message: string): string {
+    if (message === 'No vault is currently open') return m.capture_no_vault();
+    if (message === CAPTURE_TIMEOUT_ERROR) return m.capture_timeout();
+    const planned = /^capture-(empty|path|collision)(?:: (.*))?$/s.exec(message);
+    if (planned?.[1] === 'empty') return m.capture_error_empty();
+    if (planned?.[1] === 'path') return m.capture_error_path({ path: planned[2] ?? '' });
+    if (planned?.[1] === 'collision') return m.capture_error_collision({ path: planned[2] ?? '' });
+    return m.capture_failed({ error: message });
+  }
 
   /** The window outlives the main window's settings changes, so it rereads them each time it opens. */
   async function reloadSettings() {
     await appStorage.load();
+    profiles = readStoredProfiles();
+    const saved = appStorage.getItem('jotter.quickCaptureProfile');
+    profile = saved && profiles.some((p) => p.id === saved) ? saved : INBOX_PROFILE_ID;
     settingsStore.initAppearance();
     i18n.reloadPreference();
     // The title shows in the task switcher, so it follows the language too.
@@ -36,18 +68,13 @@
       await appStorage.load();
       const note = appStorage.getItem('jotter.quickCaptureNote') || 'Inbox.md';
       // The main window saves it, so a note open there keeps any unsaved typing.
-      await requestCapture(note, entry);
+      await requestCapture(note, entry, profile);
       text = '';
       failed = false;
       await hideCaptureWindow();
     } catch (err) {
       failed = true;
-      const message = err instanceof Error ? err.message : String(err);
-      status = message === 'No vault is currently open'
-        ? m.capture_no_vault()
-        : message === CAPTURE_TIMEOUT_ERROR
-          ? m.capture_timeout()
-          : m.capture_failed({ error: message });
+      status = captureErrorMessage(err instanceof Error ? err.message : String(err));
     } finally {
       saving = false;
     }
@@ -92,6 +119,17 @@
   ></textarea>
   <div class="footer">
     <span class="status" class:failed role={failed ? 'alert' : 'status'}>{status || m.capture_hint()}</span>
+    {#if profiles.length > 0}
+      <label class="profile">
+        <span class="profile-label">{m.capture_profile_label()}</span>
+        <select value={profile} onchange={(e) => chooseProfile(e.currentTarget.value)}>
+          <option value={INBOX_PROFILE_ID}>{m.capture_profile_inbox()}</option>
+          {#each profiles as p (p.id)}
+            <option value={p.id}>{p.name || m.capture_profile_unnamed()}</option>
+          {/each}
+        </select>
+      </label>
+    {/if}
   </div>
 </main>
 
@@ -131,8 +169,36 @@
   }
 
   .footer {
+    display: flex;
     flex: none;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
     padding: var(--space-2) var(--space-4);
+  }
+
+  .profile {
+    display: flex;
+    flex: none;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--text-muted);
+    font-size: var(--fs-12);
+  }
+
+  .profile select {
+    max-width: 160px;
+    min-height: 24px;
+    border: 1px solid var(--line-control);
+    border-radius: var(--radius-control);
+    background: var(--surface-field);
+    color: var(--text-primary);
+    font: var(--fs-12) var(--font-ui);
+  }
+
+  .profile select:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
   }
 
   .status {

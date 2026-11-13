@@ -133,6 +133,29 @@ Jotter checks GitHub for a newer release about fifteen seconds after it starts a
 ### Daily Notes
 `Ctrl+Shift+D` opens today's note, `Daily/YYYY-MM-DD.md`. If the note does not exist, Jotter creates it from the template note `Templates/Daily.md`, replacing `{{date}}`, `{{title}}` and `{{time}}`. Without a template note, Jotter uses a built-in one. Set the folder and template in **Settings → Vault**.
 
+### Template Variables
+A template is any note in the templates folder. When Jotter creates a note from it, it fills in these variables:
+
+| Variable | Value |
+|---|---|
+| `{{date}}`, `{{time}}` | Today's date as `YYYY-MM-DD` and the time as `HH:MM`, from one timestamp taken when the note is made |
+| `{{title}}` | The new note's name |
+| `{{clipboard}}` | The clipboard's text. Jotter reads the clipboard only when a template uses this variable |
+| `{{text}}` | The entry typed into quick capture |
+| `{{prompt:Label}}` | A value Jotter asks for when you create the note. Prompts are not available in quick capture |
+
+`{{#if clipboard}}…{{else}}…{{/if}}` keeps the first part when the variable has text and the second part when it is empty. `{{#if !clipboard}}` inverts the test, `{{else}}` is optional, and blocks nest. Variables inside a typed answer stay as typed. A block with no `{{/if}}` stays as written. The daily note has no clipboard or entry, so `{{clipboard}}` and `{{text}}` stay as written there.
+
+### Quick Capture Profiles
+**Settings → Capture** turns on a small window you open with a global shortcut. By default it adds the entry to the end of `Inbox.md`. Profiles send entries elsewhere. Choose one in the window's **Profile** menu; Jotter remembers the choice.
+
+- A profile either **adds to a note** or **creates a new note** in a folder. Both write the profile's **Text to write**, which can use the variables above.
+- **Add to a note** can keep entries on consecutive lines, which suits task and journal lists. The note's path can use variables, such as `Journal/{{date}}.md`.
+- **Create a new note** names the note from **Note name**, such as `{{date}} {{title}}`. `{{title}}` is the entry's first line without list or heading markers. When a note with that name exists, Jotter adds ` 2`, ` 3`, and so on.
+- Variables in paths and names use a single line with `/ \ : * ? " < > | # ^ [ ]` removed, so typed or copied text cannot add folders or leave the vault. Paths that start with a dot, contain `..` or a drive letter, or use a reserved Windows name are refused with a message.
+- **Add a profile** starts from an Idea, Task, Meeting, or Journal preset, or from a blank one. Up to 20 profiles are kept, and they travel with the settings export.
+- If the entry goes to the note on screen, it lands in the editor and keeps any unsaved typing. Otherwise Jotter saves open notes first and then writes the file.
+
 ### Recently Deleted
 Notes and folders you delete go to the Recycle Bin. The **Recently deleted** sidebar view lists the ones from the open vault, newest first, and restores them to their original location. Jotter does not overwrite a file that now exists at that path.
 

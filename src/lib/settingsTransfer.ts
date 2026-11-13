@@ -1,3 +1,5 @@
+import { isProfilesValue } from './captureProfiles';
+
 /** Settings that describe this computer or this session, so an export leaves them out. */
 const MACHINE_KEYS = new Set([
   'jotter.lastVaultPath',
@@ -49,7 +51,9 @@ const VALIDATORS: Record<string, (value: string) => boolean> = {
   'jotter.dailyTemplatePath': text,
   'jotter.templatesFolder': text,
   'jotter.quickCaptureShortcut': (value) => text(value) && value.length > 0 && value.length <= 100,
-  'jotter.quickCaptureNote': (value) => text(value) && value.trim().length > 0 && value.length <= 300,
+  'jotter.captureProfiles': isProfilesValue,
+  'jotter.quickCaptureProfile': (value) => text(value) && value.length > 0 && value.length <= 80,
+  'jotter.quickCaptureNote':(value) => text(value) && value.trim().length > 0 && value.length <= 300,
   'jotter.summonShortcut': (value) => text(value) && value.length > 0 && value.length <= 100,
   'jotter.enabledSnippets': json(strings),
   'jotter.spellLanguages': json((value) => object(value) && Object.values(value).every(strings)),

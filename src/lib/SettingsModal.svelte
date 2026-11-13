@@ -5,6 +5,7 @@
   import aboutLogo from '../assets/about-jack.png';
   import Icon from './ui/Icon.svelte';
   import Button from './ui/Button.svelte';
+  import CaptureProfilesEditor from './CaptureProfilesEditor.svelte';
   import IconButton from './ui/IconButton.svelte';
   import Segmented from './ui/Segmented.svelte';
   import Dialog from './ui/Dialog.svelte';
@@ -1265,6 +1266,7 @@
               {#if systemStore.quickCaptureError}
                 <div class="field-error" role="alert">{systemStore.quickCaptureError}</div>
               {/if}
+              <CaptureProfilesEditor />
             </div>
 
             <div class="setting-card column-card">
