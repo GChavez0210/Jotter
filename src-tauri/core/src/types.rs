@@ -178,9 +178,23 @@ pub struct TagSummary {
 pub struct SearchHit {
     pub path: String,
     pub title: String,
+    /// The snippet as HTML with `<mark>` around each match, for the command line and agents.
     pub snippet_html: String,
+    /// The snippet as plain text, built from the indexed note.
+    pub snippet: String,
+    /// The matches inside `snippet`, in order.
+    pub matches: Vec<MatchRange>,
     pub line_number: usize,
     pub match_count: usize,
+}
+
+/// A span of a snippet to highlight. `start` and `end` count UTF-16 code units, the unit
+/// JavaScript strings index by, so `snippet.slice(start, end)` returns the matched text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatchRange {
+    pub start: usize,
+    pub end: usize,
 }
 
 
