@@ -10,6 +10,7 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 - **Template clipboard and conditionals.** Templates can use `{{clipboard}}` and `{{text}}`, and `{{#if name}}…{{else}}…{{/if}}` keeps one branch depending on whether a variable has text. Existing variables and prompts behave as before.
 - **Markdown table editing.** `Tab`, `Shift+Tab`, and `Enter` move between cells and align the table. New command palette entries format a table, insert, delete, and move rows and columns, and set column alignment. Each operation is one undo step and leaves cell text unchanged.
 - **Search filters and operators.** Search accepts `title:`, `body:`, `tag:`, and `path:` filters, `AND`, `OR`, `NOT`, `+`, `-`, parentheses, phrases with slop, and a prefix match on the last word while you type. Arrow keys move between results, and `Enter` opens the first.
+- **Window size and position are remembered.** Jotter reopens its main window where and how large it was, including maximized. A saved position on a monitor that is no longer connected is ignored.
 
 ### Changed
 
