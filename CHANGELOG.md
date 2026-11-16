@@ -4,6 +4,8 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-16
+
 ### Added
 
 - **Capture profiles.** Quick capture can add an entry to a chosen note or create a new note for it. Idea, Task, Meeting, and Journal presets are included, and each profile has its own folder, note name, and text. Add profiles in Settings and pick one in the capture window.
@@ -16,6 +18,10 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 ### Changed
 
 - Search builds snippets and highlight ranges from the index and no longer reads note files, so results always match what was ranked. Long lines show a window around the first match. Searches run on a worker thread, and a newer search cancels an older one.
+
+### Fixed
+
+- On Windows, deleting a note never removes it permanently. When Windows cannot move an entry to the Recycle Bin, for example from a low-integrity process or on a drive without one, Jotter now leaves it in place and shows an error instead of letting Windows delete it.
 
 ## [0.5.3] - 2026-10-30
 
