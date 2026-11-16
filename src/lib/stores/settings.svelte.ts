@@ -2,6 +2,7 @@ import { appStorage } from '../appStorage';
 import { defaultCaptureShortcut, defaultSummonShortcut } from '../platform';
 import { m } from '../i18n.svelte';
 import { normalizeTemplatesFolder } from '../templates';
+import { INBOX_PROFILE_ID, readProfiles, type CaptureProfile } from '../captureProfiles';
 import { getCurrentWindow, LogicalSize } from '@tauri-apps/api/window';
 import { rightPanelFitsWindow, sidebarFitsWindow, splitFitsWindow, titleBarIsCompact, widthForSidebar } from '../layout';
 import { designTokens, isAccentPresetId, type AccentPresetId } from '../designTokens';
@@ -89,6 +90,10 @@ export class SettingsStore {
   quickCaptureShortcut = $state(defaultCaptureShortcut);
   /** The note quick capture appends to, relative to the vault. */
   quickCaptureNote = $state('Inbox.md');
+  /** Extra capture profiles, beside the built-in inbox profile. */
+  captureProfiles = $state<CaptureProfile[]>([]);
+  /** The profile the capture window opens with: a profile id, or `inbox`. */
+  quickCaptureProfile = $state<string>(INBOX_PROFILE_ID);
   summonEnabled = $state(false);
   summonShortcut = $state(defaultSummonShortcut);
   /** Keep a tray icon while Jotter runs. */
@@ -362,6 +367,28 @@ export class SettingsStore {
   setQuickCaptureNote(path: string) {
     this.quickCaptureNote = path.trim().replace(/\\/g, '/').replace(/^\/+/, '') || 'Inbox.md';
     this.persist('jotter.quickCaptureNote', this.quickCaptureNote);
+  }
+
+  /** Replaces the capture profiles. Invalid entries are dropped, and the list is capped. */
+  setCaptureProfiles(profiles: CaptureProfile[]) {
+    this.captureProfiles = readProfiles(profiles);
+    this.persist('jotter.captureProfiles', JSON.stringify(this.captureProfiles));
+    if (!this.captureProfiles.some((p) => p.id === this.quickCaptureProfile)) {
+      this.setQuickCaptureProfile(INBOX_PROFILE_ID);
+    }
+  }
+
+  /** The profile the capture window opens with. */
+  setQuickCaptureProfile(id: string) {
+    this.quickCaptureProfile = id;
+    this.persist('jotter.quickCaptureProfile', id);
+  }
+
+  /** Persists a secondary window's selection using the main window's current settings. */
+  async rememberCaptureProfile(id: string) {
+    const valid = this.captureProfiles.some((profile) => profile.id === id);
+    this.setQuickCaptureProfile(valid ? id : INBOX_PROFILE_ID);
+    await appStorage.flush();
   }
 
   /** Loads and applies only the look of the app, for secondary windows that must not touch the window. */
@@ -796,6 +823,15 @@ export class SettingsStore {
       if (savedCaptureShortcut) this.quickCaptureShortcut = savedCaptureShortcut;
       const savedCaptureNote = appStorage.getItem('jotter.quickCaptureNote');
       if (savedCaptureNote) this.quickCaptureNote = savedCaptureNote;
+      try {
+        const savedProfiles = appStorage.getItem('jotter.captureProfiles');
+        this.captureProfiles = savedProfiles ? readProfiles(JSON.parse(savedProfiles)) : [];
+      } catch {
+        this.captureProfiles = [];
+      }
+      const savedProfile = appStorage.getItem('jotter.quickCaptureProfile');
+      this.quickCaptureProfile =
+        savedProfile && this.captureProfiles.some((p) => p.id === savedProfile) ? savedProfile : INBOX_PROFILE_ID;
       this.summonEnabled = appStorage.getItem('jotter.summonEnabled') === 'true';
       const savedShortcut = appStorage.getItem('jotter.summonShortcut');
       if (savedShortcut) this.summonShortcut = savedShortcut;

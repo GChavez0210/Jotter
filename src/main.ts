@@ -7,9 +7,6 @@ import '@fontsource-variable/jetbrains-mono';
 import './app.css';
 import { appStorage } from './lib/appStorage';
 
-// Stores read their saved values when they load, so the settings file must be read first.
-await appStorage.load();
-
 // The quick capture window loads this same page and shows only its own small screen.
 let isCaptureWindow = false;
 try {
@@ -17,6 +14,9 @@ try {
 } catch {
   // A browser preview has no windows.
 }
+// Stores read saved values on import; capture must never migrate or save settings.
+await appStorage.load({ readOnly: isCaptureWindow });
+
 const target = document.getElementById('app')!;
 let app;
 if (isCaptureWindow) {

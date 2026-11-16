@@ -76,6 +76,16 @@ Markdown lists work as an outline:
 - Click the arrow in the left margin to fold an item's children, or focus the arrow and press Enter or Space. `Ctrl+Shift+[` folds and `Ctrl+Shift+]` unfolds at the cursor, including heading sections.
 - `Ctrl+.` shows only the item at the cursor and its children. Press `Ctrl+.` again on that item, or click **Show whole note**, to zoom out.
 
+### Tables
+Run **Insert Markdown Table** from the command palette to add a table. With the cursor in a table:
+
+- `Tab` and `Shift+Tab` move to the next and previous cell and align the whole table. `Tab` in the last cell adds a row.
+- `Enter` moves to the same column in the next row, or adds a row after the last one.
+- The command palette lists **Format Table** and the `Table:` commands, which insert, delete, and move rows and columns and set a column's alignment. The header row cannot move or be deleted, and the last column cannot be deleted.
+- Each command is one undo step. Formatting changes only the spacing around cells, so escaped pipes (`\|`), inline code, and HTML stay as written.
+- Write a pipe inside a cell as `\|`. Like GitHub, Jotter treats an unescaped pipe in inline code as a cell boundary.
+- A table with a row that has more cells than its header is left alone, because aligning it would drop text or add columns. Tables in code blocks are ignored.
+
 ### Task Due Dates
 Due dates inside backtick code spans stay literal and do not create calendar events or due-date chips.
 
@@ -132,6 +142,29 @@ Jotter checks GitHub for a newer release about fifteen seconds after it starts a
 
 ### Daily Notes
 `Ctrl+Shift+D` opens today's note, `Daily/YYYY-MM-DD.md`. If the note does not exist, Jotter creates it from the template note `Templates/Daily.md`, replacing `{{date}}`, `{{title}}` and `{{time}}`. Without a template note, Jotter uses a built-in one. Set the folder and template in **Settings → Vault**.
+
+### Template Variables
+A template is any note in the templates folder. When Jotter creates a note from it, it fills in these variables:
+
+| Variable | Value |
+|---|---|
+| `{{date}}`, `{{time}}` | Today's date as `YYYY-MM-DD` and the time as `HH:MM`, from one timestamp taken when the note is made |
+| `{{title}}` | The new note's name |
+| `{{clipboard}}` | The clipboard's text. Jotter reads the clipboard only when a template uses this variable |
+| `{{text}}` | The entry typed into quick capture |
+| `{{prompt:Label}}` | A value Jotter asks for when you create the note. Prompts are not available in quick capture |
+
+`{{#if clipboard}}…{{else}}…{{/if}}` keeps the first part when the variable has text and the second part when it is empty. `{{#if !clipboard}}` inverts the test, `{{else}}` is optional, and blocks nest. Variables inside a typed answer stay as typed. A block with no `{{/if}}` stays as written. The daily note has no clipboard or entry, so `{{clipboard}}` and `{{text}}` stay as written there.
+
+### Quick Capture Profiles
+**Settings → Capture** turns on a small window you open with a global shortcut. By default it adds the entry to the end of `Inbox.md`. Profiles send entries elsewhere. Choose one in the window's **Profile** menu; Jotter remembers the choice.
+
+- A profile either **adds to a note** or **creates a new note** in a folder. Both write the profile's **Text to write**, which can use the variables above.
+- **Add to a note** can keep entries on consecutive lines, which suits task and journal lists. The note's path can use variables, such as `Journal/{{date}}.md`.
+- **Create a new note** names the note from **Note name**, such as `{{date}} {{title}}`. `{{title}}` is the entry's first line without list or heading markers. When a note with that name exists, Jotter adds ` 2`, ` 3`, and so on.
+- Variables in paths and names use a single line with `/ \ : * ? " < > | # ^ [ ]` removed, so typed or copied text cannot add folders or leave the vault. Paths that start with a dot, contain `..` or a drive letter, or use a reserved Windows name are refused with a message.
+- **Add a profile** starts from an Idea, Task, Meeting, or Journal preset, or from a blank one. Up to 20 profiles are kept, and they travel with the settings export.
+- If the entry goes to the note on screen, it lands in the editor and keeps any unsaved typing. Otherwise Jotter saves open notes first and then writes the file.
 
 ### Recently Deleted
 Notes and folders you delete go to the Recycle Bin. The **Recently deleted** sidebar view lists the ones from the open vault, newest first, and restores them to their original location. Jotter does not overwrite a file that now exists at that path.
@@ -255,8 +288,8 @@ Shortcut labels use Ctrl on Windows/Linux and Cmd on macOS. Folding uses Cmd+Opt
 | `Ctrl+Shift+8` | Toggle bullet list (`- `) |
 | `Ctrl+Shift+9` | Toggle task list checkbox (`- [ ] `) |
 | `Ctrl+Shift+.` | Toggle blockquote (`> `) |
-| `Tab` | Insert a pending calculation result; in a list, nest the item under the one above |
-| `Shift+Tab` | Move a list item out one level |
+| `Tab` | Insert a pending calculation result; in a table, go to the next cell; in a list, nest the item under the one above |
+| `Shift+Tab` | Go to the previous table cell, or move a list item out one level |
 | `Alt+↑` / `Alt+↓` | Move the list item, with its children, or the line |
 | `Ctrl+.` | Zoom into the list item at the cursor; again on that item to zoom out |
 | `Ctrl+Shift+[` / `Ctrl+Shift+]` | Fold / unfold the list item or heading section at the cursor |
