@@ -49,6 +49,7 @@ import { detectSyncProvider, findConflictCopies } from '../src/lib/syncConflicts
 import { describeDueDate, findDueDate } from '../src/lib/dueDates';
 import { buildHomeSections, buildTagTree, type HomeSection } from '../src/lib/noteGraph';
 import type { NoteCard, VaultNode } from '../src/lib/types';
+import { createTableExtension, displayWidth, parseTableAt, splitRow, tableCommand, tableEnter, tableStep, type TableCommandId } from '../src/lib/tables';
 import { fillTemplate, findTemplatePrompts, listTemplates, noteStamp } from '../src/lib/templates';
 import { captureEdit, normalizeCaptureNote } from '../src/lib/quickCapture';
 import { editsMatch, reverseEdits } from '../src/lib/linkUpdates';
@@ -1861,4 +1862,216 @@ test('external conflicts block autosave and close until the user keeps their edi
     await tabsStore.flushAutosaveFor('A.md');
     assert.deepEqual(writes, ['more local edits']);
   } finally { tabsStore.clearAllTimers(); mock.timers.reset(); }
+});
+
+// Markdown table editing ----------------------------------------------------------------
+
+/** Builds a state with the cursor at `|CURSOR|`, which is removed from the document. */
+function tableState(doc: string) {
+  const anchor = doc.indexOf('|CURSOR|');
+  const text = doc.replace('|CURSOR|', '');
+  return EditorState.create({
+    doc: text,
+    selection: { anchor: anchor === -1 ? 0 : anchor },
+    extensions: [markdown({ base: markdownLanguage }), createTableExtension()],
+  });
+}
+
+function applyTable(state: EditorState, spec: ReturnType<typeof tableStep>) {
+  assert.ok(spec, 'expected the command to apply');
+  return state.update(spec!).state;
+}
+
+/** The document with the cursor shown as `|CURSOR|`. */
+function shown(state: EditorState): string {
+  const doc = state.doc.toString();
+  const head = state.selection.main.head;
+  return doc.slice(0, head) + '|CURSOR|' + doc.slice(head);
+}
+
+const UNEVEN = '|CURSOR|| Name | Qty |\n|---|---|\n| Apple | 3 |\n| Fig | 12 |\n';
+
+test('Tab formats the table and moves to the next cell', () => {
+  const state = tableState(UNEVEN);
+  const next = applyTable(state, tableStep(state, 1));
+  assert.equal(
+    shown(next),
+    '| Name  | |CURSOR|Qty |\n| ----- | --- |\n| Apple | 3   |\n| Fig   | 12  |\n'
+  );
+});
+
+test('Tab in the last cell of the last row adds a row and enters it', () => {
+  const state = tableState('| a | b |\n| - | - |\n| c | |CURSOR|d |\n');
+  const next = applyTable(state, tableStep(state, 1));
+  assert.equal(shown(next), '| a   | b   |\n| --- | --- |\n| c   | d   |\n| |CURSOR|    |     |\n');
+});
+
+test('Tab wraps to the first cell of the next row and Shift+Tab to the previous row', () => {
+  const state = tableState('| a | |CURSOR|b |\n| - | - |\n| c | d |\n');
+  const down = applyTable(state, tableStep(state, 1));
+  assert.equal(shown(down), '| a   | b   |\n| --- | --- |\n| |CURSOR|c   | d   |\n');
+  const up = applyTable(down, tableStep(down, -1));
+  assert.equal(shown(up), '| a   | |CURSOR|b   |\n| --- | --- |\n| c   | d   |\n');
+});
+
+test('Shift+Tab in the first cell stays put but still formats', () => {
+  const state = tableState('| |CURSOR|a | b |\n|-|-|\n');
+  const next = applyTable(state, tableStep(state, -1));
+  assert.equal(shown(next), '| |CURSOR|a   | b   |\n| --- | --- |\n');
+});
+
+test('Enter moves to the same column one row down and adds a row at the end', () => {
+  const state = tableState('| a | b |\n| - | - |\n| c | |CURSOR|d |\n');
+  const next = applyTable(state, tableEnter(state));
+  assert.equal(shown(next), '| a   | b   |\n| --- | --- |\n| c   | d   |\n|     | |CURSOR|    |\n');
+  const header = tableState('| a | |CURSOR|b |\n| - | - |\n| c | d |\n');
+  assert.equal(shown(applyTable(header, tableEnter(header))), '| a   | b   |\n| --- | --- |\n| c   | |CURSOR|d   |\n');
+});
+
+test('Enter with a selection and Tab outside a table fall through', () => {
+  const sel = EditorState.create({
+    doc: '| a | b |\n| - | - |\n',
+    selection: { anchor: 2, head: 3 },
+    extensions: markdown({ base: markdownLanguage }),
+  });
+  assert.equal(tableEnter(sel), null);
+  const plain = tableState('just |CURSOR|text\n');
+  assert.equal(tableStep(plain, 1), null);
+  assert.equal(tableEnter(plain), null);
+});
+
+test('a pipe table inside a fenced code block is not edited', () => {
+  const state = tableState('```\n| a | |CURSOR|b |\n| - | - |\n```\n');
+  assert.equal(tableStep(state, 1), null);
+});
+
+test('escaped pipes stay in their cell, including inside inline code', () => {
+  assert.deepEqual(splitRow('| a \\| b | `x\\|y` |').map((c) => c.text), ['a \\| b', '`x\\|y`']);
+  const state = tableState('|CURSOR|| a \\| b | `x\\|y` |\n|-|-|\n| 1 | 2 |\n');
+  const next = applyTable(state, tableCommand(state, 'format'));
+  assert.equal(next.doc.toString(), '| a \\| b | `x\\|y` |\n| ------ | ------ |\n| 1      | 2      |\n');
+});
+
+test('rows without outer pipes, and short rows, are padded to the header', () => {
+  const state = tableState('|CURSOR|a | b | c\n--|--|--\nx | y\n');
+  const next = applyTable(state, tableCommand(state, 'format'));
+  assert.equal(next.doc.toString(), '| a   | b   | c   |\n| --- | --- | --- |\n| x   | y   |     |\n');
+});
+
+test('a row wider than the header leaves the table untouched', () => {
+  const state = tableState('|CURSOR|| a | b |\n|---|---|\n| 1 | 2 | 3 |\n');
+  assert.equal(parseTableAt(state), null);
+  // An unescaped pipe in inline code splits the cell, as it does on GitHub.
+  assert.equal(parseTableAt(tableState('|CURSOR|| a | b |\n|---|---|\n| `x|y` | 2 |\n')), null);
+  assert.equal(tableCommand(state, 'format'), null);
+  assert.equal(tableStep(state, 1), null);
+});
+
+test('alignment markers set the delimiter row and pad cells', () => {
+  const state = tableState('|CURSOR|| a | b | c |\n|:--|:-:|--:|\n| 1 | 2 | 3 |\n');
+  const next = applyTable(state, tableCommand(state, 'format'));
+  assert.equal(next.doc.toString(), '| a   |  b  |   c |\n| :-- | :-: | --: |\n| 1   |  2  |   3 |\n');
+  const right = applyTable(next, tableCommand(next, 'align_right'));
+  assert.match(right.doc.toString(), /\| --: \| :-: \| --: \|/);
+  const none = applyTable(right, tableCommand(right, 'align_none'));
+  assert.match(none.doc.toString(), /\| --- \| :-: \| --: \|/);
+  const center = applyTable(none, tableCommand(none, 'align_center'));
+  assert.match(center.doc.toString(), /\| :-: \| :-: \| --: \|/);
+  const left = applyTable(center, tableCommand(center, 'align_left'));
+  assert.match(left.doc.toString(), /\| :-- \|/);
+});
+
+test('row commands insert, delete, and reorder body rows', () => {
+  const base = '| a | b |\n| --- | --- |\n| 1 | 2 |\n| |CURSOR|3 | 4 |\n| 5 | 6 |\n';
+  const run = (id: TableCommandId) => {
+    const state = tableState(base);
+    return shown(applyTable(state, tableCommand(state, id)));
+  };
+  assert.equal(
+    run('row_above'),
+    '| a   | b   |\n| --- | --- |\n| 1   | 2   |\n| |CURSOR|    |     |\n| 3   | 4   |\n| 5   | 6   |\n'
+  );
+  assert.equal(
+    run('row_below'),
+    '| a   | b   |\n| --- | --- |\n| 1   | 2   |\n| 3   | 4   |\n| |CURSOR|    |     |\n| 5   | 6   |\n'
+  );
+  assert.equal(run('row_delete'), '| a   | b   |\n| --- | --- |\n| 1   | 2   |\n| |CURSOR|5   | 6   |\n');
+  assert.equal(
+    run('row_up'),
+    '| a   | b   |\n| --- | --- |\n| |CURSOR|3   | 4   |\n| 1   | 2   |\n| 5   | 6   |\n'
+  );
+  assert.equal(
+    run('row_down'),
+    '| a   | b   |\n| --- | --- |\n| 1   | 2   |\n| 5   | 6   |\n| |CURSOR|3   | 4   |\n'
+  );
+});
+
+test('row commands refuse the header and the ends of the table', () => {
+  const header = tableState('| |CURSOR|a | b |\n| - | - |\n| 1 | 2 |\n');
+  for (const id of ['row_above', 'row_delete', 'row_up', 'row_down'] as const) {
+    assert.equal(tableCommand(header, id), null, id);
+  }
+  const first = tableState('| a | b |\n| - | - |\n| |CURSOR|1 | 2 |\n');
+  assert.equal(tableCommand(first, 'row_up'), null);
+  assert.equal(tableCommand(first, 'row_down'), null);
+});
+
+test('deleting the last body row leaves the cursor in the header', () => {
+  const state = tableState('| a | b |\n| - | - |\n| |CURSOR|1 | 2 |\n');
+  const next = applyTable(state, tableCommand(state, 'row_delete'));
+  assert.equal(shown(next), '| |CURSOR|a   | b   |\n| --- | --- |\n');
+});
+
+test('column commands insert, delete, and reorder columns', () => {
+  const base = '| a | b | c |\n| - | - | - |\n| 1 | |CURSOR|2 | 3 |\n';
+  const run = (id: TableCommandId) => {
+    const state = tableState(base);
+    return shown(applyTable(state, tableCommand(state, id)));
+  };
+  assert.equal(run('col_left'), '| a   |     | b   | c   |\n| --- | --- | --- | --- |\n| 1   | |CURSOR|    | 2   | 3   |\n');
+  assert.equal(run('col_right'), '| a   | b   |     | c   |\n| --- | --- | --- | --- |\n| 1   | 2   | |CURSOR|    | 3   |\n');
+  assert.equal(run('col_delete'), '| a   | c   |\n| --- | --- |\n| 1   | |CURSOR|3   |\n');
+  assert.equal(run('col_move_left'), '| b   | a   | c   |\n| --- | --- | --- |\n| |CURSOR|2   | 1   | 3   |\n');
+  assert.equal(run('col_move_right'), '| a   | c   | b   |\n| --- | --- | --- |\n| 1   | 3   | |CURSOR|2   |\n');
+  const edge = tableState('| |CURSOR|a | b |\n| - | - |\n');
+  assert.equal(tableCommand(edge, 'col_move_left'), null);
+  const only = tableState('| |CURSOR|a |\n| - |\n');
+  assert.equal(tableCommand(only, 'col_delete'), null);
+});
+
+test('moving a column keeps its alignment', () => {
+  const state = tableState('| |CURSOR|a | b |\n| :-- | --: |\n');
+  const next = applyTable(state, tableCommand(state, 'col_move_right'));
+  assert.equal(next.doc.toString(), '|   b | a   |\n| --: | :-- |\n');
+});
+
+test('each operation is one transaction that changes only the lines that differ', () => {
+  const state = tableState('intro\n\n| a   | b   |\n| --- | --- |\n| 1   | |CURSOR|2   |\n\noutro\n');
+  const tr = state.update(tableCommand(state, 'row_below')!);
+  assert.equal(
+    tr.newDoc.toString(),
+    'intro\n\n| a   | b   |\n| --- | --- |\n| 1   | 2   |\n|     |     |\n\noutro\n'
+  );
+  // Formatting an already-formatted table changes nothing.
+  assert.equal(state.update(tableCommand(state, 'format')!).changes.empty, true);
+});
+
+test('tables inside a blockquote keep their marker', () => {
+  const state = tableState('> |CURSOR|| a | b |\n> |-|-|\n> | 1 | 2 |\n');
+  const next = applyTable(state, tableCommand(state, 'format'));
+  assert.equal(next.doc.toString(), '> | a   | b   |\n> | --- | --- |\n> | 1   | 2   |\n');
+});
+
+test('formatting keeps the cursor at the same offset inside its cell', () => {
+  const state = tableState('| name | q |\n|-|-|\n| ab|CURSOR|cd | 1 |\n');
+  const next = applyTable(state, tableCommand(state, 'format'));
+  assert.equal(shown(next), '| name | q   |\n| ---- | --- |\n| ab|CURSOR|cd | 1   |\n');
+});
+
+test('East Asian wide characters count as two columns', () => {
+  assert.equal(displayWidth('abc'), 3);
+  assert.equal(displayWidth('日本'), 4);
+  const state = tableState('|CURSOR|| 名前 | n |\n|-|-|\n| ab | 1 |\n');
+  const next = applyTable(state, tableCommand(state, 'format'));
+  assert.equal(next.doc.toString(), '| 名前 | n   |\n| ---- | --- |\n| ab   | 1   |\n');
 });
