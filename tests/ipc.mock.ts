@@ -40,13 +40,19 @@ export const createControl = {
     { relPath: path, title: path, content: content ?? '' },
   ],
 };
+export const captureControl = {
+  create: (path: string, content?: string) => createControl.create(path, content),
+  snapshot: async (): Promise<import('../src/lib/types').VaultSnapshot | null> => null,
+  selected: [] as string[],
+  compact: [] as boolean[],
+};
 export const createNote = (path: string, content?: string) => {
   createControl.calls.push(path);
-  return createControl.create(path, content);
+  return captureControl.create(path, content);
 };
 export const deleteEntry = async () => {};
 export const getRecentVaults = async () => [];
-export const getVaultSnapshot = async () => null;
+export const getVaultSnapshot = () => captureControl.snapshot();
 export const rebuildVaultIndex = async () => 0;
 export const restoreDeletedEntry = async () => {};
 export const removeRecentVaultEntry = async () => [];
@@ -57,7 +63,13 @@ export const linkControl = {
 };
 export const planLinkUpdates = (oldPath: string, newPath: string) => linkControl.plan(oldPath, newPath);
 export const applyLinkEdits = (path: string, edits: import('../src/lib/types').TextEdit[]) => linkControl.apply(path, edits);
-export const quickCaptureAppend = async (relPath: string, _text: string) => relPath;
+export const quickCaptureAppend = async (relPath: string, _text: string, compact = false) => { captureControl.compact.push(compact); return relPath; };
+export const selectCaptureProfile = async (id: string) => { captureControl.selected.push(id); };
+export const listenCaptureProfileSelections = async (_handler: (id: string) => void) => () => {};
+export const listenQuickCaptureOpen = async (_handler: () => void) => () => {};
+export const hideCaptureWindow = async () => {};
+export const requestCapture = async () => '';
+export const CAPTURE_TIMEOUT_ERROR = 'capture-timeout';
 
 export const pinControl = { pinned: [] as string[] };
 export const listPinnedNotes = async () => pinControl.pinned;
@@ -148,7 +160,10 @@ export const queryCalendarDays = async () => [];
 export const queryCalendarDateNotes = async () => [];
 export const queryDueTasks = async () => [];
 export const listDeletedEntries = async () => [];
-export const searchVault = async () => [];
+export const searchControl = {
+  search: async (_query: string, _limit?: number): Promise<import('../src/lib/types').SearchHit[]> => [],
+};
+export const searchVault = (query: string, limit?: number) => searchControl.search(query, limit);
 export const getVaultHealth = async () => ({
   brokenLinks: {items: [], total: 0}, unusedAttachments: {items: [], total: 0},
   emptyNotes: {items: [], total: 0}, duplicateTitles: {items: [], total: 0},

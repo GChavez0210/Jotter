@@ -40,12 +40,22 @@ fn can_self_install_here() -> bool {
     can_self_install(cfg!(target_os = "linux"), std::env::var_os("APPIMAGE").is_some())
 }
 
+#[cfg(any(desktop, test))]
+fn install_after_saving_window_state(
+    save: impl FnOnce() -> Result<(), String>,
+    install: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    save()?;
+    install()
+}
+
 #[cfg(desktop)]
 mod desktop {
     use std::sync::Mutex;
 
     use tauri::{AppHandle, Emitter, State};
     use tauri_plugin_updater::{Update, UpdaterExt};
+    use tauri_plugin_window_state::AppHandleExt;
 
     use super::{can_self_install_here, UpdateInfo, UpdateProgress, PROGRESS_EVENT};
 
@@ -96,8 +106,8 @@ mod desktop {
         let mut downloaded = 0u64;
         let progress = app.clone();
         let finished = app.clone();
-        update
-            .download_and_install(
+        let bytes = update
+            .download(
                 move |chunk, total| {
                     downloaded += chunk as u64;
                     let _ = progress.emit(PROGRESS_EVENT, UpdateProgress::Downloading { downloaded, total });
@@ -108,8 +118,34 @@ mod desktop {
             )
             .await
             .map_err(|_| "update_install_failed".to_string())?;
-        // The Windows installer ends this process itself. Other systems restart here.
+        // Windows installs exit the process without RunEvent::Exit, so persist geometry first.
+        super::install_after_saving_window_state(
+            || app.save_window_state(crate::WINDOW_STATE_FLAGS).map_err(|_| "update_install_failed".to_string()),
+            || update.install(bytes).map_err(|_| "update_install_failed".to_string()),
+        )?;
         app.restart()
+    }
+}
+
+#[cfg(test)]
+mod window_state_update_tests {
+    use super::install_after_saving_window_state;
+    use std::cell::RefCell;
+
+    #[test]
+    fn saving_geometry_precedes_installation_and_a_failed_save_prevents_exit() {
+        let calls = RefCell::new(Vec::new());
+        install_after_saving_window_state(
+            || { calls.borrow_mut().push("save"); Ok(()) },
+            || { calls.borrow_mut().push("install"); Ok(()) },
+        ).unwrap();
+        assert_eq!(*calls.borrow(), ["save", "install"]);
+        calls.borrow_mut().clear();
+        assert_eq!(install_after_saving_window_state(
+            || Err("cannot save".to_string()),
+            || { calls.borrow_mut().push("install"); Ok(()) },
+        ), Err("cannot save".to_string()));
+        assert!(calls.borrow().is_empty());
     }
 }
 
