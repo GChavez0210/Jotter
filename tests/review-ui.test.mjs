@@ -553,3 +553,23 @@ test('the right editor offers reload for dirty external changes and receives hea
     await expect.poll(()=>page.evaluate(()=>window.__review.tabsStore.docStats.cursorLine)).toBe(5);
   } finally { await browser.close(); }
 });
+
+
+test('choosing a capture profile sends a selection without writing the secondary settings snapshot', async () => {
+  const browser = await launchBrowser();
+  try {
+    const page = await openHarness(browser, await bundleHarness('CaptureHarness'));
+    const select = page.getByRole('combobox', { name: 'Profile' });
+    await expect(select).toBeVisible();
+    const saves = await page.evaluate(() => window.__review.settingsControl.saves.length);
+    await select.selectOption('task');
+    await expect.poll(() => page.evaluate(() => window.__review.captureControl.selected)).toEqual(['task']);
+    await page.waitForTimeout(250);
+    assert.equal(await page.evaluate(() => window.__review.settingsControl.saves.length), saves);
+    await page.evaluate(() => {
+      window.__review.settingsControl.stored = JSON.stringify({ 'jotter.themePref': 'light' });
+      window.dispatchEvent(new Event('pagehide'));
+    });
+    assert.equal(await page.evaluate(() => JSON.parse(window.__review.settingsControl.stored)['jotter.themePref']), 'light');
+  } finally { await browser.close(); }
+});

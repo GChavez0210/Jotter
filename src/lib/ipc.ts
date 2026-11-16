@@ -276,8 +276,12 @@ export async function configureQuickCapture(enabled: boolean, shortcut: string):
 }
 
 /** Appends text to the inbox note and returns the note's path. */
-export async function quickCaptureAppend(relPath: string, text: string): Promise<string> {
-  return invoke<string>('quick_capture_append', { relPath, text });
+export async function quickCaptureAppend(
+  relPath: string,
+  text: string,
+  compact = false
+): Promise<string> {
+  return invoke<string>('quick_capture_append', { relPath, text, compact });
 }
 
 export async function hideCaptureWindow(): Promise<void> {
@@ -286,6 +290,17 @@ export async function hideCaptureWindow(): Promise<void> {
 
 export async function listenQuickCaptureOpen(handler: () => void): Promise<UnlistenFn> {
   return listen<null>('quick-capture-open', () => handler());
+}
+
+const CAPTURE_PROFILE_EVENT = 'capture-profile-selected';
+
+/** The main window owns settings writes; secondary windows only send the changed key. */
+export async function selectCaptureProfile(id: string): Promise<void> {
+  await emitTo('main', CAPTURE_PROFILE_EVENT, id);
+}
+
+export async function listenCaptureProfileSelections(handler: (id: string) => void): Promise<UnlistenFn> {
+  return listen<string>(CAPTURE_PROFILE_EVENT, ({ payload }) => handler(payload));
 }
 
 /** The main window takes capture entries from the capture window and answers each one. */
@@ -310,7 +325,7 @@ export const CAPTURE_TIMEOUT_ERROR = 'capture-timeout';
 const CAPTURE_TIMEOUT_MS = 10_000;
 
 /** Sends an entry to the main window and resolves with the note's path once it is saved. */
-export async function requestCapture(note: string, text: string): Promise<string> {
+export async function requestCapture(note: string, text: string, profile?: string): Promise<string> {
   const id = crypto.randomUUID();
   let unlisten: UnlistenFn | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -324,7 +339,7 @@ export async function requestCapture(note: string, text: string): Promise<string
       })
         .then((fn) => {
           unlisten = fn;
-          return emitTo('main', CAPTURE_REQUEST_EVENT, { id, note, text } satisfies CaptureRequest);
+          return emitTo('main', CAPTURE_REQUEST_EVENT, { id, note, text, profile } satisfies CaptureRequest);
         })
         .catch(reject);
     });
