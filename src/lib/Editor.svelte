@@ -54,6 +54,7 @@
   import { acceptInlineCalculation, createCalcExtension } from './calcPreview';
   import { positionAfterFrontmatter } from './frontmatterPreview';
   import { createOutlinerExtension, outlinerKeymap } from './outliner';
+  import { createTableExtension, tableKeymap } from './tables';
   import type { TextChange } from './frontmatter';
   import { editsMatch } from './linkUpdates';
   import type { TextEdit } from './types';
@@ -922,11 +923,13 @@
         lineNumbersCompartment.of(lineNumbersExtension()),
         createCalcExtension(),
         createOutlinerExtension(),
+        createTableExtension(),
         editorTheme,
         searchTheme,
         searchCompartment.of(searchExtension()),
         keymap.of([
           { key: 'Tab', run: acceptInlineCalculation },
+          ...tableKeymap,
           ...outlinerKeymap,
           {
             key: 'Mod-Shift-v',

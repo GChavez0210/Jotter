@@ -722,21 +722,16 @@ fn get_notes_by_tag(
     query_notes_by_tag(&conn, &tag)
 }
 
-#[tauri::command]
+/// Runs a search on a worker thread. It reads only the index, never a note file, so it needs no
+/// vault lock. A newer search cancels an older one that is still running, which then returns
+/// `search-cancelled`.
+#[tauri::command(async)]
 fn search_vault(
     state: State<'_, AppState>,
     query: String,
     limit: Option<usize>,
 ) -> Result<Vec<SearchHit>, String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
-    let vault_root = state
-        .active_vault
-        .lock()
-        .map_err(|e| format!("Failed to lock active vault state: {e}"))?
-        .clone();
-    state
-        .search_index
-        .search(vault_root.as_deref(), &query, limit.unwrap_or(40))
+    state.search_index.search(&query, limit.unwrap_or(40))
 }
 
 #[tauri::command]
@@ -1496,10 +1491,11 @@ fn quick_capture_append(
     state: State<'_, AppState>,
     rel_path: String,
     text: String,
+    compact: Option<bool>,
 ) -> Result<String, String> {
     let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
     let vault_root = require_active_vault(&state)?;
-    let rel = crate::capture::append_to_note(&vault_root, &rel_path, &text)?;
+    let rel = crate::capture::append_to_note(&vault_root, &rel_path, &text, compact.unwrap_or(false))?;
     let scanned = scan_single_file_from_disk(&vault_root, &vault_root.join(&rel))?;
     {
         let conn = state

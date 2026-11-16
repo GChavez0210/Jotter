@@ -6,7 +6,15 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 
 ### Added
 
+- **Capture profiles.** Quick capture can add an entry to a chosen note or create a new note for it. Idea, Task, Meeting, and Journal presets are included, and each profile has its own folder, note name, and text. Add profiles in Settings and pick one in the capture window.
+- **Template clipboard and conditionals.** Templates can use `{{clipboard}}` and `{{text}}`, and `{{#if name}}…{{else}}…{{/if}}` keeps one branch depending on whether a variable has text. Existing variables and prompts behave as before.
+- **Markdown table editing.** `Tab`, `Shift+Tab`, and `Enter` move between cells and align the table. New command palette entries format a table, insert, delete, and move rows and columns, and set column alignment. Each operation is one undo step and leaves cell text unchanged.
+- **Search filters and operators.** Search accepts `title:`, `body:`, `tag:`, and `path:` filters, `AND`, `OR`, `NOT`, `+`, `-`, parentheses, phrases with slop, and a prefix match on the last word while you type. Arrow keys move between results, and `Enter` opens the first.
 - **Window size and position are remembered.** Jotter reopens its main window where and how large it was, including maximized. A saved position on a monitor that is no longer connected is ignored.
+
+### Changed
+
+- Search builds snippets and highlight ranges from the index and no longer reads note files, so results always match what was ranked. Long lines show a window around the first match. Searches run on a worker thread, and a newer search cancels an older one.
 
 ## [0.5.3] - 2026-10-30
 

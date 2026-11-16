@@ -1,9 +1,10 @@
+import { presetProfile } from '../src/lib/captureProfiles';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SettingsStore } from '../src/lib/stores/settings.svelte';
 import { windowControl } from './window.mock';
 import { settingsControl } from './ipc.mock';
-import { appStorage } from '../src/lib/appStorage';
+import { appStorage, AppStorage } from '../src/lib/appStorage';
 import { buildSettingsExport, parseSettingsImport } from '../src/lib/settingsTransfer';
 import { saveBeforeLeaving } from '../src/lib/saveBeforeLeaving';
 import { settingsErrorMessage } from '../src/lib/settingsErrors';
@@ -261,4 +262,68 @@ test('failed imports retain the previous settings and rejected imports never cle
   } finally { settingsControl.saveError = null; }
   await appStorage.flush();
   assert.deepEqual(JSON.parse(settingsControl.stored!), before);
+});
+
+
+test('max-sized capture profiles survive settings export with JSON escaping', () => {
+  for (const char of ['"', '\\', '\n', '\u0001']) {
+    const profiles = Array.from({ length: 20 }, (_, i) => ({
+      ...presetProfile('idea', 'Idea', `idea-${i}`), template: char.repeat(3000),
+    }));
+    const value = JSON.stringify(profiles);
+    const exported = buildSettingsExport({ 'jotter.captureProfiles': value });
+    const parsed = parseSettingsImport(exported);
+    assert.equal(parsed.ok, true);
+    if (parsed.ok) assert.equal(parsed.settings['jotter.captureProfiles'], value);
+    assert.ok(Buffer.byteLength(exported) < 1024 * 1024);
+  }
+});
+
+test('the main window persists capture selections with its current settings', async () => {
+  const stored = settingsControl.stored;
+  const env = browser();
+  try {
+    settingsControl.stored = JSON.stringify({ 'jotter.themePref': 'dark' });
+    await appStorage.load();
+    const store = new SettingsStore();
+    store.setCaptureProfiles([presetProfile('task', 'Task', 'task')]);
+    await store.rememberCaptureProfile('task');
+    store.setThemePreference('light');
+    await appStorage.flush();
+    assert.equal(JSON.parse(settingsControl.stored!)['jotter.quickCaptureProfile'], 'task');
+    assert.equal(JSON.parse(settingsControl.stored!)['jotter.themePref'], 'light');
+    await store.rememberCaptureProfile('deleted-profile');
+    assert.equal(store.quickCaptureProfile, 'inbox');
+  } finally {
+    settingsControl.stored = stored;
+    await appStorage.load();
+    env.restore();
+  }
+});
+
+
+test('a read-only capture snapshot cannot overwrite newer main-window settings on pagehide', async () => {
+  const stored = settingsControl.stored;
+  try {
+    settingsControl.stored = JSON.stringify({ 'jotter.themePref': 'dark' });
+    const main = new AppStorage();
+    const capture = new AppStorage();
+    await main.load();
+    await capture.load({ readOnly: true });
+    main.setItem('jotter.themePref', 'light');
+    main.setItem('jotter.quickCaptureProfile', 'task');
+    await main.flush();
+    await capture.flush();
+    assert.deepEqual(JSON.parse(settingsControl.stored!), {
+      'jotter.themePref': 'light', 'jotter.quickCaptureProfile': 'task',
+    });
+    assert.throws(() => capture.setItem('jotter.themePref', 'dark'), /Secondary windows/);
+    assert.throws(() => capture.removeItem('jotter.themePref'), /Secondary windows/);
+    const saves = settingsControl.saves.length;
+    settingsControl.stored = null;
+    await capture.load({ readOnly: true });
+    await capture.flush();
+    assert.equal(settingsControl.stored, null);
+    assert.equal(settingsControl.saves.length, saves);
+  } finally { settingsControl.stored = stored; }
 });

@@ -1,3 +1,4 @@
+import { captureControl } from './ipc.mock';
 import { systemStore } from '../src/lib/stores/system.svelte';
 import { settingsStore } from '../src/lib/stores/settings.svelte';
 import { systemControl } from './ipc.mock';
@@ -49,7 +50,9 @@ import { detectSyncProvider, findConflictCopies } from '../src/lib/syncConflicts
 import { describeDueDate, findDueDate } from '../src/lib/dueDates';
 import { buildHomeSections, buildTagTree, type HomeSection } from '../src/lib/noteGraph';
 import type { NoteCard, VaultNode } from '../src/lib/types';
-import { fillTemplate, findTemplatePrompts, listTemplates, noteStamp } from '../src/lib/templates';
+import { createTableExtension, displayWidth, parseTableAt, splitRow, tableCommand, tableEnter, tableStep, type TableCommandId } from '../src/lib/tables';
+import { fillTemplate, findTemplatePrompts, listTemplates, noteStamp, templateUsesClipboard } from '../src/lib/templates';
+import { CapturePlanError, INBOX_PROFILE_ID, MAX_PROFILES, isProfilesValue, planCapture, presetProfile, readProfiles, type CapturePresetKind, type CaptureProfile } from '../src/lib/captureProfiles';
 import { captureEdit, normalizeCaptureNote } from '../src/lib/quickCapture';
 import { editsMatch, reverseEdits } from '../src/lib/linkUpdates';
 import { collectCheckableWords, findCheckableWords, matchDictionaries, resolveNoteLanguages } from '../src/lib/spellcheck';
@@ -1861,4 +1864,435 @@ test('external conflicts block autosave and close until the user keeps their edi
     await tabsStore.flushAutosaveFor('A.md');
     assert.deepEqual(writes, ['more local edits']);
   } finally { tabsStore.clearAllTimers(); mock.timers.reset(); }
+});
+
+// Template conditionals, clipboard, and capture profiles ---------------------------------
+
+const NOW = new Date(2026, 10, 13, 14, 5, 9);
+
+test('templates read the clipboard and the capture text', () => {
+  const out = fillTemplate('{{date}} {{time}} {{title}}\n{{text}}\n> {{clipboard}}', {
+    now: NOW,
+    title: 'T',
+    text: 'typed',
+    clipboard: 'copied',
+  });
+  assert.equal(out, '2026-11-13 14:05 T\ntyped\n> copied');
+});
+
+test('clipboard and text stay as written when a fill has no value for them', () => {
+  assert.equal(fillTemplate('{{clipboard}}|{{text}}', { now: NOW, title: 'T' }), '{{clipboard}}|{{text}}');
+  assert.equal(fillTemplate('{{#if clipboard}}yes{{else}}no{{/if}}', { now: NOW, title: 'T' }), 'no');
+});
+
+test('if blocks keep one branch by whether the variable has text', () => {
+  const t = 'a{{#if clipboard}}[{{clipboard}}]{{else}}none{{/if}}b';
+  assert.equal(fillTemplate(t, { now: NOW, title: 'T', clipboard: 'x' }), 'a[x]b');
+  assert.equal(fillTemplate(t, { now: NOW, title: 'T', clipboard: '  \n' }), 'anoneb');
+  assert.equal(fillTemplate('{{#if !text}}empty{{/if}}|{{#if text}}full{{/if}}', { now: NOW, title: 'T', text: '' }), 'empty|');
+  assert.equal(
+    fillTemplate('{{#if prompt:Who}}Hi {{prompt:Who}}{{/if}}', { now: NOW, title: 'T', prompts: { Who: 'Ana' } }),
+    'Hi Ana'
+  );
+  assert.equal(fillTemplate('{{#if prompt:Who}}Hi{{/if}}', { now: NOW, title: 'T', prompts: {} }), '');
+});
+
+test('if blocks nest and the same inputs always give the same text', () => {
+  const t = '{{#if text}}{{#if clipboard}}both{{else}}text only{{/if}}{{else}}nothing{{/if}}';
+  assert.equal(fillTemplate(t, { now: NOW, title: 'T', text: 'a', clipboard: 'b' }), 'both');
+  assert.equal(fillTemplate(t, { now: NOW, title: 'T', text: 'a', clipboard: '' }), 'text only');
+  assert.equal(fillTemplate(t, { now: NOW, title: 'T', text: '', clipboard: 'b' }), 'nothing');
+  const values = { now: NOW, title: 'T', text: 'a', clipboard: 'b' };
+  assert.equal(fillTemplate(t, values), fillTemplate(t, values));
+});
+
+test('typed answers that look like template syntax stay as typed', () => {
+  const out = fillTemplate('{{prompt:A}}|{{clipboard}}', {
+    now: NOW,
+    title: 'T',
+    prompts: { A: '{{#if text}}x{{/if}}{{date}}' },
+    clipboard: '{{else}}{{/if}}',
+  });
+  assert.equal(out, '{{#if text}}x{{/if}}{{date}}|{{else}}{{/if}}');
+});
+
+test('an unclosed block and stray else or end tags stay as written', () => {
+  assert.equal(fillTemplate('a{{#if text}}b{{text}}', { now: NOW, title: 'T', text: 'X' }), 'a{{#if text}}bX');
+  assert.equal(fillTemplate('{{else}}|{{/if}}', { now: NOW, title: 'T' }), '{{else}}|{{/if}}');
+  assert.equal(
+    fillTemplate('{{#if text}}a{{else}}b{{else}}c', { now: NOW, title: 'T', text: '' }),
+    '{{#if text}}a{{else}}b{{else}}c'
+  );
+});
+
+test('templateUsesClipboard sees plain and conditional uses', () => {
+  assert.equal(templateUsesClipboard('x {{clipboard}}'), true);
+  assert.equal(templateUsesClipboard('{{#if !clipboard}}none{{/if}}'), true);
+  assert.equal(templateUsesClipboard('{{date}} {{text}}'), false);
+});
+
+const noNotes = () => false;
+const preset = (kind: CapturePresetKind) => presetProfile(kind, kind, kind);
+
+test('the journal profile appends a timestamped line to today\'s note', () => {
+  const plan = planCapture(preset('journal'), { text: ' called the bank \n', now: NOW, noteExists: noNotes });
+  assert.deepEqual(plan, {
+    mode: 'append',
+    path: 'Journal/2026-11-13.md',
+    content: '- 14:05 called the bank',
+    compact: true,
+  });
+});
+
+test('the task profile appends a checkbox and keeps the entry compact', () => {
+  const plan = planCapture(preset('task'), { text: 'Pay rent', now: NOW, noteExists: noNotes });
+  assert.deepEqual([plan.path, plan.content, plan.compact], ['Tasks.md', '- [ ] Pay rent', true]);
+});
+
+test('create profiles name the note from the first line and number collisions', () => {
+  const taken = new Set(['ideas/2026-11-13 buy milk.md', 'Ideas/2026-11-13 Buy milk 2.md'].map((p) => p.toLowerCase()));
+  const plan = planCapture(preset('idea'), {
+    text: '- [ ] Buy milk\nand eggs',
+    now: NOW,
+    noteExists: (p) => taken.has(p.toLowerCase()),
+  });
+  assert.equal(plan.mode, 'create');
+  assert.equal(plan.path, 'Ideas/2026-11-13 Buy milk 3.md');
+  assert.equal(plan.content, '# Buy milk\n\nCaptured 2026-11-13 14:05\n\n- [ ] Buy milk\nand eggs\n');
+  assert.equal(plan.compact, false);
+});
+
+test('typed text cannot add folders or leave the vault through a file name', () => {
+  const plan = planCapture(preset('idea'), { text: '../../etc/passwd: x?', now: NOW, noteExists: noNotes });
+  assert.equal(plan.path, 'Ideas/2026-11-13 etc passwd x.md');
+  const empty = planCapture(preset('idea'), { text: '???', now: NOW, noteExists: noNotes });
+  assert.equal(empty.path, 'Ideas/2026-11-13 Untitled.md');
+});
+
+test('profile paths that could leave the vault or break a filesystem are refused', () => {
+  const base = { ...preset('task') };
+  // A leading slash is dropped, as for the inbox note, so the path stays inside the vault.
+  assert.equal(planCapture({ ...base, target: '/etc/x.md' }, { text: 'x', now: NOW, noteExists: noNotes }).path, 'etc/x.md');
+  for (const target of ['../Outside.md', 'C:/x.md','CON.md', '.hidden/x.md', 'a//../b.md', '']) {
+    assert.throws(
+      () => planCapture({ ...base, target }, { text: 'x', now: NOW, noteExists: noNotes }),
+      (e: unknown) => e instanceof CapturePlanError && e.code === 'path',
+      target
+    );
+  }
+  assert.throws(
+    () => planCapture({ ...preset('idea'), target: '..' }, { text: 'x', now: NOW, noteExists: noNotes }),
+    (e: unknown) => e instanceof CapturePlanError && e.code === 'path'
+  );
+});
+
+test('an empty entry is refused and a full set of names gives a collision error', () => {
+  assert.throws(
+    () => planCapture(preset('task'), { text: '  \n', now: NOW, noteExists: noNotes }),
+    (e: unknown) => e instanceof CapturePlanError && e.code === 'empty'
+  );
+  assert.throws(
+    () => planCapture(preset('idea'), { text: 'x', now: NOW, noteExists: () => true }),
+    (e: unknown) => e instanceof CapturePlanError && e.code === 'collision'
+  );
+});
+
+test('the clipboard fills the body in full and a path as one clean line', () => {
+  const profile: CaptureProfile = {
+    ...preset('idea'),
+    fileName: '{{clipboard}}',
+    template: '{{#if clipboard}}> {{clipboard}}\n\n{{/if}}{{text}}',
+  };
+  const plan = planCapture(profile, {
+    text: 'note',
+    clipboard: 'line one/two\nline two',
+    now: NOW,
+    noteExists: noNotes,
+  });
+  assert.equal(plan.path, 'Ideas/line one two.md');
+  assert.equal(plan.content, '> line one/two\nline two\n\nnote\n');
+  const without = planCapture(profile, { text: 'note', clipboard: '', now: NOW, noteExists: noNotes });
+  assert.equal(without.content, 'note\n');
+  assert.match(without.path, /^Ideas\/Capture 2026-11-13-14-05-09\.md$/);
+});
+
+test('stored capture profiles are validated, deduplicated, and capped', () => {
+  const good = preset('task');
+  assert.deepEqual(readProfiles([good, { ...good }, { ...good, id: INBOX_PROFILE_ID }, { ...good, id: 'x', mode: 'zip' }, 5, null]), [good]);
+  assert.deepEqual(readProfiles('nope'), []);
+  const many = Array.from({ length: 30 }, (_, i) => ({ ...good, id: `p${i}` }));
+  assert.equal(readProfiles(many).length, MAX_PROFILES);
+  assert.equal(isProfilesValue(JSON.stringify([good])), true);
+  assert.equal(isProfilesValue(JSON.stringify([good, { ...good, mode: 'x' }])), false);
+  assert.equal(isProfilesValue(JSON.stringify(many)), false);
+  assert.equal(isProfilesValue('not json'), false);
+});
+
+test('a compact capture edit adds one line break and a normal one a blank line', () => {
+  assert.equal(captureEdit('# Tasks\n\n- [ ] a\n', '- [ ] b', true)?.insert, '\n- [ ] b\n');
+  assert.equal(captureEdit('# Tasks\n\n- [ ] a\n', '- [ ] b')?.insert, '\n\n- [ ] b\n');
+  assert.equal(captureEdit('', '- [ ] b', true)?.insert, '- [ ] b\n');
+});
+
+
+test('capture retries string IPC collisions using a refreshed snapshot and stops after three attempts', async () => {
+  const previousProfiles = settingsStore.captureProfiles;
+  const previousSnapshot = vaultStore.vaultSnapshot;
+  const create = captureControl.create;
+  const snapshot = captureControl.snapshot;
+  const empty: import('../src/lib/types').VaultSnapshot = { rootPath: 'V', name: 'V', tree: [], noteCount: 0 };
+  const occupied = { ...empty, noteCount: 1, tree: [{ name: 'Entry.md', relPath: 'Ideas/Entry.md', kind: 'file' as const, modifiedMs: 0, createdMs: 0, children: [] }] };
+  try {
+    settingsStore.captureProfiles = [{ ...preset('idea'), fileName: 'Entry' }];
+    vaultStore.vaultSnapshot = empty;
+    const paths: string[] = [];
+    captureControl.snapshot = async () => occupied;
+    captureControl.create = async (path, content) => {
+      paths.push(path);
+      if (paths.length === 1) throw "A note or folder already exists at 'Ideas/Entry.md'";
+      return [occupied, { relPath: path, title: path, content: content ?? '' }];
+    };
+    assert.equal(await vaultStore.captureWithProfile('idea', 'text'), 'Ideas/Entry 2.md');
+    assert.deepEqual(paths, ['Ideas/Entry.md', 'Ideas/Entry 2.md']);
+    let attempts = 0;
+    captureControl.create = async () => { attempts++; throw 'already exists'; };
+    await assert.rejects(vaultStore.captureWithProfile('idea', 'text'), (err) => err === 'already exists');
+    assert.equal(attempts, 3);
+    attempts = 0;
+    captureControl.create = async () => { attempts++; throw 'disk full'; };
+    await assert.rejects(vaultStore.captureWithProfile('idea', 'text'), (err) => err === 'disk full');
+    assert.equal(attempts, 1);
+  } finally {
+    settingsStore.captureProfiles = previousProfiles;
+    vaultStore.vaultSnapshot = previousSnapshot;
+    captureControl.create = create;
+    captureControl.snapshot = snapshot;
+  }
+});
+
+test('capture forwards compact appends through the IPC mock', async () => {
+  const previousTabs = tabsStore.openTabs;
+  const previousCompact = [...captureControl.compact];
+  try {
+    tabsStore.openTabs = [];
+    captureControl.compact.length = 0;
+    await vaultStore.captureEntry('Tasks.md', '- [ ] task', true);
+    await vaultStore.captureEntry('Inbox.md', 'idea');
+    assert.deepEqual(captureControl.compact, [true, false]);
+  } finally {
+    tabsStore.openTabs = previousTabs;
+    captureControl.compact = previousCompact;
+  }
+});
+
+// Markdown table editing ----------------------------------------------------------------
+
+/** Builds a state with the cursor at `|CURSOR|`, which is removed from the document. */
+function tableState(doc: string) {
+  const anchor = doc.indexOf('|CURSOR|');
+  const text = doc.replace('|CURSOR|', '');
+  return EditorState.create({
+    doc: text,
+    selection: { anchor: anchor === -1 ? 0 : anchor },
+    extensions: [markdown({ base: markdownLanguage }), createTableExtension()],
+  });
+}
+
+function applyTable(state: EditorState, spec: ReturnType<typeof tableStep>) {
+  assert.ok(spec, 'expected the command to apply');
+  return state.update(spec!).state;
+}
+
+/** The document with the cursor shown as `|CURSOR|`. */
+function shown(state: EditorState): string {
+  const doc = state.doc.toString();
+  const head = state.selection.main.head;
+  return doc.slice(0, head) + '|CURSOR|' + doc.slice(head);
+}
+
+const UNEVEN = '|CURSOR|| Name | Qty |\n|---|---|\n| Apple | 3 |\n| Fig | 12 |\n';
+
+test('Tab formats the table and moves to the next cell', () => {
+  const state = tableState(UNEVEN);
+  const next = applyTable(state, tableStep(state, 1));
+  assert.equal(
+    shown(next),
+    '| Name  | |CURSOR|Qty |\n| ----- | --- |\n| Apple | 3   |\n| Fig   | 12  |\n'
+  );
+});
+
+test('Tab in the last cell of the last row adds a row and enters it', () => {
+  const state = tableState('| a | b |\n| - | - |\n| c | |CURSOR|d |\n');
+  const next = applyTable(state, tableStep(state, 1));
+  assert.equal(shown(next), '| a   | b   |\n| --- | --- |\n| c   | d   |\n| |CURSOR|    |     |\n');
+});
+
+test('Tab wraps to the first cell of the next row and Shift+Tab to the previous row', () => {
+  const state = tableState('| a | |CURSOR|b |\n| - | - |\n| c | d |\n');
+  const down = applyTable(state, tableStep(state, 1));
+  assert.equal(shown(down), '| a   | b   |\n| --- | --- |\n| |CURSOR|c   | d   |\n');
+  const up = applyTable(down, tableStep(down, -1));
+  assert.equal(shown(up), '| a   | |CURSOR|b   |\n| --- | --- |\n| c   | d   |\n');
+});
+
+test('Shift+Tab in the first cell stays put but still formats', () => {
+  const state = tableState('| |CURSOR|a | b |\n|-|-|\n');
+  const next = applyTable(state, tableStep(state, -1));
+  assert.equal(shown(next), '| |CURSOR|a   | b   |\n| --- | --- |\n');
+});
+
+test('Enter moves to the same column one row down and adds a row at the end', () => {
+  const state = tableState('| a | b |\n| - | - |\n| c | |CURSOR|d |\n');
+  const next = applyTable(state, tableEnter(state));
+  assert.equal(shown(next), '| a   | b   |\n| --- | --- |\n| c   | d   |\n|     | |CURSOR|    |\n');
+  const header = tableState('| a | |CURSOR|b |\n| - | - |\n| c | d |\n');
+  assert.equal(shown(applyTable(header, tableEnter(header))), '| a   | b   |\n| --- | --- |\n| c   | |CURSOR|d   |\n');
+});
+
+test('Enter with a selection and Tab outside a table fall through', () => {
+  const sel = EditorState.create({
+    doc: '| a | b |\n| - | - |\n',
+    selection: { anchor: 2, head: 3 },
+    extensions: markdown({ base: markdownLanguage }),
+  });
+  assert.equal(tableEnter(sel), null);
+  const plain = tableState('just |CURSOR|text\n');
+  assert.equal(tableStep(plain, 1), null);
+  assert.equal(tableEnter(plain), null);
+});
+
+test('a pipe table inside a fenced code block is not edited', () => {
+  const state = tableState('```\n| a | |CURSOR|b |\n| - | - |\n```\n');
+  assert.equal(tableStep(state, 1), null);
+});
+
+test('escaped pipes stay in their cell, including inside inline code', () => {
+  assert.deepEqual(splitRow('| a \\| b | `x\\|y` |').map((c) => c.text), ['a \\| b', '`x\\|y`']);
+  const state = tableState('|CURSOR|| a \\| b | `x\\|y` |\n|-|-|\n| 1 | 2 |\n');
+  const next = applyTable(state, tableCommand(state, 'format'));
+  assert.equal(next.doc.toString(), '| a \\| b | `x\\|y` |\n| ------ | ------ |\n| 1      | 2      |\n');
+});
+
+test('rows without outer pipes, and short rows, are padded to the header', () => {
+  const state = tableState('|CURSOR|a | b | c\n--|--|--\nx | y\n');
+  const next = applyTable(state, tableCommand(state, 'format'));
+  assert.equal(next.doc.toString(), '| a   | b   | c   |\n| --- | --- | --- |\n| x   | y   |     |\n');
+});
+
+test('a row wider than the header leaves the table untouched', () => {
+  const state = tableState('|CURSOR|| a | b |\n|---|---|\n| 1 | 2 | 3 |\n');
+  assert.equal(parseTableAt(state), null);
+  // An unescaped pipe in inline code splits the cell, as it does on GitHub.
+  assert.equal(parseTableAt(tableState('|CURSOR|| a | b |\n|---|---|\n| `x|y` | 2 |\n')), null);
+  assert.equal(tableCommand(state, 'format'), null);
+  assert.equal(tableStep(state, 1), null);
+});
+
+test('alignment markers set the delimiter row and pad cells', () => {
+  const state = tableState('|CURSOR|| a | b | c |\n|:--|:-:|--:|\n| 1 | 2 | 3 |\n');
+  const next = applyTable(state, tableCommand(state, 'format'));
+  assert.equal(next.doc.toString(), '| a   |  b  |   c |\n| :-- | :-: | --: |\n| 1   |  2  |   3 |\n');
+  const right = applyTable(next, tableCommand(next, 'align_right'));
+  assert.match(right.doc.toString(), /\| --: \| :-: \| --: \|/);
+  const none = applyTable(right, tableCommand(right, 'align_none'));
+  assert.match(none.doc.toString(), /\| --- \| :-: \| --: \|/);
+  const center = applyTable(none, tableCommand(none, 'align_center'));
+  assert.match(center.doc.toString(), /\| :-: \| :-: \| --: \|/);
+  const left = applyTable(center, tableCommand(center, 'align_left'));
+  assert.match(left.doc.toString(), /\| :-- \|/);
+});
+
+test('row commands insert, delete, and reorder body rows', () => {
+  const base = '| a | b |\n| --- | --- |\n| 1 | 2 |\n| |CURSOR|3 | 4 |\n| 5 | 6 |\n';
+  const run = (id: TableCommandId) => {
+    const state = tableState(base);
+    return shown(applyTable(state, tableCommand(state, id)));
+  };
+  assert.equal(
+    run('row_above'),
+    '| a   | b   |\n| --- | --- |\n| 1   | 2   |\n| |CURSOR|    |     |\n| 3   | 4   |\n| 5   | 6   |\n'
+  );
+  assert.equal(
+    run('row_below'),
+    '| a   | b   |\n| --- | --- |\n| 1   | 2   |\n| 3   | 4   |\n| |CURSOR|    |     |\n| 5   | 6   |\n'
+  );
+  assert.equal(run('row_delete'), '| a   | b   |\n| --- | --- |\n| 1   | 2   |\n| |CURSOR|5   | 6   |\n');
+  assert.equal(
+    run('row_up'),
+    '| a   | b   |\n| --- | --- |\n| |CURSOR|3   | 4   |\n| 1   | 2   |\n| 5   | 6   |\n'
+  );
+  assert.equal(
+    run('row_down'),
+    '| a   | b   |\n| --- | --- |\n| 1   | 2   |\n| 5   | 6   |\n| |CURSOR|3   | 4   |\n'
+  );
+});
+
+test('row commands refuse the header and the ends of the table', () => {
+  const header = tableState('| |CURSOR|a | b |\n| - | - |\n| 1 | 2 |\n');
+  for (const id of ['row_above', 'row_delete', 'row_up', 'row_down'] as const) {
+    assert.equal(tableCommand(header, id), null, id);
+  }
+  const first = tableState('| a | b |\n| - | - |\n| |CURSOR|1 | 2 |\n');
+  assert.equal(tableCommand(first, 'row_up'), null);
+  assert.equal(tableCommand(first, 'row_down'), null);
+});
+
+test('deleting the last body row leaves the cursor in the header', () => {
+  const state = tableState('| a | b |\n| - | - |\n| |CURSOR|1 | 2 |\n');
+  const next = applyTable(state, tableCommand(state, 'row_delete'));
+  assert.equal(shown(next), '| |CURSOR|a   | b   |\n| --- | --- |\n');
+});
+
+test('column commands insert, delete, and reorder columns', () => {
+  const base = '| a | b | c |\n| - | - | - |\n| 1 | |CURSOR|2 | 3 |\n';
+  const run = (id: TableCommandId) => {
+    const state = tableState(base);
+    return shown(applyTable(state, tableCommand(state, id)));
+  };
+  assert.equal(run('col_left'), '| a   |     | b   | c   |\n| --- | --- | --- | --- |\n| 1   | |CURSOR|    | 2   | 3   |\n');
+  assert.equal(run('col_right'), '| a   | b   |     | c   |\n| --- | --- | --- | --- |\n| 1   | 2   | |CURSOR|    | 3   |\n');
+  assert.equal(run('col_delete'), '| a   | c   |\n| --- | --- |\n| 1   | |CURSOR|3   |\n');
+  assert.equal(run('col_move_left'), '| b   | a   | c   |\n| --- | --- | --- |\n| |CURSOR|2   | 1   | 3   |\n');
+  assert.equal(run('col_move_right'), '| a   | c   | b   |\n| --- | --- | --- |\n| 1   | 3   | |CURSOR|2   |\n');
+  const edge = tableState('| |CURSOR|a | b |\n| - | - |\n');
+  assert.equal(tableCommand(edge, 'col_move_left'), null);
+  const only = tableState('| |CURSOR|a |\n| - |\n');
+  assert.equal(tableCommand(only, 'col_delete'), null);
+});
+
+test('moving a column keeps its alignment', () => {
+  const state = tableState('| |CURSOR|a | b |\n| :-- | --: |\n');
+  const next = applyTable(state, tableCommand(state, 'col_move_right'));
+  assert.equal(next.doc.toString(), '|   b | a   |\n| --: | :-- |\n');
+});
+
+test('each operation is one transaction that changes only the lines that differ', () => {
+  const state = tableState('intro\n\n| a   | b   |\n| --- | --- |\n| 1   | |CURSOR|2   |\n\noutro\n');
+  const tr = state.update(tableCommand(state, 'row_below')!);
+  assert.equal(
+    tr.newDoc.toString(),
+    'intro\n\n| a   | b   |\n| --- | --- |\n| 1   | 2   |\n|     |     |\n\noutro\n'
+  );
+  // Formatting an already-formatted table changes nothing.
+  assert.equal(state.update(tableCommand(state, 'format')!).changes.empty, true);
+});
+
+test('tables inside a blockquote keep their marker', () => {
+  const state = tableState('> |CURSOR|| a | b |\n> |-|-|\n> | 1 | 2 |\n');
+  const next = applyTable(state, tableCommand(state, 'format'));
+  assert.equal(next.doc.toString(), '> | a   | b   |\n> | --- | --- |\n> | 1   | 2   |\n');
+});
+
+test('formatting keeps the cursor at the same offset inside its cell', () => {
+  const state = tableState('| name | q |\n|-|-|\n| ab|CURSOR|cd | 1 |\n');
+  const next = applyTable(state, tableCommand(state, 'format'));
+  assert.equal(shown(next), '| name | q   |\n| ---- | --- |\n| ab|CURSOR|cd | 1   |\n');
+});
+
+test('East Asian wide characters count as two columns', () => {
+  assert.equal(displayWidth('abc'), 3);
+  assert.equal(displayWidth('日本'), 4);
+  const state = tableState('|CURSOR|| 名前 | n |\n|-|-|\n| ab | 1 |\n');
+  const next = applyTable(state, tableCommand(state, 'format'));
+  assert.equal(next.doc.toString(), '| 名前 | n   |\n| ---- | --- |\n| ab   | 1   |\n');
 });
