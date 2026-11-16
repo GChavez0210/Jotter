@@ -54,6 +54,7 @@
   import { acceptInlineCalculation, createCalcExtension } from './calcPreview';
   import { positionAfterFrontmatter } from './frontmatterPreview';
   import { createOutlinerExtension, outlinerKeymap } from './outliner';
+  import { extractionChange } from './extractNote';
   import { createTableExtension, tableKeymap } from './tables';
   import type { TextChange } from './frontmatter';
   import { editsMatch } from './linkUpdates';
@@ -1143,6 +1144,17 @@
   export function applyAiResult(target: AiTarget, text: string, placement: AiPlacement): boolean {
     if (!view || !target.operation.isCurrent(view, editorGeneration)) return false;
     view.dispatch(aiResultChange(view.state, target, text, placement));
+    view.focus();
+    return true;
+  }
+
+  /**
+   * Swaps a captured selection for a link as one undo step. Returns false, and changes
+   * nothing, when the note changed since the selection was captured.
+   */
+  export function applyExtraction(target: AiTarget, link: string): boolean {
+    if (!view || !target.operation.isCurrent(view, editorGeneration)) return false;
+    view.dispatch(extractionChange(target, link));
     view.focus();
     return true;
   }
