@@ -2005,7 +2005,7 @@ test('extraction refuses a name that already exists before writing anything', as
   resetExtractionState();
   vaultStore.vaultSnapshot = {
     rootPath: 'V', name: 'V', noteCount: 1,
-    tree: [{ name: 'moved.md', relPath: 'Notes/moved.md', kind: 'file', modifiedMs: 0, createdMs: 0, children: [] }],
+    tree: [{ name: 'Moved.md', relPath: 'Notes/Moved.md', kind: 'file', modifiedMs: 0, createdMs: 0, children: [] }],
   };
   await assert.rejects(vaultStore.extractToNote(extractArgs(() => true)));
   assert.equal(createControl.calls.length, 0);
