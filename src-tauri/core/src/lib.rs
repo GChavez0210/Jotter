@@ -18,5 +18,6 @@ pub mod semantic;
 pub mod tasks;
 pub mod types;
 pub mod vault;
+pub mod vault_lock;
 pub mod vector_store;
 pub mod versions;
