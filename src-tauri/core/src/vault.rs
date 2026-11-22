@@ -389,6 +389,53 @@ pub fn save_vault_note(
     Ok((doc, true))
 }
 
+/// Saves an editor revision only if the bytes on disk match the editor's baseline.
+/// A missing baseline means the editor explicitly expects the note to be absent.
+pub fn save_vault_note_if_current(
+    vault_root: &Path,
+    rel_path: &str,
+    expected: Option<&str>,
+    content: &str,
+) -> Result<Option<(NoteDocument, bool)>, String> {
+    let (path, clean) = resolve_safe_vault_path(vault_root, &ensure_md_extension(rel_path))?;
+    let read_current = || match fs::read_to_string(&path) {
+        Ok(text) => Ok(Some(text)),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(err) => Err(format!("Failed to read note {clean}: {err}")),
+    };
+    let current = read_current()?;
+    if current.as_deref() == Some(content) {
+        return read_vault_note(vault_root, &clean).map(|doc| Some((doc, false)));
+    }
+    if current.as_deref() != expected {
+        return Ok(None);
+    }
+    let changed = crate::fs_atomic::atomic_write_if(&path, content.as_bytes(), || {
+        ensure_vault_containment(vault_root, &path)?;
+        Ok(read_current()?.as_deref() == expected)
+    })?;
+    if !changed {
+        return Ok(None);
+    }
+    read_vault_note(vault_root, &clean).map(|doc| Some((doc, true)))
+}
+
+#[cfg(test)]
+#[test]
+fn conditional_save_preserves_external_edits_and_deletions() {
+    let vault = tempfile::tempdir().unwrap();
+    let path = vault.path().join("Note.md");
+    fs::write(&path, "disk edit").unwrap();
+    let save = |expected| save_vault_note_if_current(vault.path(), "Note.md", expected, "local edit");
+    assert!(save(Some("old text")).unwrap().is_none());
+    assert_eq!(fs::read_to_string(&path).unwrap(), "disk edit");
+    assert!(save(Some("disk edit")).unwrap().unwrap().1);
+    fs::remove_file(&path).unwrap();
+    assert!(save(Some("local edit")).unwrap().is_none());
+    assert!(!path.exists());
+    assert!(save(None).unwrap().unwrap().1);
+}
+
 /// Creates a new folder inside `vault_root`.
 pub fn create_vault_folder(vault_root: &Path, rel_path: &str) -> Result<VaultSnapshot, String> {
     let (abs_path, clean_rel) = resolve_safe_vault_path(vault_root, rel_path)?;

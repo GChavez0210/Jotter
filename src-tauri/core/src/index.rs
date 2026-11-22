@@ -249,42 +249,56 @@ pub fn resolve_wiki_link_path(
 
 /// Re-resolves all links in the `links` table against the current set of notes in `notes`.
 pub fn re_resolve_all_links(conn: &Connection) -> Result<(), String> {
+    re_resolve_links(conn, None)
+}
+
+/// With an unchanged set of note paths, only the replaced source rows need resolution.
+fn re_resolve_links(conn: &Connection, sources: Option<&[ScannedNoteFile]>) -> Result<(), String> {
+    if sources.is_some_and(|files| files.iter().all(|file| file.links.is_empty())) {
+        return Ok(());
+    }
     let mut notes_stmt = conn
         .prepare("SELECT path FROM notes ORDER BY path ASC")
         .map_err(|e| format!("Failed to prepare notes query for link resolution: {e}"))?;
     let all_note_paths: Vec<String> = notes_stmt
         .query_map([], |row| row.get(0))
-        .map_err(|e| format!("Failed to read note paths for link resolution: {e}"))?
-        .filter_map(Result::ok)
-        .collect();
+        .and_then(|rows| rows.collect())
+        .map_err(|e| format!("Failed to read note paths for link resolution: {e}"))?;
 
     let resolver = WikiLinkResolver::new(&all_note_paths);
 
+    let query = "SELECT id, source_path, target, resolved_path FROM links";
+    let source_query = format!("{query} WHERE source_path = ?1");
     let mut links_stmt = conn
-        .prepare("SELECT id, source_path, target, resolved_path FROM links")
+        .prepare(if sources.is_some() { &source_query } else { query })
         .map_err(|e| format!("Failed to prepare links query for resolution: {e}"))?;
-    let link_rows: Vec<(i64, String, String, Option<String>)> = links_stmt
-        .query_map([], |row| {
-            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
-        })
-        .map_err(|e| format!("Failed to read links for resolution: {e}"))?
-        .filter_map(Result::ok)
-        .collect();
-
     let mut update_stmt = conn
         .prepare("UPDATE links SET resolved_path = ?1 WHERE id = ?2")
         .map_err(|e| format!("Failed to prepare resolved_path update: {e}"))?;
 
-    for (id, source_path, target, current_resolved) in link_rows {
-        let new_resolved = resolver.resolve(&source_path, &target);
-        if new_resolved != current_resolved {
-            update_stmt
-                .execute(params![new_resolved, id])
-                .map_err(|e| format!("Failed to update resolved_path for link {id}: {e}"))?;
+    let mut resolve = |params: &[&dyn rusqlite::ToSql]| -> Result<(), String> {
+        let link_rows: Vec<(i64, String, String, Option<String>)> = links_stmt
+            .query_map(params, |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))
+            .and_then(|rows| rows.collect())
+            .map_err(|e| format!("Failed to read links for resolution: {e}"))?;
+        for (id, source_path, target, current_resolved) in link_rows {
+            let new_resolved = resolver.resolve(&source_path, &target);
+            if new_resolved != current_resolved {
+                update_stmt
+                    .execute(params![new_resolved, id])
+                    .map_err(|e| format!("Failed to update resolved_path for link {id}: {e}"))?;
+            }
         }
+        Ok(())
+    };
+    if let Some(files) = sources {
+        for file in files.iter().filter(|file| !file.links.is_empty()) {
+            resolve(&[&file.path])?;
+        }
+        Ok(())
+    } else {
+        resolve(&[])
     }
-
-    Ok(())
 }
 
 /// Logs an in-app save event in `edit_log` (`path`, `edited_ms`), which is preserved across index rebuilds.
@@ -662,13 +676,27 @@ pub fn apply_incremental_index(
     let tx = conn
         .unchecked_transaction()
         .map_err(|e| format!("Cannot start index transaction: {e}"))?;
+    let mut paths_changed = !deletions.is_empty();
+    if !paths_changed {
+        let mut exists = tx
+            .prepare_cached("SELECT EXISTS (SELECT 1 FROM notes WHERE path = ?1)")
+            .map_err(|e| format!("Cannot prepare note path lookup: {e}"))?;
+        for file in files {
+            let indexed: bool = exists.query_row([&file.path], |row| row.get(0))
+                .map_err(|e| format!("Cannot check indexed path {}: {e}", file.path))?;
+            if !indexed {
+                paths_changed = true;
+                break;
+            }
+        }
+    }
     for path in deletions {
         delete_indexed_path_no_resolve(&tx, path)?;
     }
     for file in files {
         upsert_scanned_note_no_resolve(&tx, file, in_app_save_ms)?;
     }
-    re_resolve_all_links(&tx)?;
+    re_resolve_links(&tx, (!paths_changed).then_some(files))?;
     tx.commit()
         .map_err(|e| format!("Cannot commit index transaction: {e}"))
 }
@@ -969,6 +997,30 @@ pub fn query_note_cards(conn: &Connection) -> Result<Vec<NoteCard>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_existing_note_edit_updates_its_links_and_new_paths_update_other_sources() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path();
+        fs::create_dir(directory.join("Folder")).unwrap();
+        fs::write(directory.join("Folder/Target.md"), "target").unwrap();
+        fs::write(directory.join("Source.md"), "No links").unwrap();
+        fs::write(directory.join("Other.md"), "[[Target]]").unwrap();
+        let conn = Connection::open_in_memory().unwrap();
+        rebuild_index_from_vault(&conn, directory).unwrap();
+        assert_eq!(query_backlinks_for_note(&conn, "Folder/Target.md").unwrap().len(), 1);
+
+        let source = directory.join("Source.md");
+        fs::write(&source, "[[Target]]").unwrap();
+        index_single_file(&conn, directory, &source, None).unwrap();
+        assert_eq!(query_backlinks_for_note(&conn, "Folder/Target.md").unwrap().len(), 2);
+
+        let root_target = directory.join("Target.md");
+        fs::write(&root_target, "preferred target").unwrap();
+        index_single_file(&conn, directory, &root_target, None).unwrap();
+        assert_eq!(query_backlinks_for_note(&conn, "Target.md").unwrap().len(), 2);
+        assert!(query_backlinks_for_note(&conn, "Folder/Target.md").unwrap().is_empty());
+    }
 
     #[test]
     fn calendar_date_queries_aggregate_and_sort_by_modified_and_created() {

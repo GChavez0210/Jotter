@@ -6,6 +6,15 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// Atomically writes `bytes` to `target_path` by writing to a uniquely named temporary file
 /// in the same parent directory, syncing it to disk, and renaming it over `target_path`.
 pub fn atomic_write_bytes(target_path: &Path, bytes: &[u8]) -> Result<(), String> {
+    atomic_write_if(target_path, bytes, || Ok(true)).map(|_| ())
+}
+
+/// Checks a precondition after staging the contents and immediately before replacing the file.
+pub fn atomic_write_if(
+    target_path: &Path,
+    bytes: &[u8],
+    can_replace: impl FnOnce() -> Result<bool, String>,
+) -> Result<bool, String> {
     let parent = target_path
         .parent()
         .ok_or_else(|| format!("Target path has no parent directory: {}", target_path.display()))?;
@@ -44,6 +53,14 @@ pub fn atomic_write_bytes(target_path: &Path, bytes: &[u8]) -> Result<(), String
         ));
     }
 
+    match can_replace() {
+        Ok(true) => {}
+        other => {
+            let _ = fs::remove_file(&temp_path);
+            return other;
+        }
+    }
+
     if let Err(e) = fs::rename(&temp_path, target_path) {
         let _ = fs::remove_file(&temp_path);
         return Err(format!(
@@ -53,7 +70,7 @@ pub fn atomic_write_bytes(target_path: &Path, bytes: &[u8]) -> Result<(), String
         ));
     }
 
-    Ok(())
+    Ok(true)
 }
 
 /// Atomically writes `content` to `target_path` by writing to a uniquely named temporary file

@@ -635,6 +635,12 @@ test('remote image opt-out removes HTML and diagram sources before insertion', a
     assert.equal(await page.locator('img[srcset], svg image').count(), 0);
     assert.equal(await page.locator('.jotter-remote-image-blocked').count(), 2);
     assert.deepEqual(requests, []);
+    const exported = await page.evaluate(() => window.imagePolicy.blockRemoteImages(
+      '<!DOCTYPE html><html><head><title>Export</title></head>' +
+      '<body><img src="https://images.invalid/export"></body></html>'
+    ));
+    assert.match(exported, /^<!DOCTYPE html><html><head><title>Export<\/title><\/head><body>/);
+    assert.doesNotMatch(exported, /https:\/\/images\.invalid/);
   } finally {
     await browser.close();
   }
