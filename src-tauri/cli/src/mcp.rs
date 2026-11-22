@@ -72,12 +72,24 @@ pub struct Session {
     data_dir: PathBuf,
     /// The vault the server started on. It can always be reopened, even if the app's list lacks it.
     start: PathBuf,
+    /// Hides and refuses `list_vaults` and `open_vault`, so the server stays on its starting vault.
+    locked: bool,
 }
 
 impl Session {
     pub fn new(agent: AgentVault, read_only: bool, data_dir: PathBuf) -> Self {
         let start = agent.root().to_path_buf();
-        Self { agent, read_only, data_dir, start }
+        Self { agent, read_only, data_dir, start, locked: false }
+    }
+
+    /// Keeps the server on the vault it started with. An assistant then cannot see or open any other.
+    pub fn locked_to_start_vault(mut self, locked: bool) -> Self {
+        self.locked = locked;
+        self
+    }
+
+    fn offers(&self, tool: &Tool) -> bool {
+        !(tool.writes && self.read_only) && !(self.locked && matches!(tool.name, "list_vaults" | "open_vault"))
     }
 
     fn open_vault(&mut self, wanted: &str) -> Result<Value, String> {
@@ -123,6 +135,9 @@ pub fn call_tool(session: &mut Session, name: &str, args: &Value) -> Result<Valu
     if tool.writes && session.read_only {
         return Err("This server is read-only, so writes are refused".to_string());
     }
+    if !session.offers(tool) {
+        return Err("This server is locked to one vault, so it cannot list or open others".to_string());
+    }
     if name == "open_vault" {
         return session.open_vault(text(args, "vault")?);
     }
@@ -162,7 +177,6 @@ pub fn call_tool(session: &mut Session, name: &str, args: &Value) -> Result<Valu
 
 /// Answers one JSON-RPC message. Notifications get no answer.
 pub fn handle(session: &mut Session, message: &Value) -> Option<Value> {
-    let read_only = session.read_only;
     let id = message.get("id")?.clone();
     let method = message.get("method").and_then(Value::as_str).unwrap_or_default();
     let params = message.get("params").cloned().unwrap_or(Value::Null);
@@ -175,7 +189,7 @@ pub fn handle(session: &mut Session, message: &Value) -> Option<Value> {
         })),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({
-            "tools": TOOLS.iter().filter(|t| !(read_only && t.writes)).map(|t| json!({
+            "tools": TOOLS.iter().filter(|t| session.offers(t)).map(|t| json!({
                 "name": t.name,
                 "description": t.description,
                 "inputSchema": schema(t),
@@ -257,6 +271,22 @@ mod tests {
         let stranger = tempfile::tempdir().unwrap();
         let refused = rpc(&mut session, "tools/call", json!({ "name": "open_vault", "arguments": { "vault": stranger.path().to_string_lossy() } }));
         assert_eq!(refused["result"]["isError"], true);
+    }
+
+    #[test]
+    fn a_locked_server_neither_lists_nor_opens_other_vaults() {
+        let (_v, data, session) = agent(false);
+        let mut session = session.locked_to_start_vault(true);
+        let other = tempfile::tempdir().unwrap();
+        jotter_core::vault::record_recent_vault(&data.path().join("recent_vaults.json"), other.path());
+        let names: Vec<String> = rpc(&mut session, "tools/list", json!({}))["result"]["tools"]
+            .as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect();
+        assert!(names.contains(&"read_note".to_string()));
+        assert!(!names.contains(&"list_vaults".to_string()) && !names.contains(&"open_vault".to_string()));
+        for name in ["list_vaults", "open_vault"] {
+            let reply = rpc(&mut session, "tools/call", json!({ "name": name, "arguments": { "vault": other.path().to_string_lossy() } }));
+            assert_eq!(reply["result"]["isError"], true);
+        }
     }
 
     #[test]

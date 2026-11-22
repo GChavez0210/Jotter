@@ -135,7 +135,11 @@ enum Command {
     /// List the vaults the Jotter app has opened, newest first.
     Vaults,
     /// Serve the vault to an MCP client over standard input and output.
-    Mcp,
+    Mcp {
+        /// Stay on this vault: hide list_vaults and refuse open_vault.
+        #[arg(long)]
+        lock_vault: bool,
+    },
 }
 
 fn run(cli: Cli) -> Result<Value, String> {
@@ -175,8 +179,8 @@ fn run(cli: Cli) -> Result<Value, String> {
         Command::Daily { text } => agent.append_to_daily(&text_or_stdin(text)?),
         Command::SaveConversation { title, text } => agent.save_conversation(&title, &text_or_stdin(text)?),
         Command::Vaults => unreachable!("handled before the vault opens"),
-        Command::Mcp => {
-            mcp::serve(mcp::Session::new(agent, cli.read_only, data_dir))?;
+        Command::Mcp { lock_vault } => {
+            mcp::serve(mcp::Session::new(agent, cli.read_only, data_dir).locked_to_start_vault(lock_vault))?;
             Ok(Value::Null)
         }
     }
