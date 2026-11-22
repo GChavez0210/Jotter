@@ -1,6 +1,6 @@
 export const control = {
   read: async (path: string) => ({relPath:path,title:path,content:'disk'}),
-  save: async (path: string, content: string, _vaultGeneration?: number) => ({relPath:path,title:path,content}),
+  save: async (path: string, content: string, _vaultGeneration?: number, _expectedContent?: string | null): Promise<import('../src/lib/types').NoteDocument | null> => ({relPath:path,title:path,content}),
   openCalls: 0,
   closeCalls: 0,
   noteCardCalls: 0,
@@ -22,8 +22,8 @@ export const caldavSetPassword = async (_password: string) => {};
 export const caldavHasPassword = async () => false;
 export const caldavForget = async () => {};
 export const caldavSync = async (_url: string, _username: string) => ({createdOrUpdated: 0, deleted: 0, failed: 0, firstError: null});
-export const saveNote = (path: string, content: string, vaultGeneration?: number) =>
-  control.save(path, content, vaultGeneration);
+export const saveNote = (path: string, content: string, vaultGeneration?: number, expectedContent?: string | null) =>
+  control.save(path, content, vaultGeneration, expectedContent);
 export const readNote = (path: string) => control.read(path);
 export const openVault = async () => {control.openCalls++; return {rootPath:'B',name:'B',tree:[],noteCount:0};};
 export const closeVault = async () => {control.closeCalls++;};

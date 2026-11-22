@@ -110,9 +110,12 @@ export async function createNote(
 export async function saveNote(
   relPath: string,
   content: string,
-  vaultGeneration?: number
-): Promise<NoteDocument> {
-  return invoke<NoteDocument>('save_note', { relPath, content, vaultGeneration });
+  vaultGeneration: number | undefined,
+  expectedContent: string | null
+): Promise<NoteDocument | null> {
+  return invoke<NoteDocument | null>('save_note', {
+    relPath, content, vaultGeneration, expected: { content: expectedContent },
+  });
 }
 
 export async function createFolder(relPath: string): Promise<VaultSnapshot> {

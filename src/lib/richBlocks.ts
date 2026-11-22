@@ -125,7 +125,12 @@ export async function enhanceRenderedHtml(
   dark: boolean,
   remoteImages = true
 ): Promise<string> {
-  if (!remoteImages) html = blockRemoteImages(html);
+  if (!remoteImages) {
+    html = blockRemoteImages(html);
+    if (target === 'file') {
+      html = html.replace(/<head>/i, '<head><meta http-equiv="Content-Security-Policy" content="img-src data:">');
+    }
+  }
   const hasMath = html.includes('data-math-style');
   const hasDiagram = html.includes('language-mermaid');
   const hasCalc = html.includes('language-calc');

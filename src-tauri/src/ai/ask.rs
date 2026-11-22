@@ -2,6 +2,7 @@
 //! from the passages closest to it. Indexing sends notes to the embedding provider; answering
 //! sends the selected passages to the chat provider.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -74,20 +75,31 @@ pub fn delete_index(app_data_dir: &Path, vault_root: &Path) -> Result<(), String
 pub async fn index_vault(ai: &AiState, app_data_dir: &Path, vault_root: &Path) -> Result<IndexReport, String> {
     let profile = ai.embedding_profile()?;
     let model = profile.identity();
-    let files = index::scan_dir_files_from_disk(vault_root, vault_root)?;
-    let mut store = VectorStore::open(&store_path(app_data_dir, vault_root))?;
-    let plan = store.plan(&listing(&files), &model)?;
-    // A partial filesystem scan does not prove the note was removed.
-    let removed: Vec<_> = plan.removed.into_iter().filter(|path| {
-        matches!(vault_root.join(path).try_exists(), Ok(false))
-    }).collect();
-    store.remove_notes(&removed)?;
+    let root = vault_root.to_owned();
+    let db = store_path(app_data_dir, vault_root);
+    let index_model = model.clone();
+    let (mut store, files, removed_count) = tokio::task::spawn_blocking(move || {
+        let mut files = index::scan_dir_files_from_disk(&root, &root)?;
+        let mut store = VectorStore::open(&db)?;
+        let plan = store.plan(&listing(&files), &index_model)?;
+        // A partial filesystem scan does not prove the note was removed.
+        let removed: Vec<_> = plan.removed.into_iter().filter(|path| {
+            matches!(root.join(path).try_exists(), Ok(false))
+        }).collect();
+        store.remove_notes(&removed)?;
+        let stale: HashSet<_> = plan.stale.into_iter().collect();
+        files.retain(|file| stale.contains(&file.path));
+        Ok::<_, String>((store, files, removed.len()))
+    }).await.map_err(|e| format!("Cannot prepare the vault index: {e}"))??;
 
+    let embedded_notes = files.len();
     let mut passages = 0;
-    for path in &plan.stale {
-        let Some(file) = files.iter().find(|f| &f.path == path) else { continue };
-        let chunks = semantic::chunk_note(&file.path, &file.content);
-        let inputs: Vec<String> = chunks.iter().map(|c| c.embedding_input(&file.title)).collect();
+    for file in files {
+        let (path, modified_ms, chunks, inputs) = tokio::task::spawn_blocking(move || {
+            let chunks = semantic::chunk_note(&file.path, &file.content);
+            let inputs: Vec<_> = chunks.iter().map(|c| c.embedding_input(&file.title)).collect();
+            (file.path, file.fs_modified_ms, chunks, inputs)
+        }).await.map_err(|e| format!("Cannot prepare note passages: {e}"))?;
         let embedded = ai.embed_for_profile(&profile, &inputs).await?;
         let stored: Vec<StoredChunk> = chunks
             .into_iter()
@@ -95,9 +107,13 @@ pub async fn index_vault(ai: &AiState, app_data_dir: &Path, vault_root: &Path) -
             .map(|(chunk, vector)| StoredChunk { chunk, vector })
             .collect();
         passages += stored.len();
-        store.replace_note(&file.path, file.fs_modified_ms, &model, &stored)?;
+        let model = model.clone();
+        store = tokio::task::spawn_blocking(move || {
+            store.replace_note(&path, modified_ms, &model, &stored)?;
+            Ok::<_, String>(store)
+        }).await.map_err(|e| format!("Cannot save note passages: {e}"))??;
     }
-    Ok(IndexReport { embedded_notes: plan.stale.len(), removed_notes: removed.len(), passages })
+    Ok(IndexReport { embedded_notes, removed_notes: removed_count, passages })
 }
 
 /// The passages closest to `question`, best first.
@@ -112,11 +128,32 @@ pub async fn search_passages(
     search_for_profile(ai, app_data_dir, vault_root, question, limit, &profile).await
 }
 
-fn current_chunks(app_data_dir: &Path, vault_root: &Path, profile: &EmbeddingProfile) -> Result<Vec<StoredChunk>, String> {
+fn has_current_passages(db: &Path, vault_root: &Path, model: &str) -> Result<bool, String> {
+    let mut store = VectorStore::open(db)?;
+    let mut removed = Vec::new();
+    let mut available = false;
+    for (path, modified_ms, has_passages) in store.note_status(model)? {
+        let target = vault_root.join(&path);
+        if crate::vault::ensure_vault_containment(vault_root, &target).is_err() {
+            continue;
+        }
+        match std::fs::metadata(&target) {
+            Ok(meta) if has_passages && meta.is_file() => {
+                let current_ms = meta.modified().map(index::system_time_to_ms).unwrap_or(0);
+                available |= current_ms == modified_ms;
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => removed.push(path),
+            _ => {}
+        }
+    }
+    store.remove_notes(&removed)?;
+    Ok(available)
+}
+
+fn current_chunks(db: &Path, vault_root: &Path, identity: &str) -> Result<Vec<StoredChunk>, String> {
     let files = index::scan_dir_files_from_disk(vault_root, vault_root)?;
-    let mut store = VectorStore::open(&store_path(app_data_dir, vault_root))?;
-    let identity = profile.identity();
-    let plan = store.plan(&listing(&files), &identity)?;
+    let mut store = VectorStore::open(db)?;
+    let plan = store.plan(&listing(&files), identity)?;
     // A partial filesystem scan does not prove the note was removed.
     let removed: Vec<_> = plan.removed.into_iter().filter(|path| {
         matches!(vault_root.join(path).try_exists(), Ok(false))
@@ -124,24 +161,31 @@ fn current_chunks(app_data_dir: &Path, vault_root: &Path, profile: &EmbeddingPro
     store.remove_notes(&removed)?;
     let present: std::collections::HashSet<_> = files.iter().map(|file| file.path.as_str()).collect();
     let stale: std::collections::HashSet<_> = plan.stale.into_iter().collect();
-    Ok(store.load(&identity)?.into_iter().filter(|s| present.contains(s.chunk.path.as_str()) && !stale.contains(&s.chunk.path)).collect())
+    Ok(store.load(identity)?.into_iter().filter(|s| present.contains(s.chunk.path.as_str()) && !stale.contains(&s.chunk.path)).collect())
 }
 
 async fn search_for_profile(
     ai: &AiState, app_data_dir: &Path, vault_root: &Path, question: &str,
     limit: usize, profile: &EmbeddingProfile,
 ) -> Result<Vec<Match>, String> {
-    let stored = current_chunks(app_data_dir, vault_root, profile)?;
-    if stored.is_empty() {
+    let db = store_path(app_data_dir, vault_root);
+    let root = vault_root.to_owned();
+    let model = profile.identity();
+    let (check_db, check_root, check_model) = (db.clone(), root.clone(), model.clone());
+    let available = tokio::task::spawn_blocking(move || has_current_passages(&check_db, &check_root, &check_model))
+        .await.map_err(|e| format!("Cannot check indexed passages: {e}"))??;
+    if !available {
         return Err("Index the vault first. Ask your vault has no embedded notes yet.".into());
     }
     let query = ai.embed_for_profile(profile, &[question.to_string()]).await?.vectors.remove(0);
     // A note can be changed or deleted while the network request is pending.
-    let stored = current_chunks(app_data_dir, vault_root, profile)?;
-    if stored.is_empty() {
-        return Err("The indexed notes changed or were deleted. Update the index before asking again.".into());
-    }
-    Ok(semantic::top_matches(&stored, &query, limit))
+    tokio::task::spawn_blocking(move || {
+        let stored = current_chunks(&db, &root, &model)?;
+        if stored.is_empty() {
+            return Err("The indexed notes changed or were deleted. Update the index before asking again.".into());
+        }
+        Ok(semantic::top_matches(&stored, &query, limit))
+    }).await.map_err(|e| format!("Cannot search indexed passages: {e}"))?
 }
 
 pub fn build_user_message(question: &str, matches: &[Match]) -> String {

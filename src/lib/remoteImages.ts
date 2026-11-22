@@ -1,6 +1,14 @@
 /** Filters image sources in an inert template before the HTML reaches a live document. */
 export function blockRemoteImages(html: string): string {
   if (!/<(?:img|image|feimage|source)[\s/>]/i.test(html)) return html;
+  // Generated exports have a complete document shell. Filter its body without
+  // parsing the head as an HTML fragment and losing the export policy.
+  if (/^\s*<!doctype html>/i.test(html)) {
+    const body = /(<body\b[^>]*>)([\s\S]*)(<\/body>)/i;
+    return html.replace(body, (_whole, open, content, close) =>
+      open + blockRemoteImages(content) + close
+    );
+  }
   const template = document.createElement('template');
   template.innerHTML = html;
   const isRemote = (source: string) => {

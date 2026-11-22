@@ -138,6 +138,29 @@ test('a late save reply cannot update the same note path in a new vault', async 
   tabsStore.resetTabs();
 });
 
+test('autosave detects an external edit even without a watcher event', async () => {
+  dirtyTab(7);
+  const expected: Array<string | null | undefined> = [];
+  const { read, save } = control;
+  control.read = async (path) => ({ relPath: path, title: path, content: 'external edit' });
+  control.save = async (path, content, _generation, baseline) => {
+    expected.push(baseline);
+    return baseline === 'external edit' ? { relPath: path, title: path, content } : null;
+  };
+  try {
+    assert.equal(await tabsStore.flushAutosaveFor('A.md'), false);
+    assert.equal(tabsStore.openTabs[0].externalChangePending, true);
+    assert.equal(tabsStore.openTabs[0].content, 'unsaved');
+    await tabsStore.dismissExternalChangeBanner('A.md');
+    assert.equal(await tabsStore.flushAutosaveFor('A.md'), true);
+    assert.deepEqual(expected, ['', 'external edit']);
+  } finally {
+    control.read = read;
+    control.save = save;
+    tabsStore.resetTabs();
+  }
+});
+
 test('clipboard mutations reject edits and document replacement, including A to B to A', () => {
   const state = EditorState.create({doc:'original',selection:{anchor:0,head:4}});
   const view = {state} as any;
@@ -1880,7 +1903,7 @@ test('external conflicts block autosave and close until the user keeps their edi
     mock.timers.tick(1000);
     await Promise.resolve();
     assert.deepEqual(writes, []);
-    tabsStore.dismissExternalChangeBanner('A.md');
+    await tabsStore.dismissExternalChangeBanner('A.md');
     mock.timers.tick(1000);
     await tabsStore.flushAutosaveFor('A.md');
     assert.deepEqual(writes, ['more local edits']);

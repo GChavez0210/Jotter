@@ -11,6 +11,8 @@ export interface OpenTab {
   title: string;
   content: string;
   savedContent: string;
+  /** Set only when the user explicitly keeps local edits after the disk copy was deleted. */
+  diskCopyMissing?: boolean;
   dirty: boolean;
   externalChangePending: boolean;
 }
@@ -310,13 +312,22 @@ class TabsStore {
 
       const contentToSave = tab.content;
       try {
-        const savedDoc = await saveNote(relPath, contentToSave, vaultGeneration);
+        const expected = tab.diskCopyMissing ? null : tab.savedContent;
+        const savedDoc = await saveNote(relPath, contentToSave, vaultGeneration, expected);
         if (generation !== this.generation) return false;
+        if (!savedDoc) {
+          this.openTabs = this.openTabs.map((t) =>
+            sameNotePath(t.relPath, relPath) ? { ...t, externalChangePending: true } : t
+          );
+          clipboardStore.setStatus(m.status_external_edit({ path: relPath }));
+          return false;
+        }
         this.openTabs = this.openTabs.map((t) =>
           sameNotePath(t.relPath, relPath)
             ? {
                 ...t,
                 savedContent: contentToSave,
+                diskCopyMissing: false,
                 dirty: t.content !== contentToSave,
                 title: savedDoc.title,
               }
@@ -405,14 +416,30 @@ class TabsStore {
   applyRestoredContent(relPath: string, content: string) {
     this.openTabs = this.openTabs.map((t) =>
       sameNotePath(t.relPath, relPath)
-        ? { ...t, content, savedContent: content, dirty: false, externalChangePending: false }
+        ? { ...t, content, savedContent: content, diskCopyMissing: false, dirty: false, externalChangePending: false }
         : t
     );
   }
 
-  dismissExternalChangeBanner(relPath: string) {
-    this.openTabs = this.openTabs.map((t) =>
-      sameNotePath(t.relPath, relPath) ? { ...t, externalChangePending: false } : t
+  async dismissExternalChangeBanner(relPath: string) {
+    const generation = this.generation;
+    let content: string | null;
+    try {
+      content = (await readNote(relPath)).content;
+    } catch (err) {
+      const error = err instanceof Error ? err.message : String(err);
+      if (generation !== this.generation) return;
+      if (!error.startsWith('Note does not exist: ')) {
+        clipboardStore.setStatus(m.status_open_failed({ error }));
+        return;
+      }
+      content = null;
+    }
+    if (generation !== this.generation) return;
+    this.openTabs = this.openTabs.map((tab) =>
+      sameNotePath(tab.relPath, relPath) && tab.externalChangePending
+        ? { ...tab, savedContent: content ?? '', diskCopyMissing: content === null, externalChangePending: false }
+        : tab
     );
     this.scheduleAutosave(relPath);
   }
@@ -431,6 +458,7 @@ class TabsStore {
               ...t,
               content: doc.content,
               savedContent: doc.content,
+              diskCopyMissing: false,
               dirty: false,
               externalChangePending: false,
             }

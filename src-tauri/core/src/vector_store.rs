@@ -69,6 +69,18 @@ impl VectorStore {
         Ok(Self { conn })
     }
 
+    /// Lists indexed files without loading their stored passages or vectors.
+    pub fn note_status(&self, model: &str) -> Result<Vec<(String, i64, bool)>, String> {
+        let mut statement = self.conn.prepare(
+            "SELECT n.path, n.modified_ms,
+             n.model = ?1 AND EXISTS (SELECT 1 FROM chunks c WHERE c.path = n.path)
+             FROM notes n",
+        ).map_err(|e| db_err("Cannot read indexed notes", e))?;
+        statement.query_map([model], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))
+            .and_then(|rows| rows.collect())
+            .map_err(|e| db_err("Cannot read indexed notes", e))
+    }
+
     /// Compares the vault's notes with the serialized embedding identity in `model`.
     pub fn plan(&self, vault_notes: &[(String, i64)], model: &str) -> Result<SyncPlan, String> {
         let mut stored: HashMap<String, (i64, String)> = HashMap::new();
@@ -114,6 +126,9 @@ impl VectorStore {
     }
 
     pub fn remove_notes(&mut self, paths: &[String]) -> Result<(), String> {
+        if paths.is_empty() {
+            return Ok(());
+        }
         let tx = self.conn.transaction().map_err(|e| db_err("Cannot write the vector store", e))?;
         for path in paths {
             tx.execute("DELETE FROM notes WHERE path = ?1", [path]).map_err(|e| db_err("Cannot write the vector store", e))?;

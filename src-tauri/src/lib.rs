@@ -565,45 +565,46 @@ fn create_note(
     Ok((snapshot, doc))
 }
 
+#[derive(serde::Deserialize)]
+struct ExpectedNoteContent {
+    content: Option<String>,
+}
+
 #[tauri::command(async)]
 fn save_note(
     state: State<'_, AppState>,
     rel_path: String,
     content: String,
     vault_generation: u64,
-) -> Result<NoteDocument, String> {
+    expected: ExpectedNoteContent,
+) -> Result<Option<NoteDocument>, String> {
     let _operation = state.vault_operation.lock_recover();
     if vault_generation != state.vault_generation.load(Ordering::SeqCst) {
         return Err("The vault changed before the note could be saved.".into());
     }
     let vault_root = require_active_vault(&state)?;
-    let (note_path, normalized_rel) = crate::versions::resolve_note_path(&vault_root, &rel_path)?;
-
-    // Keep the text on disk before this save replaces it, so the note can go back to it.
-    if state.version_history.load(Ordering::Relaxed) {
-        if let Ok(previous) = std::fs::read_to_string(&note_path) {
-            if previous != content {
-                let dir = versions_dir(&state, &vault_root);
-                let now_ms = system_time_to_ms(SystemTime::now());
-                // A failed snapshot must never stop the note itself from reaching disk.
-                let _ = crate::versions::snapshot(
-                    &dir,
-                    &normalized_rel,
-                    &previous,
-                    now_ms,
-                    crate::versions::SNAPSHOT_INTERVAL_MS,
-                );
-            }
+    let Some((doc, changed)) = crate::vault::save_vault_note_if_current(
+        &vault_root, &rel_path, expected.content.as_deref(), &content,
+    )? else {
+        return Ok(None);
+    };
+    if changed && state.version_history.load(Ordering::Relaxed) {
+        if let Some(previous) = expected.content.as_deref() {
+            let _ = crate::versions::snapshot(
+                &versions_dir(&state, &vault_root),
+                &doc.rel_path,
+                previous,
+                system_time_to_ms(SystemTime::now()),
+                crate::versions::SNAPSHOT_INTERVAL_MS,
+            );
         }
     }
-
-    let (doc, changed) = save_vault_note(&vault_root, &normalized_rel, &content)?;
     if changed {
         record_self_write_content(&state.recent_self_writes, &doc.rel_path, &content);
         reindex_note(&state, &vault_root, &doc.rel_path, Some(system_time_to_ms(SystemTime::now())));
     }
 
-    Ok(doc)
+    Ok(Some(doc))
 }
 
 #[tauri::command(async)]
@@ -653,12 +654,13 @@ fn rename_entry(
                 apply_incremental_index(&conn, &[], scanned_list, None)?;
             }
         }
-        state.search_index.lock_recover().delete_path_or_prefix(&res.old_rel_path)?;
-        if let Some(scanned) = &single_scanned {
-            state.search_index.lock_recover().upsert_scanned_note(scanned)?;
-        } else if let Some(scanned_list) = &dir_scanned {
-            state.search_index.lock_recover().upsert_batch(scanned_list)?;
-        }
+        let renamed_files = match (&single_scanned, &dir_scanned) {
+            (Some(note), _) => std::slice::from_ref(note),
+            (_, Some(notes)) => notes.as_slice(),
+            _ => &[],
+        };
+        state.search_index.lock_recover()
+            .apply_changes(std::slice::from_ref(&res.old_rel_path), renamed_files)?;
         Ok(())
     })();
     if let Err(err) = reindex {
