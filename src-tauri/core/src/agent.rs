@@ -88,6 +88,11 @@ impl AgentVault {
         }
     }
 
+    fn write_lock(&self) -> Result<crate::vault_lock::VaultWriteLock, String> {
+        self.writable()?;
+        crate::vault_lock::VaultWriteLock::acquire(&self.app_data_dir, &self.root)
+    }
+
     fn index(&self) -> Result<Rc<Connection>, String> {
         let files = index::scan_dir_files_from_disk(&self.root, &self.root)?;
         let print = fingerprint(&files);
@@ -142,7 +147,11 @@ impl AgentVault {
     }
 
     pub fn create(&self, path: &str, content: &str) -> Result<Value, String> {
-        self.writable()?;
+        let _write_lock = self.write_lock()?;
+        self.create_locked(path, content)
+    }
+
+    fn create_locked(&self, path: &str, content: &str) -> Result<Value, String> {
         let (_, doc) = vault::create_vault_note(&self.root, path, content)?;
         to_json(&doc)
     }
@@ -150,14 +159,18 @@ impl AgentVault {
     /// Adds `text` to the end of a note on its own line. With `create_missing`, a note that does
     /// not exist yet is created instead of reported as an error.
     pub fn append(&self, path: &str, text: &str, create_missing: bool) -> Result<Value, String> {
-        self.writable()?;
+        let _write_lock = self.write_lock()?;
+        self.append_locked(path, text, create_missing)
+    }
+
+    fn append_locked(&self, path: &str, text: &str, create_missing: bool) -> Result<Value, String> {
         let rel = vault::ensure_md_extension(path);
         let (abs, clean) = vault::resolve_safe_vault_path(&self.root, &rel)?;
         if !abs.exists() {
             if !create_missing {
                 return Err(format!("Note does not exist: {clean}"));
             }
-            return self.create(&clean, &with_final_newline(text));
+            return self.create_locked(&clean, &with_final_newline(text));
         }
         let previous = std::fs::read_to_string(&abs).map_err(|e| format!("Cannot read {clean}: {e}"))?;
         let separator = if previous.is_empty() || previous.ends_with('\n') { "" } else { "\n" };
@@ -170,7 +183,7 @@ impl AgentVault {
     /// Renames or moves a note or folder. For a note, links that point to it are rewritten
     /// unless `update_links` is false; each rewritten note keeps its old text in version history.
     pub fn rename(&self, from: &str, to: &str, update_links: bool) -> Result<Value, String> {
-        self.writable()?;
+        let _write_lock = self.write_lock()?;
         let from = &self.existing_entry(from)?;
         let plan = if update_links {
             crate::link_update::plan_link_updates(&self.root, from, to)?
@@ -199,7 +212,7 @@ impl AgentVault {
 
     /// Sends a note or folder to the Recycle Bin.
     pub fn delete(&self, path: &str) -> Result<Value, String> {
-        self.writable()?;
+        let _write_lock = self.write_lock()?;
         let clean = self.existing_entry(path)?;
         vault::delete_vault_entry(&self.root, &clean)?;
         Ok(json!({ "deleted": clean }))
@@ -285,7 +298,7 @@ impl AgentVault {
     /// `replace_all` is set, so an edit never lands somewhere the caller did not mean. The note's
     /// previous text stays in version history.
     pub fn edit(&self, path: &str, old_text: &str, new_text: &str, replace_all: bool) -> Result<Value, String> {
-        self.writable()?;
+        let _write_lock = self.write_lock()?;
         if old_text.is_empty() {
             return Err("old_text is empty. Give the exact text to replace".to_string());
         }
@@ -317,7 +330,7 @@ impl AgentVault {
 
     /// Sets or removes frontmatter properties. A `null` value removes that property.
     pub fn set_properties(&self, path: &str, set: &Map<String, Value>, remove: &[String]) -> Result<Value, String> {
-        self.writable()?;
+        let _write_lock = self.write_lock()?;
         let clean = self.existing_note(path)?;
         self.rewrite(&clean, |text| crate::frontmatter::set_properties(text, set, remove))?;
         Ok(json!({ "path": clean }))
@@ -326,7 +339,7 @@ impl AgentVault {
     /// Adds and removes tags in the note's frontmatter `tags` list. Tags written as `#tag` in the
     /// body are left alone, so the answer lists any that keep a removed tag on the note.
     pub fn update_tags(&self, path: &str, add: &[String], remove: &[String]) -> Result<Value, String> {
-        self.writable()?;
+        let _write_lock = self.write_lock()?;
         let clean = self.existing_note(path)?;
         let normalize = |tag: &String| tag.trim().trim_start_matches('#').to_string();
         let add: Vec<String> = add.iter().map(normalize).collect();
@@ -376,7 +389,7 @@ impl AgentVault {
     /// with the same title appends to that note, even on another day, so one conversation keeps
     /// one note.
     pub fn save_conversation(&self, title: &str, text: &str) -> Result<Value, String> {
-        self.writable()?;
+        let _write_lock = self.write_lock()?;
         let title = conversation_title(title);
         let suffix = format!(" {}.md", title.to_lowercase());
         let (folder_abs, _) = vault::resolve_safe_vault_path(&self.root, CONVERSATIONS_FOLDER)?;
@@ -391,18 +404,18 @@ impl AgentVault {
             .max();
         if let Some(name) = existing {
             let path = format!("{CONVERSATIONS_FOLDER}/{name}");
-            self.append(&path, &format!("\n{}", text.trim_end()), false)?;
+            self.append_locked(&path, &format!("\n{}", text.trim_end()), false)?;
             return Ok(json!({ "path": path, "created": false }));
         }
         let path = format!("{CONVERSATIONS_FOLDER}/{} {title}.md", chrono::Local::now().format("%Y-%m-%d"));
-        self.create(&path, &format!("# {title}\n\n{}", with_final_newline(text.trim_end())))?;
+        self.create_locked(&path, &format!("# {title}\n\n{}", with_final_newline(text.trim_end())))?;
         Ok(json!({ "path": path, "created": true }))
     }
 
     /// Adds `text` to the end of today's daily note, creating the note the way the app does:
     /// in the daily folder from Settings, from the daily template, named `YYYY-MM-DD.md`.
     pub fn append_to_daily(&self, text: &str) -> Result<Value, String> {
-        self.writable()?;
+        let _write_lock = self.write_lock()?;
         let settings = self.app_settings();
         let setting = |key: &str, default: &str| {
             settings.get(key).and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| default.to_string())
@@ -424,9 +437,9 @@ impl AgentVault {
                 .replace("{{date}}", &date)
                 .replace("{{time}}", &now.format("%H:%M").to_string())
                 .replace("{{title}}", &date);
-            self.create(&clean, &filled)?;
+            self.create_locked(&clean, &filled)?;
         }
-        self.append(&clean, text, false)?;
+        self.append_locked(&clean, text, false)?;
         Ok(json!({ "path": clean, "created": created }))
     }
 
@@ -464,11 +477,11 @@ impl AgentVault {
 
     /// Replaces the context note. The text it replaces stays in version history.
     pub fn set_context(&self, text: &str) -> Result<Value, String> {
-        self.writable()?;
+        let _write_lock = self.write_lock()?;
         let (abs, _) = vault::resolve_safe_vault_path(&self.root, CONTEXT_NOTE)?;
         let text = with_final_newline(text);
         if !abs.exists() {
-            return self.create(CONTEXT_NOTE, &text);
+            return self.create_locked(CONTEXT_NOTE, &text);
         }
         let previous = std::fs::read_to_string(&abs).map_err(|e| format!("Cannot read {CONTEXT_NOTE}: {e}"))?;
         self.keep_previous(CONTEXT_NOTE, &previous);
@@ -789,6 +802,48 @@ mod tests {
         std::fs::File::options().write(true).open(&path).unwrap()
             .set_times(std::fs::FileTimes::new().set_modified(modified)).unwrap();
         assert_eq!(agent.search("oranges", 10).unwrap()[0]["path"], "Fruit.md");
+    }
+
+    #[test]
+    fn another_process_must_wait_for_a_vault_writer() {
+        const CHILD_ROOT: &str = "JOTTER_TEST_WRITE_LOCK_ROOT";
+        const CHILD_DATA: &str = "JOTTER_TEST_WRITE_LOCK_DATA";
+        const CHILD_EXPECT_BUSY: &str = "JOTTER_TEST_WRITE_LOCK_BUSY";
+
+        if let Some(root) = std::env::var_os(CHILD_ROOT) {
+            let data = PathBuf::from(std::env::var_os(CHILD_DATA).unwrap());
+            let agent = AgentVault::open(Path::new(&root), false, &data).unwrap();
+            let result = agent.append("Note.md", "child", false);
+            if std::env::var_os(CHILD_EXPECT_BUSY).is_some() {
+                assert!(result.unwrap_err().contains("Another Jotter process"));
+            } else {
+                result.unwrap();
+            }
+            return;
+        }
+
+        let root = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        let note = root.path().join("Note.md");
+        std::fs::write(&note, "original\n").unwrap();
+        let run_child = |busy: bool| {
+            let mut command = std::process::Command::new(std::env::current_exe().unwrap());
+            command
+                .args(["--exact", "agent::tests::another_process_must_wait_for_a_vault_writer"])
+                .env(CHILD_ROOT, root.path().join("."))
+                .env(CHILD_DATA, data.path());
+            if busy {
+                command.env(CHILD_EXPECT_BUSY, "1");
+            }
+            let output = command.output().unwrap();
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stdout));
+        };
+        let lock = crate::vault_lock::VaultWriteLock::acquire(data.path(), root.path()).unwrap();
+        run_child(true);
+        assert_eq!(std::fs::read_to_string(&note).unwrap(), "original\n");
+        drop(lock);
+        run_child(false);
+        assert_eq!(std::fs::read_to_string(&note).unwrap(), "original\nchild\n");
     }
 
     #[test]

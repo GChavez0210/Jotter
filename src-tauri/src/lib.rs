@@ -430,11 +430,13 @@ fn open_vault(
     drop(conn);
 
     // Notes deleted a month ago or more give their history back to the disk.
-    crate::versions::prune_orphans(
-        &crate::versions::versions_dir(&app_data_dir, &vault_root),
-        &vault_root,
-        system_time_to_ms(SystemTime::now()),
-    );
+    if let Ok(_write_lock) = jotter_core::vault_lock::VaultWriteLock::acquire(&app_data_dir, &vault_root) {
+        crate::versions::prune_orphans(
+            &crate::versions::versions_dir(&app_data_dir, &vault_root),
+            &vault_root,
+            system_time_to_ms(SystemTime::now()),
+        );
+    }
 
     let _ = record_recent_vault(&state.recent_vaults_file, &vault_root);
     Ok(snapshot)
@@ -467,12 +469,15 @@ fn create_new_vault(
     })?;
 
     // Seed a starter Welcome.md note only if the newly created folder is completely empty
-    let welcome_path = vault_root.join("Welcome.md");
-    if !welcome_path.exists() {
-        let initial_welcome = format!(
-            "# Welcome to {clean_name}\n\nThis vault is stored as plain `.md` files on disk.\n\n- Press **Ctrl+N** to create a new note\n- Press **Ctrl+C** to copy with Notepad-identical line breaks\n- Press **Ctrl+Shift+V** to paste as plain text\n"
-        );
-        let _ = crate::fs_atomic::atomic_write_str(&welcome_path, &initial_welcome);
+    {
+        let _write_lock = jotter_core::vault_lock::VaultWriteLock::acquire(&app_data_dir_of(&state), &vault_root)?;
+        let welcome_path = vault_root.join("Welcome.md");
+        if !welcome_path.exists() {
+            let initial_welcome = format!(
+                "# Welcome to {clean_name}\n\nThis vault is stored as plain `.md` files on disk.\n\n- Press **Ctrl+N** to create a new note\n- Press **Ctrl+C** to copy with Notepad-identical line breaks\n- Press **Ctrl+Shift+V** to paste as plain text\n"
+            );
+            let _ = crate::fs_atomic::atomic_write_str(&welcome_path, &initial_welcome);
+        }
     }
 
     open_vault(app_handle, state, vault_root.to_string_lossy().into_owned())
@@ -557,9 +562,11 @@ fn create_note(
 ) -> Result<(VaultSnapshot, NoteDocument), String> {
     let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
+    let write_lock = jotter_core::vault_lock::VaultWriteLock::acquire(&app_data_dir_of(&state), &vault_root)?;
     let content = initial_content.unwrap_or_default();
     let (snapshot, doc) = create_vault_note(&vault_root, &rel_path, &content)?;
     record_self_write_content(&state.recent_self_writes, &doc.rel_path, &content);
+    drop(write_lock);
     reindex_note(&state, &vault_root, &doc.rel_path, Some(system_time_to_ms(SystemTime::now())));
 
     Ok((snapshot, doc))
@@ -583,6 +590,7 @@ fn save_note(
         return Err("The vault changed before the note could be saved.".into());
     }
     let vault_root = require_active_vault(&state)?;
+    let write_lock = jotter_core::vault_lock::VaultWriteLock::acquire(&app_data_dir_of(&state), &vault_root)?;
     let Some((doc, changed)) = crate::vault::save_vault_note_if_current(
         &vault_root, &rel_path, expected.content.as_deref(), &content,
     )? else {
@@ -601,6 +609,7 @@ fn save_note(
     }
     if changed {
         record_self_write_content(&state.recent_self_writes, &doc.rel_path, &content);
+        drop(write_lock);
         reindex_note(&state, &vault_root, &doc.rel_path, Some(system_time_to_ms(SystemTime::now())));
     }
 
@@ -611,6 +620,7 @@ fn save_note(
 fn create_folder(state: State<'_, AppState>, rel_path: String) -> Result<VaultSnapshot, String> {
     let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
+    let _write_lock = jotter_core::vault_lock::VaultWriteLock::acquire(&app_data_dir_of(&state), &vault_root)?;
     let clean = crate::vault::normalize_rel_path(&rel_path);
     mark_self_write(&state.recent_self_writes, &clean);
     create_vault_folder(&vault_root, &clean)
@@ -624,6 +634,7 @@ fn rename_entry(
 ) -> Result<RenameEntryResult, String> {
     let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
+    let _write_lock = jotter_core::vault_lock::VaultWriteLock::acquire(&app_data_dir_of(&state), &vault_root)?;
     let res = rename_vault_entry(&vault_root, &old_rel_path, &new_rel_path)?;
     mark_self_write(&state.recent_self_writes, &res.old_rel_path);
     mark_self_write(&state.recent_self_writes, &res.new_rel_path);
@@ -692,6 +703,7 @@ fn rename_entry(
 fn delete_entry(state: State<'_, AppState>, rel_path: String) -> Result<VaultSnapshot, String> {
     let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
+    let _write_lock = jotter_core::vault_lock::VaultWriteLock::acquire(&app_data_dir_of(&state), &vault_root)?;
     let clean = crate::vault::normalize_rel_path(&rel_path);
     mark_self_write(&state.recent_self_writes, &clean);
 
@@ -807,6 +819,7 @@ fn save_pasted_image(
 ) -> Result<(String, String), String> {
     let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
+    let _write_lock = jotter_core::vault_lock::VaultWriteLock::acquire(&app_data_dir_of(&state), &vault_root)?;
     // The page sends the image as the raw request body, which avoids encoding every byte as a
     // JSON number. An empty body asks for the image on the system clipboard instead.
     let (file_name, rel_path) = match request.body() {
@@ -881,6 +894,7 @@ fn apply_link_edits(
 ) -> Result<crate::link_update::AppliedEdits, String> {
     let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
+    let _write_lock = jotter_core::vault_lock::VaultWriteLock::acquire(&app_data_dir_of(&state), &vault_root)?;
     // The rewritten note keeps its previous text in version history, as it does for the CLI.
     keep_previous_text(&state, &vault_root, &rel_path, 0);
     let applied = crate::link_update::apply_edits_to_note(&vault_root, &rel_path, &edits)?;
@@ -1330,6 +1344,7 @@ fn restore_deleted_entry(
 ) -> Result<(String, VaultSnapshot), String> {
     let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
+    let _write_lock = jotter_core::vault_lock::VaultWriteLock::acquire(&app_data_dir_of(&state), &vault_root)?;
     let rel_path = crate::recycle::restore(&vault_root, &id)?;
     mark_self_write(&state.recent_self_writes, &rel_path);
 
@@ -1452,6 +1467,7 @@ fn restore_note_version(
 ) -> Result<NoteDocument, String> {
     let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
+    let _write_lock = jotter_core::vault_lock::VaultWriteLock::acquire(&app_data_dir_of(&state), &vault_root)?;
     let (note_path, clean) = crate::versions::resolve_note_path(&vault_root, &rel_path)?;
     let dir = versions_dir(&state, &vault_root);
     let wanted = crate::versions::read(&dir, &clean, &id)?;
@@ -1549,6 +1565,7 @@ fn quick_capture_append(
 ) -> Result<String, String> {
     let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
+    let _write_lock = jotter_core::vault_lock::VaultWriteLock::acquire(&app_data_dir_of(&state), &vault_root)?;
     keep_previous_text(&state, &vault_root, &rel_path, crate::versions::SNAPSHOT_INTERVAL_MS);
     let rel = crate::capture::append_to_note(&vault_root, &rel_path, &text, compact.unwrap_or(false))?;
     reindex_note(&state, &vault_root, &rel, None);
