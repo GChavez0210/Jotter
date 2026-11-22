@@ -1,3 +1,4 @@
+import { blockRemoteImages } from './remoteImages';
 /**
  * Math (KaTeX) and diagram (Pele, a Mermaid renderer) rendering shared by Live Preview and
  * export. Both libraries load on first use, so notes without math or diagrams pay nothing.
@@ -121,8 +122,10 @@ export function exportDiagramCss(dark: boolean): string {
 export async function enhanceRenderedHtml(
   html: string,
   target: 'file' | 'print',
-  dark: boolean
+  dark: boolean,
+  remoteImages = true
 ): Promise<string> {
+  if (!remoteImages) html = blockRemoteImages(html);
   const hasMath = html.includes('data-math-style');
   const hasDiagram = html.includes('language-mermaid');
   const hasCalc = html.includes('language-calc');
@@ -150,7 +153,8 @@ export async function enhanceRenderedHtml(
   for (const code of Array.from(doc.querySelectorAll('pre > code.language-mermaid'))) {
     const figure = doc.createElement('div');
     figure.className = 'jotter-diagram';
-    figure.innerHTML = await renderDiagram(code.textContent ?? '');
+    const svg = await renderDiagram(code.textContent ?? '');
+    figure.innerHTML = remoteImages ? svg : blockRemoteImages(svg);
     code.parentElement?.replaceWith(figure);
   }
 

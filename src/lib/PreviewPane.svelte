@@ -30,18 +30,20 @@
     `${exportDiagramCss(settingsStore.effectiveDark)}\n${EXPORT_CALLOUT_CSS}\n${EXPORT_FOOTNOTE_CSS}`
   );
 
-  async function render(noteTitle: string, markdown: string, dark: boolean): Promise<string> {
+  async function render(noteTitle: string, markdown: string, dark: boolean, remoteImages: boolean): Promise<string> {
     const rendered = await renderNoteHtmlPreview(noteTitle, markdown, dark);
-    const full = await enhanceRenderedHtml(rendered, 'print', dark);
+    const full = await enhanceRenderedHtml(rendered, 'print', dark, remoteImages);
     const doc = new DOMParser().parseFromString(full, 'text/html');
     // Take the article only: the export document's own theme would restyle the app around it.
-    return doc.querySelector('main, article')?.innerHTML ?? doc.body.innerHTML;
+    const article = doc.querySelector('main, article')?.innerHTML ?? doc.body.innerHTML;
+    return article;
   }
 
   $effect(() => {
     const markdown = source;
     const noteTitle = title;
     const dark = settingsStore.effectiveDark;
+    const remoteImages = settingsStore.remoteImages;
     if (markdown === null) {
       body = '';
       error = '';
@@ -49,7 +51,7 @@
     }
     let dropped = false;
     const timer = setTimeout(() => {
-      void render(noteTitle, markdown, dark)
+      void render(noteTitle, markdown, dark, remoteImages)
         .then((html) => {
           if (dropped) return;
           keptScrollTop = scrollHost?.scrollTop ?? 0;

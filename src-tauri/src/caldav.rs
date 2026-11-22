@@ -107,6 +107,8 @@ fn resource_url(collection: &Url, uid: &str) -> Result<Url, String> {
 fn http_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .timeout(Duration::from_secs(30))
+        // A redirect could resend the Basic-auth header over a weaker scheme or to another path.
+        .redirect(reqwest::redirect::Policy::none())
         .build()
         .map_err(|e| format!("Cannot start the network client: {e}"))
 }

@@ -97,6 +97,8 @@ pub struct VaultNode {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultSnapshot {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub generation: Option<u64>,
     pub root_path: String,
     pub name: String,
     pub tree: Vec<VaultNode>,
@@ -136,6 +138,7 @@ pub struct RenameEntryResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VaultFsEvent {
+    pub generation: u64,
     pub changed_paths: Vec<String>,
 }
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tabsStore } from './stores/tabs.svelte';
   import { shortcutLabel } from './platform';
   import { onMount, onDestroy, untrack, type Snippet } from 'svelte';
   import { Compartment, EditorState } from '@codemirror/state';
@@ -802,12 +803,12 @@
 
   async function insertSavedImageAtCursor(
     v: EditorView,
-    pngBytes: number[] | null,
+    imageBytes: Uint8Array | null,
     operation = captureEditorOperation(v, editorGeneration)
   ): Promise<boolean> {
     try {
       if (!operation.isCurrent(v, editorGeneration)) return false;
-      const [fileName, relPath] = await savePastedImage(pngBytes);
+      const [fileName, relPath] = await savePastedImage(imageBytes);
       if (!operation.isCurrent(v, editorGeneration)) {
         onError?.(m.editor_image_paste_cancelled());
         return false;
@@ -846,8 +847,7 @@
             void blob
               .arrayBuffer()
               .then((buf) => {
-                const bytes = Array.from(new Uint8Array(buf));
-                return insertSavedImageAtCursor(v, bytes, operation);
+                return insertSavedImageAtCursor(v, new Uint8Array(buf), operation);
               })
               .catch(() => {
                 void insertSavedImageAtCursor(v, null, operation);
@@ -902,6 +902,9 @@
       // Live mode hides frontmatter, so start below it.
       selection: { anchor: editingMode === 'live' ? positionAfterFrontmatter(content) : 0 },
       extensions: [
+        EditorState.transactionFilter.of((tr) =>
+          tabsStore.vaultTransition && tr.docChanged && !suppressChangeEmit ? [] : tr
+        ),
         history(),
         drawSelection(),
         highlightActiveLine(),

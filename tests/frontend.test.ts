@@ -76,8 +76,8 @@ import { findFootnoteRefs, parseFootnoteDefinition } from '../src/lib/footnotes'
 import { foldedRanges } from '@codemirror/language';
 import type { AiConfig, AiResult, AiStatus, VaultNode, VaultSnapshot } from '../src/lib/types';
 
-function dirtyTab() {
-  tabsStore.resetTabs();
+function dirtyTab(vaultGeneration?: number) {
+  tabsStore.resetTabs(vaultGeneration);
   tabsStore.openTabs = [{relPath:'A.md',title:'A',content:'unsaved',savedContent:'',dirty:true,externalChangePending:false}];
   tabsStore.activeTabPath = 'A.md';
 }
@@ -116,6 +116,26 @@ test('closing waits for in-flight save and saves edits made during it', async ()
   assert.deepEqual(writes, ['unsaved', 'latest']);
   assert.equal(tabsStore.openTabs.length, 0);
   tabsStore.clearAllTimers();
+});
+
+test('a late save reply cannot update the same note path in a new vault', async () => {
+  dirtyTab(7);
+  let release!: () => void;
+  const wait = new Promise<void>((resolve) => { release = resolve; });
+  const generations: Array<number | undefined> = [];
+  control.save = async (path, content, generation) => {
+    generations.push(generation);
+    if (generation === 7) await wait;
+    return { relPath: path, title: `Vault ${generation}`, content };
+  };
+  const previousSave = tabsStore.flushAutosaveFor('A.md');
+  dirtyTab(8);
+  assert.equal(await tabsStore.flushAutosaveFor('A.md'), true);
+  release();
+  assert.equal(await previousSave, false);
+  assert.deepEqual(generations, [7, 8]);
+  assert.equal(tabsStore.openTabs[0].title, 'Vault 8');
+  tabsStore.resetTabs();
 });
 
 test('clipboard mutations reject edits and document replacement, including A to B to A', () => {

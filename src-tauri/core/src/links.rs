@@ -148,31 +148,16 @@ pub fn parse_wiki_links_with_lines(source_path: &str, content: &str) -> Vec<Inde
     };
 
     let mut indexed = Vec::new();
-    let mut in_fence = false;
-
-    for (idx, line) in body.lines().enumerate() {
-        let line_number = frontmatter_line_offset + idx + 1;
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            in_fence = !in_fence;
-            continue;
-        }
-        if in_fence {
-            continue;
-        }
-
+    for prose in crate::md_scan::prose_lines(body) {
+        let line = prose.text;
+        let line_number = frontmatter_line_offset + prose.index + 1;
         let bytes = line.as_bytes();
         let len = bytes.len();
         let mut i = 0;
-        let mut in_inline_code = false;
+        let inline_code = crate::md_scan::inline_code_spans(line);
 
         while i < len {
-            if bytes[i] == b'`' {
-                in_inline_code = !in_inline_code;
-                i += 1;
-                continue;
-            }
-            if in_inline_code {
+            if crate::md_scan::in_spans(&inline_code, i) {
                 i += 1;
                 continue;
             }
@@ -216,30 +201,15 @@ pub fn parse_wiki_links_with_lines(source_path: &str, content: &str) -> Vec<Inde
 pub fn parse_wiki_links(content: &str) -> Vec<WikiLink> {
     let (body, _) = split_yaml_frontmatter(content);
     let mut links = Vec::new();
-    let mut in_fence = false;
-
-    for line in body.lines() {
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
-            in_fence = !in_fence;
-            continue;
-        }
-        if in_fence {
-            continue;
-        }
-
+    for prose in crate::md_scan::prose_lines(body) {
+        let line = prose.text;
         let bytes = line.as_bytes();
         let len = bytes.len();
         let mut i = 0;
-        let mut in_inline_code = false;
+        let inline_code = crate::md_scan::inline_code_spans(line);
 
         while i < len {
-            if bytes[i] == b'`' {
-                in_inline_code = !in_inline_code;
-                i += 1;
-                continue;
-            }
-            if in_inline_code {
+            if crate::md_scan::in_spans(&inline_code, i) {
                 i += 1;
                 continue;
             }

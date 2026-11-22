@@ -30,7 +30,14 @@ pub fn settings_path(app_data_dir: &Path) -> PathBuf {
 /// Returns the stored settings, or `None` before the first save.
 pub fn load(settings_file: &Path) -> Result<Option<String>, String> {
     match std::fs::read_to_string(settings_file) {
-        Ok(raw) => Ok(Some(raw)),
+        Ok(raw) => {
+            // The page starts on defaults when this file is damaged, and its next change replaces
+            // the file. Keep a copy of the damaged one so the user can recover from it.
+            if !matches!(serde_json::from_str::<serde_json::Value>(&raw), Ok(serde_json::Value::Object(_))) {
+                let _ = std::fs::write(settings_file.with_extension("json.bak"), &raw);
+            }
+            Ok(Some(raw))
+        }
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(None),
         Err(err) => Err(format!("Cannot read {}: {err}", settings_file.display())),
     }
@@ -74,6 +81,20 @@ mod tests {
     fn load_returns_none_before_the_first_save() {
         let dir = temp_dir("none");
         assert_eq!(load(&settings_path(&dir)).unwrap(), None);
+    }
+
+    #[test]
+    fn a_damaged_file_is_copied_aside_before_the_page_replaces_it() {
+        let dir = temp_dir("damaged");
+        let file = settings_path(&dir);
+        std::fs::write(&file, "{ not json").unwrap();
+        assert_eq!(load(&file).unwrap().as_deref(), Some("{ not json"));
+        assert_eq!(std::fs::read_to_string(dir.join("settings.json.bak")).unwrap(), "{ not json");
+        // A healthy file leaves no backup.
+        let healthy = temp_dir("healthy");
+        std::fs::write(settings_path(&healthy), r#"{"a":"1"}"#).unwrap();
+        load(&settings_path(&healthy)).unwrap();
+        assert!(!healthy.join("settings.json.bak").exists());
     }
 
     #[test]

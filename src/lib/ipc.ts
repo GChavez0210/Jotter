@@ -109,9 +109,10 @@ export async function createNote(
 
 export async function saveNote(
   relPath: string,
-  content: string
+  content: string,
+  vaultGeneration?: number
 ): Promise<NoteDocument> {
-  return invoke<NoteDocument>('save_note', { relPath, content });
+  return invoke<NoteDocument>('save_note', { relPath, content, vaultGeneration });
 }
 
 export async function createFolder(relPath: string): Promise<VaultSnapshot> {
@@ -182,12 +183,15 @@ export async function rebuildVaultIndex(): Promise<number> {
   return invoke<number>('rebuild_vault_index');
 }
 
+/**
+ * Saves an image from the paste event into the vault's attachments folder. Without bytes, Rust
+ * reads the image from the system clipboard. The bytes travel as the raw request body, not as a
+ * JSON array of numbers.
+ */
 export async function savePastedImage(
-  pngBytes?: number[] | null
+  imageBytes?: Uint8Array | null
 ): Promise<[string, string]> {
-  return invoke<[string, string]>('save_pasted_image', {
-    pngBytes: pngBytes ?? null,
-  });
+  return invoke<[string, string]>('save_pasted_image', imageBytes ?? new Uint8Array(0));
 }
 
 export async function readVaultImageDataUrl(target: string): Promise<string> {

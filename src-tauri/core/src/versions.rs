@@ -100,6 +100,18 @@ pub fn snapshot(
         return Ok(false);
     }
     let dir = note_dir(versions_dir, rel_path);
+    // Autosave calls this every few hundred milliseconds. The remembered time of the newest
+    // snapshot answers "too soon" without listing the folder.
+    if min_interval_ms > 0 {
+        let newest = newest_snapshots().get(&dir).copied();
+        if let Some(newest) = newest {
+            if now_ms - newest < min_interval_ms
+                && dir.join(format!("{newest}.md")).is_file()
+            {
+                return Ok(false);
+            }
+        }
+    }
     let stored = read_versions(&dir);
 
     if let Some(newest) = stored.first() {
@@ -120,8 +132,22 @@ pub fn snapshot(
     };
     atomic_write_str(&dir.join(format!("{id}.md")), content)?;
     write_marker(&dir, rel_path, None)?;
+    let mut cache = newest_snapshots();
+    if cache.len() >= 4096 { cache.clear(); }
+    cache.insert(dir.clone(), id);
+    drop(cache);
     prune(&dir, now_ms);
     Ok(true)
+}
+
+/// The time of the newest snapshot of each note folder, as this process last saw it.
+fn newest_snapshots() -> std::sync::MutexGuard<'static, std::collections::HashMap<PathBuf, i64>> {
+    static NEWEST: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<PathBuf, i64>>> =
+        std::sync::OnceLock::new();
+    NEWEST
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// Every stored version of a note, newest first.
@@ -141,6 +167,7 @@ pub fn read(versions_dir: &Path, rel_path: &str, id: &str) -> Result<String, Str
 /// Moves a note's history when the note is renamed or moved, including every note inside a
 /// renamed folder. Folder names are hashes, so each one is read back from its marker.
 pub fn rename(versions_dir: &Path, old_rel: &str, new_rel: &str) -> Result<(), String> {
+    newest_snapshots().clear();
     let Ok(entries) = std::fs::read_dir(versions_dir) else {
         return Ok(());
     };
@@ -193,6 +220,7 @@ pub fn rename(versions_dir: &Path, old_rel: &str, new_rel: &str) -> Result<(), S
 /// Drops the history of notes that are no longer in the vault and have not been for a month,
 /// so a note restored from the trash still finds its versions. Runs when a vault opens.
 pub fn prune_orphans(versions_dir: &Path, vault_root: &Path, now_ms: i64) {
+    newest_snapshots().clear();
     let Ok(entries) = std::fs::read_dir(versions_dir) else {
         return;
     };

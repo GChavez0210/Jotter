@@ -74,9 +74,11 @@ pub fn is_due(last_ms: Option<i64>, interval_hours: u32, now_ms: i64) -> bool {
     }
 }
 
-/// Includes seconds and nanoseconds so names sort by backup time.
+/// Includes seconds and nanoseconds so names sort by backup time. The stamp is UTC: local time
+/// repeats an hour when clocks go back, which would sort the newest backup as an old one.
 pub fn backup_file_name(vault_name: &str, now: DateTime<Local>) -> String {
-    format!("{}-{}.zip", file_prefix(vault_name), now.format("%Y-%m-%d-%H%M%S-%f"))
+    let stamp = now.with_timezone(&chrono::Utc).format("%Y-%m-%d-%H%M%S-%f");
+    format!("{}-{stamp}.zip", file_prefix(vault_name))
 }
 
 fn file_prefix(vault_name: &str) -> String {
@@ -156,16 +158,19 @@ fn add_dir<W: Write + std::io::Seek>(
 /// like Jotter's own backups for this vault.
 pub fn prune(dest_dir: &Path, vault_name: &str, keep: u32) -> Result<usize, String> {
     let prefix = format!("{}-", file_prefix(vault_name));
-    let mut ours: Vec<String> = std::fs::read_dir(dest_dir)
+    let mut ours: Vec<(Option<std::time::SystemTime>, String)> = std::fs::read_dir(dest_dir)
         .map_err(|e| format!("Cannot read the backup folder: {e}"))?
         .filter_map(|e| e.ok())
         .filter(|e| e.file_type().is_ok_and(|t| t.is_file()))
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .filter(|n| is_backup_name(n, &prefix))
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            is_backup_name(&name, &prefix)
+                .then(|| (entry.metadata().and_then(|meta| meta.modified()).ok(), name))
+        })
         .collect();
     ours.sort();
     let excess = ours.len().saturating_sub(keep.max(1) as usize);
-    for name in &ours[..excess] {
+    for (_, name) in &ours[..excess] {
         std::fs::remove_file(dest_dir.join(name)).map_err(|e| format!("Cannot delete the old backup {name}: {e}"))?;
     }
     Ok(excess)
@@ -232,8 +237,16 @@ mod tests {
 
     #[test]
     fn file_names_sort_by_age_and_replace_unsafe_characters() {
-        assert_eq!(backup_file_name("Work/Notes", moment()), "Work_Notes-2026-10-28-153000-000000000.zip");
-        assert_eq!(backup_file_name("..", moment()), "Vault-2026-10-28-153000-000000000.zip");
+        let utc = moment().with_timezone(&chrono::Utc).format("%Y-%m-%d-%H%M%S-000000000");
+        assert_eq!(backup_file_name("Work/Notes", moment()), format!("Work_Notes-{utc}.zip"));
+        assert_eq!(backup_file_name("..", moment()), format!("Vault-{utc}.zip"));
+    }
+
+    #[test]
+    fn a_backup_after_clocks_go_back_still_sorts_as_the_newest() {
+        let before = chrono::Utc.with_ymd_and_hms(2026, 10, 25, 5, 30, 0).unwrap().with_timezone(&Local);
+        let after = before + chrono::Duration::minutes(60);
+        assert!(backup_file_name("Notes", before) < backup_file_name("Notes", after));
     }
 
     #[test]

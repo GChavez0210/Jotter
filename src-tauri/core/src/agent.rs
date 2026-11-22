@@ -33,11 +33,12 @@ pub struct AgentVault {
     index_cache: RefCell<Option<(u64, Rc<Connection>)>>,
 }
 
-/// Changes when a note is added, removed, renamed, or edited.
 fn fingerprint(files: &[index::ScannedNoteFile]) -> u64 {
+    let mut entries: Vec<_> = files.iter().collect();
+    entries.sort_unstable_by(|a, b| a.path.cmp(&b.path));
     let mut hasher = DefaultHasher::new();
-    for file in files {
-        (&file.path, file.fs_modified_ms, file.content.len(), &file.content).hash(&mut hasher);
+    for file in entries {
+        (&file.path, file.fs_modified_ms, file.created_ms, &file.content).hash(&mut hasher);
     }
     hasher.finish()
 }
@@ -774,6 +775,20 @@ mod tests {
             agent.read(&format!("Journal/{date}")).unwrap()["content"],
             format!("# {date}\n- 09:00 started\n- 10:00 more\n")
         );
+    }
+
+    #[test]
+    fn cached_search_detects_equal_size_changes_with_preserved_mtime() {
+        let (vault, data) = vault_with_notes();
+        let path = vault.path().join("Fruit.md");
+        std::fs::write(&path, "bananas").unwrap();
+        let modified = std::fs::metadata(&path).unwrap().modified().unwrap();
+        let agent = open(&vault, &data, false);
+        assert_eq!(agent.search("bananas", 10).unwrap()[0]["path"], "Fruit.md");
+        std::fs::write(&path, "oranges").unwrap();
+        std::fs::File::options().write(true).open(&path).unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(modified)).unwrap();
+        assert_eq!(agent.search("oranges", 10).unwrap()[0]["path"], "Fruit.md");
     }
 
     #[test]

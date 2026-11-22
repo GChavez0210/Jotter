@@ -147,7 +147,7 @@
     try {
       const dark = settingsStore.effectiveDark;
       const rendered = await renderNoteHtmlPreview(title, markdown, dark);
-      const html = await enhanceRenderedHtml(rendered, 'file', dark);
+      const html = await enhanceRenderedHtml(rendered, 'file', dark, settingsStore.remoteImages);
       const savedPath = await exportActiveNoteHtml(title, html, {
         title: m.dialog_export_html_title(),
         filter: m.dialog_export_html_filter(),
@@ -171,11 +171,13 @@
       const fullHtml = await enhanceRenderedHtml(
         rendered,
         'print',
-        settingsStore.effectiveDark
+        settingsStore.effectiveDark,
+        settingsStore.remoteImages
       );
       const printDoc = new DOMParser().parseFromString(fullHtml, 'text/html');
       // Keep export document styles out of the live app's document.
-      printArticleHtml = printDoc.querySelector('main, article')?.innerHTML ?? printDoc.body.innerHTML;
+      const printArticle = printDoc.querySelector('main, article')?.innerHTML ?? printDoc.body.innerHTML;
+      printArticleHtml = printArticle;
       await tick();
       await document.fonts.ready;
       clipboardStore.setStatus(m.status_opening_print());
@@ -317,6 +319,7 @@
   }
 
   function handleGlobalKeyDown(e: KeyboardEvent) {
+    if (tabsStore.vaultTransition) return;
     if (closing) { e.preventDefault(); return; }
     const isMod = e.ctrlKey || e.metaKey;
     const keyLower = e.key.toLowerCase();
@@ -629,6 +632,7 @@
     });
 
     void listenVaultFsEvents((evt) => {
+      if (evt.generation !== undefined && evt.generation !== tabsStore.activeVaultGeneration) return;
       void vaultStore.handleExternalFsEvent(evt.changedPaths, (relPath, newContent) => {
         editorForPath(relPath)?.replaceContentFromDisk(newContent);
       });
@@ -665,7 +669,7 @@
 />
 
 <div
-  inert={closing}
+  inert={closing || tabsStore.vaultTransition}
   class="app-shell"
   class:focus-minimal={settingsStore.focusMode === 'minimal'}
   class:focus-zen={settingsStore.focusMode === 'zen'}

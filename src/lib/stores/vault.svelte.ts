@@ -136,6 +136,29 @@ class VaultStore {
     });
   });
 
+  /**
+   * Lookup tables for wiki-link targets, rebuilt only when the vault's file list changes. Live
+   * Preview resolves every link on screen, so a scan of all notes per link would not scale.
+   */
+  private wikiTargetIndex = $derived.by(() => {
+    const byPath = new Map<string, VaultNode>();
+    const byStem = new Map<string, VaultNode>();
+    for (const file of this.allFiles) {
+      const pathKey = notePathKey(stripMdExt(file.relPath));
+      if (!byPath.has(pathKey)) byPath.set(pathKey, file);
+      const stemKey = notePathKey(stripMdExt(file.name));
+      const best = byStem.get(stemKey);
+      if (
+        !best ||
+        file.relPath.length < best.relPath.length ||
+        (file.relPath.length === best.relPath.length && file.relPath < best.relPath)
+      ) {
+        byStem.set(stemKey, file);
+      }
+    }
+    return { byPath, byStem };
+  });
+
   /** The cloud client syncing the vault folder, guessed from its path. */
   syncProvider = $derived(
     this.vaultSnapshot ? detectSyncProvider(this.vaultSnapshot.rootPath) : null
@@ -180,46 +203,23 @@ class VaultStore {
   resolveWikiTarget(rawTarget: string, sourceRelPath?: string): VaultNode | null {
     const clean = notePathKey(stripMdExt(rawTarget.trim().replace(/\\/g, '/')));
     if (!clean) return null;
+    const { byPath, byStem } = this.wikiTargetIndex;
 
     // 1. Exact relative path match (without .md)
-    for (const file of this.allFiles) {
-      if (notePathKey(stripMdExt(file.relPath)) === clean) {
-        return file;
-      }
-    }
+    const exact = byPath.get(clean);
+    if (exact) return exact;
 
     // 2. Same folder as the source note
     const effectiveSource = (sourceRelPath ?? tabsStore.activeTab?.relPath ?? '').replace(/\\/g, '/');
     const lastSlash = effectiveSource.lastIndexOf('/');
     if (lastSlash > 0) {
       const sourceDir = effectiveSource.slice(0, lastSlash);
-      const sameFolderNorm = notePathKey(stripMdExt(`${sourceDir}/${clean}`));
-      for (const file of this.allFiles) {
-        if (notePathKey(stripMdExt(file.relPath)) === sameFolderNorm) {
-          return file;
-        }
-      }
+      const sameFolder = byPath.get(notePathKey(stripMdExt(`${sourceDir}/${clean}`)));
+      if (sameFolder) return sameFolder;
     }
 
     // 3. Shortest path among notes with that stem
-    if (!clean.includes('/')) {
-      let bestMatch: VaultNode | null = null;
-      for (const file of this.allFiles) {
-        if (notePathKey(stripMdExt(file.name)) === clean) {
-          if (
-            !bestMatch ||
-            file.relPath.length < bestMatch.relPath.length ||
-            (file.relPath.length === bestMatch.relPath.length &&
-              file.relPath < bestMatch.relPath)
-          ) {
-            bestMatch = file;
-          }
-        }
-      }
-      return bestMatch;
-    }
-
-    return null;
+    return clean.includes('/') ? null : (byStem.get(clean) ?? null);
   }
 
   async refreshRecentVaults() {
@@ -231,6 +231,8 @@ class VaultStore {
   }
 
   async openVaultByPath(path: string) {
+    if (tabsStore.vaultTransition) return;
+    tabsStore.vaultTransition = true;
     this.onboardingError = '';
     try {
       if (!(await tabsStore.flushAllAutosaves())) return;
@@ -239,7 +241,7 @@ class VaultStore {
       this.vaultSnapshot = snap;
       this.bumpIndexVersion();
       tabsStore.scratchpadMode = false;
-      tabsStore.resetTabs();
+      tabsStore.resetTabs(snap.generation);
       try {
         appStorage.setItem('jotter.lastVaultPath', snap.rootPath);
       } catch {
@@ -259,10 +261,14 @@ class VaultStore {
       if (this.vaultSnapshot) {
         clipboardStore.setStatus(m.status_open_vault_failed({ error: message }));
       }
+    } finally {
+      tabsStore.vaultTransition = false;
     }
   }
 
   async createVault(parentPath: string, vaultName: string) {
+    if (tabsStore.vaultTransition) return;
+    tabsStore.vaultTransition = true;
     this.onboardingError = '';
     try {
       if (!(await tabsStore.flushAllAutosaves())) return;
@@ -271,7 +277,7 @@ class VaultStore {
       this.vaultSnapshot = snap;
       this.bumpIndexVersion();
       tabsStore.scratchpadMode = false;
-      tabsStore.resetTabs();
+      tabsStore.resetTabs(snap.generation);
       try {
         appStorage.setItem('jotter.lastVaultPath', snap.rootPath);
       } catch {
@@ -287,29 +293,37 @@ class VaultStore {
       clipboardStore.setStatus(m.status_created_vault({ vault: snap.name }));
     } catch (err) {
       this.onboardingError = err instanceof Error ? err.message : String(err);
+    } finally {
+      tabsStore.vaultTransition = false;
     }
   }
 
   async switchVault() {
-    if (!(await tabsStore.flushAllAutosaves())) return;
+    if (tabsStore.vaultTransition) return;
+    tabsStore.vaultTransition = true;
     try {
-      await closeVault();
-    } catch (err) {
-      clipboardStore.setStatus(m.status_close_vault_failed({ error: String(err) }));
-      return;
+      if (!(await tabsStore.flushAllAutosaves())) return;
+      try {
+        await closeVault();
+      } catch (err) {
+        clipboardStore.setStatus(m.status_close_vault_failed({ error: String(err) }));
+        return;
+      }
+      invalidateImagePreviews('');
+      this.vaultSnapshot = null;
+      this.pinnedPaths = [];
+      this.bumpIndexVersion();
+      tabsStore.scratchpadMode = false;
+      tabsStore.resetTabs();
+      try {
+        appStorage.removeItem('jotter.lastVaultPath');
+      } catch {
+        // ignore
+      }
+      await this.refreshRecentVaults();
+    } finally {
+      tabsStore.vaultTransition = false;
     }
-    invalidateImagePreviews('');
-    this.vaultSnapshot = null;
-    this.pinnedPaths = [];
-    this.bumpIndexVersion();
-    tabsStore.scratchpadMode = false;
-    tabsStore.resetTabs();
-    try {
-      appStorage.removeItem('jotter.lastVaultPath');
-    } catch {
-      // ignore
-    }
-    await this.refreshRecentVaults();
   }
 
   async removeRecent(path: string) {
@@ -741,13 +755,16 @@ class VaultStore {
     onReplaceEditor?: (relPath: string, newContent: string) => void
   ) {
     if (!this.vaultSnapshot) return;
+    const generation = tabsStore.activeVaultGeneration;
     invalidateImagePreviews();
     try {
       const snap = await getVaultSnapshot();
+      if (generation !== tabsStore.activeVaultGeneration) return;
       if (snap) this.vaultSnapshot = snap;
     } catch {
       // ignore
     }
+    if (generation !== tabsStore.activeVaultGeneration) return;
     this.bumpIndexVersion();
     await tabsStore.handleExternalPathsChanged(changedPaths, onReplaceEditor);
   }

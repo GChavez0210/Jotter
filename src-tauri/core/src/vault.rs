@@ -205,6 +205,7 @@ pub fn scan_vault_snapshot(vault_root: &Path) -> Result<VaultSnapshot, String> {
         .to_string();
 
     Ok(VaultSnapshot {
+        generation: None,
         root_path: vault_root.to_string_lossy().into_owned(),
         name,
         tree,
@@ -260,7 +261,12 @@ fn scan_dir_nodes(
             .join("/");
 
         if metadata.is_dir() {
-            let children = scan_dir_nodes(vault_root, &path, note_count)?;
+            // A folder Jotter cannot read, such as one without permission, stays out of the tree
+            // instead of making the whole vault unopenable.
+            let children = scan_dir_nodes(vault_root, &path, note_count).unwrap_or_else(|err| {
+                eprintln!("Skipping unreadable folder: {err}");
+                Vec::new()
+            });
             nodes.push(VaultNode {
                 name: name_str,
                 rel_path,
@@ -303,8 +309,15 @@ fn scan_dir_nodes(
 /// Reads a `.md` note from `vault_root` without modifying it on disk.
 pub fn read_vault_note(vault_root: &Path, rel_path: &str) -> Result<NoteDocument, String> {
     let (abs_path, clean_rel) = resolve_safe_vault_path(vault_root, rel_path)?;
-    if !abs_path.exists() || !abs_path.is_file() {
-        return Err(format!("Note does not exist: {clean_rel}"));
+    let metadata = fs::metadata(&abs_path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            format!("Note does not exist: {clean_rel}")
+        } else {
+            format!("Failed to read metadata for {clean_rel}: {e}")
+        }
+    })?;
+    if !metadata.is_file() {
+        return Err(format!("Not a note file: {clean_rel}"));
     }
 
     let content = fs::read_to_string(&abs_path)

@@ -30,10 +30,12 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "time"] }
 arboard = "3.4"
+base64 = "0.22"
+png = "0.18"
 dirs = "7"
 comrak = { version = "0.31", default-features = false }
 notify = "7.0"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 trash = "5.2"
 tantivy = { version = "0.27", default-features = false }
 spellbook = "0.4.2"
@@ -65,6 +67,9 @@ keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "ve
 arboard = { version = "3.4", features = ["wayland-data-control"] }
 
 [dev-dependencies]
-# `updates` tests decode the public key the updater is configured with.
-base64 = "0.22"
 minisign-verify = "0.3"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

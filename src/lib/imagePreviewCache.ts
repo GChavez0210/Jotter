@@ -13,6 +13,20 @@ export function invalidateImagePreviews(root = vault) {
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(IMAGE_REFRESH_EVENT));
 }
 
+let remoteAllowed = false;
+
+/** Whether notes may load images from the web. Off until the user turns it on in Settings. */
+export function remoteImagesAllowed() {
+  return remoteAllowed;
+}
+
+export function allowRemoteImages(allowed: boolean) {
+  if (allowed === remoteAllowed) return;
+  remoteAllowed = allowed;
+  // Redraw the image widgets, which show a placeholder while remote images are off.
+  invalidateImagePreviews();
+}
+
 export function cachedImage(target: string) {
   return cache.get(`${vault}:${target}`);
 }

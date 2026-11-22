@@ -181,6 +181,15 @@
       return false;
     }
   });
+  /** Plain http to a host that is not this computer: notes would cross the network unencrypted. */
+  const aiPlainHttpRemote = $derived.by(() => {
+    try {
+      const url = new URL(aiEndpoint?.baseUrl ?? '');
+      return url.protocol === 'http:' && !aiIsLocal;
+    } catch {
+      return false;
+    }
+  });
   const styleValue = $derived(styleDraft ?? aiStore.status?.config.styleInstructions ?? '');
 
   /** Runs an AI settings change and shows Rust's validation message when it fails. */
@@ -398,6 +407,21 @@
                 checked={settingsStore.showLineNumbers}
                 onchange={(e) =>
                   settingsStore.setShowLineNumbers((e.currentTarget as HTMLInputElement).checked)}
+              />
+            </div>
+
+            <div class="setting-card">
+              <div class="setting-info">
+                <label for="toggle-remote-images" class="setting-label">{m.settings_remote_images()}</label>
+                <div class="setting-desc">{m.settings_remote_images_desc()}</div>
+              </div>
+              <input
+                id="toggle-remote-images"
+                type="checkbox"
+                class="fluent-toggle"
+                checked={settingsStore.remoteImages}
+                onchange={(e) =>
+                  settingsStore.setRemoteImages((e.currentTarget as HTMLInputElement).checked)}
               />
             </div>
 
@@ -1063,6 +1087,9 @@
                 <div class="setting-desc">
                   {settingsAiHttpsParts[0]}<code>https://</code>{settingsAiHttpsParts[1]}
                 </div>
+                {#if aiPlainHttpRemote}
+                  <div class="setting-desc" role="alert">{m.settings_ai_http_remote()}</div>
+                {/if}
               </div>
 
               {#if aiProvider !== 'ollama'}
