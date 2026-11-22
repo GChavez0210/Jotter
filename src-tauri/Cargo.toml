@@ -34,7 +34,7 @@ base64 = "0.22"
 png = "0.18"
 dirs = "7"
 comrak = { version = "0.31", default-features = false }
-notify = "7.0"
+notify = "8.2"
 rusqlite = { version = "0.43", features = ["bundled"] }
 trash = "5.2"
 tantivy = { version = "0.27", default-features = false }
