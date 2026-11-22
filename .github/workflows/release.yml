@@ -15,6 +15,9 @@ on:
   pull_request:
     paths:
       - '.github/workflows/release.yml'
+      - 'src-tauri/Cargo.toml'
+      - 'src-tauri/tauri*.conf.json'
+      - 'scripts/build-cli-sidecar.mjs'
   workflow_dispatch:
 
 concurrency:

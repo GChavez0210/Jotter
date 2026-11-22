@@ -246,7 +246,7 @@ Put `.css` files in the app data `snippets` folder, then turn each one on in **S
 
 Open a new terminal after installing so it sees the new `PATH`. Uninstalling removes the `PATH` entry. To build the CLI from source, run `cargo build --release -p jotter-cli` from `src-tauri/`. It reads and writes the Markdown files directly, so the app does not need to be running. Every answer is JSON.
 
-The desktop executable is `jotter-desktop`; the CLI executable is `jotter`. Both can be built in the same workspace without overwriting each other.
+The desktop Cargo package and executable are `jotter-desktop`; the CLI package is `jotter-cli` and its executable is `jotter`. Both can be built in the same workspace without overwriting each other.
 
 ```
 jotter --vault ~/Notes search "quarterly plan"
