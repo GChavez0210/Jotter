@@ -4,6 +4,12 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-22
+
+### Fixed
+
+- Linux installers build with the bundled `jotter` CLI. The desktop Cargo package is now named `jotter-desktop`, avoiding the sidecar name collision rejected by Tauri. Installed commands and application identity stay the same.
+
 ## [0.7.0] - 2026-11-21
 
 ### Added
