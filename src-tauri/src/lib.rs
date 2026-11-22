@@ -64,12 +64,14 @@ use crate::vault::{
 pub struct AppState {
     pub active_vault: Mutex<Option<PathBuf>>,
     pub sqlite_conn: Arc<Mutex<Connection>>,
-    pub search_index: Arc<VaultSearchIndex>,
+    pub search_index: Mutex<Arc<VaultSearchIndex>>,
     pub watcher: Mutex<Option<RecommendedWatcher>>,
-    pub recent_self_writes: Arc<Mutex<HashMap<String, Instant>>>,
+    pub recent_self_writes: SelfWrites,
     pub recent_vaults_file: PathBuf,
     /// Bumped on every vault open or close so a stale watcher worker never writes into the next vault's index.
     pub vault_generation: Arc<AtomicU64>,
+    next_vault_generation: AtomicU64,
+    index_dirty: Arc<AtomicBool>,
     pub vault_operation: Arc<Mutex<()>>,
     /// Whether a save keeps the note's previous text. The frontend owns the setting.
     pub version_history: Arc<AtomicBool>,
@@ -86,33 +88,76 @@ fn vault_index_db_path(app_data_dir: &Path, vault_root: &Path) -> PathBuf {
 fn require_active_vault(state: &State<'_, AppState>) -> Result<PathBuf, String> {
     let guard = state
         .active_vault
-        .lock()
-        .map_err(|e| format!("Failed to lock active vault state: {e}"))?;
+        .lock_recover();
     guard
         .clone()
         .ok_or_else(|| "No vault is currently open".to_string())
 }
 
-fn mark_self_write(recent_self_writes: &Arc<Mutex<HashMap<String, Instant>>>, rel_path: &str) {
-    if let Ok(mut map) = recent_self_writes.lock() {
-        let now = Instant::now();
-        map.retain(|_, ts| now.duration_since(*ts) < Duration::from_secs(3));
-        map.insert(rel_path.to_lowercase(), now);
+/// A note write the app made itself, remembered briefly so the file watcher does not report it back.
+pub struct SelfWrite {
+    at: Instant,
+    /// A hash of the text written. With it, a change by another program that lands right after
+    /// the app's write is still reported, because the file no longer matches what the app wrote.
+    hash: Option<u64>,
+}
+
+pub type SelfWrites = Arc<Mutex<HashMap<String, SelfWrite>>>;
+
+/// Mutex access that carries on after another thread panicked while holding the lock. The data
+/// is the index cache and small flags, which a rebuild or the next write repairs, so one panic
+/// must not make every later command fail.
+trait LockRecover<T> {
+    fn lock_recover(&self) -> std::sync::MutexGuard<'_, T>;
+}
+
+impl<T> LockRecover<T> for Mutex<T> {
+    fn lock_recover(&self) -> std::sync::MutexGuard<'_, T> {
+        self.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
-fn is_recent_self_write(
-    recent_self_writes: &Arc<Mutex<HashMap<String, Instant>>>,
-    rel_path: &str,
-) -> bool {
-    if let Ok(mut map) = recent_self_writes.lock() {
+fn hash_text(text: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn mark_self_write(recent_self_writes: &SelfWrites, rel_path: &str) {
+    let mut map = recent_self_writes.lock_recover();
+    let now = Instant::now();
+    map.retain(|_, write| now.duration_since(write.at) < Duration::from_secs(3));
+    map.insert(rel_path.to_lowercase(), SelfWrite { at: now, hash: None });
+}
+
+/// Records the text the app just wrote to `rel_path`, so only a file that still holds it counts as the app's own.
+fn record_self_write_content(recent_self_writes: &SelfWrites, rel_path: &str, content: &str) {
+    let mut map = recent_self_writes.lock_recover();
+    map.insert(
+        rel_path.to_lowercase(),
+        SelfWrite { at: Instant::now(), hash: Some(hash_text(content.as_bytes())) },
+    );
+}
+
+fn is_recent_self_write(recent_self_writes: &SelfWrites, vault_root: &Path, rel_path: &str) -> bool {
+    let (recent, hash) = {
+        let mut map = recent_self_writes.lock_recover();
         let now = Instant::now();
-        map.retain(|_, ts| now.duration_since(*ts) < Duration::from_secs(3));
-        if let Some(ts) = map.get(&rel_path.to_lowercase()) {
-            return now.duration_since(*ts) < Duration::from_millis(900);
+        map.retain(|_, write| now.duration_since(write.at) < Duration::from_secs(3));
+        match map.get(&rel_path.to_lowercase()) {
+            Some(write) => (now.duration_since(write.at) < Duration::from_millis(900), write.hash),
+            None => return false,
         }
+    };
+    if !recent {
+        return false;
     }
-    false
+    let Some(hash) = hash else { return true };
+    let Ok((path, _)) = crate::vault::resolve_safe_vault_path(vault_root, rel_path) else {
+        return false;
+    };
+    std::fs::read(path).is_ok_and(|bytes| hash_text(&bytes) == hash)
 }
 
 /// Processes a debounced batch of changed relative paths incrementally:
@@ -122,6 +167,7 @@ fn process_watcher_batch(
     vault_root: &Path,
     sqlite_conn: &Arc<Mutex<Connection>>,
     search_index: &Arc<VaultSearchIndex>,
+    index_dirty: &AtomicBool,
     batch_rel_paths: &[String],
 ) {
     enum IncrementalOp {
@@ -165,12 +211,14 @@ fn process_watcher_batch(
             }
         }
     }
-    if let Ok(conn) = sqlite_conn.lock() {
-        if let Err(err) = apply_incremental_index(&conn, &deletions, &files, None) {
-            eprintln!("Index update failed: {err}");
-        }
+    let conn = sqlite_conn.lock_recover();
+    if let Err(err) = apply_incremental_index(&conn, &deletions, &files, None) {
+        index_dirty.store(true, Ordering::Relaxed);
+        eprintln!("Index update failed: {err}");
     }
+    drop(conn);
     if let Err(err) = search_index.apply_changes(&deletions, &files) {
+        index_dirty.store(true, Ordering::Relaxed);
         eprintln!("Search update failed: {err}");
     }
 }
@@ -182,12 +230,14 @@ fn start_vault_watcher(
     my_generation: u64,
 ) -> Result<RecommendedWatcher, String> {
     let sqlite_conn = Arc::clone(&state.sqlite_conn);
-    let search_index = Arc::clone(&state.search_index);
-    let recent_self_writes = Arc::clone(&state.recent_self_writes);
+    let index_dirty = state.index_dirty.clone();
     let vault_generation = Arc::clone(&state.vault_generation);
     let vault_operation = Arc::clone(&state.vault_operation);
     let (tx, rx) = mpsc::channel::<Vec<String>>();
     let root_for_cb = vault_root.clone();
+    // Some systems report event paths in their resolved form, such as macOS under /private, or
+    // for a vault opened through a symlink. Match those against the resolved root as well.
+    let canonical_root = std::fs::canonicalize(&vault_root).ok();
 
     let mut watcher =
         notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
@@ -200,7 +250,11 @@ fn start_vault_watcher(
 
             let mut changed_rel_paths = Vec::new();
             for path in &event.paths {
-                let Ok(rel) = path.strip_prefix(&root_for_cb) else {
+                let Some(rel) = path
+                    .strip_prefix(&root_for_cb)
+                    .ok()
+                    .or_else(|| canonical_root.as_deref().and_then(|root| path.strip_prefix(root).ok()))
+                else {
                     continue;
                 };
                 // Ignore .obsidian, .git, and temporary atomic write dot-files
@@ -216,9 +270,6 @@ fn start_vault_watcher(
                     .collect::<Vec<_>>()
                     .join("/");
                 if rel_str.is_empty() {
-                    continue;
-                }
-                if is_recent_self_write(&recent_self_writes, &rel_str) {
                     continue;
                 }
                 if !changed_rel_paths.contains(&rel_str) {
@@ -243,6 +294,7 @@ fn start_vault_watcher(
 
     // Background debounce worker (300 ms quiet window, batched)
     let root_for_worker = vault_root;
+    let recent_writes_for_worker = state.recent_self_writes.clone();
     std::thread::spawn(move || {
         let debounce_window = Duration::from_millis(300);
         let max_batch_wait = Duration::from_millis(1200);
@@ -260,37 +312,24 @@ fn start_vault_watcher(
                             }
                         }
                     }
-                    Err(mpsc::RecvTimeoutError::Timeout) => break,
-                    Err(mpsc::RecvTimeoutError::Disconnected) => {
-                        let Ok(_operation) = vault_operation.lock() else { return; };
-                        if vault_generation.load(Ordering::SeqCst) != my_generation {
-                            return;
-                        }
-                        process_watcher_batch(
-                            &root_for_worker,
-                            &sqlite_conn,
-                            &search_index,
-                            &batched,
-                        );
-                        let _ = app_handle.emit(
-                            "vault-fs-event",
-                            VaultFsEvent {
-                                changed_paths: batched,
-                            },
-                        );
-                        return;
-                    }
+                    Err(_) => break,
                 }
             }
 
-            let Ok(_operation) = vault_operation.lock() else { return; };
+            let _operation = vault_operation.lock_recover();
             if vault_generation.load(Ordering::SeqCst) != my_generation {
                 return;
             }
-            process_watcher_batch(&root_for_worker, &sqlite_conn, &search_index, &batched);
+            batched.retain(|path| !is_recent_self_write(&recent_writes_for_worker, &root_for_worker, path));
+            if batched.is_empty() {
+                continue;
+            }
+            let search_index = app_handle.state::<AppState>().search_index.lock_recover().clone();
+            process_watcher_batch(&root_for_worker, &sqlite_conn, &search_index, &index_dirty, &batched);
             let _ = app_handle.emit(
                 "vault-fs-event",
                 VaultFsEvent {
+                    generation: my_generation,
                     changed_paths: batched,
                 },
             );
@@ -341,28 +380,23 @@ async fn pick_vault_folder(app: AppHandle, title: Option<String>) -> Result<Opti
     }).await.map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn open_vault(
     app_handle: AppHandle,
     state: State<'_, AppState>,
     path: String,
 ) -> Result<VaultSnapshot, String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let _operation = state.vault_operation.lock_recover();
     let trimmed = path.trim();
     if trimmed.is_empty() {
         return Err("Vault path cannot be empty".to_string());
     }
     let vault_root = PathBuf::from(trimmed);
-    let snapshot = scan_vault_snapshot(&vault_root)?;
-
-    // Walk the filesystem and parse notes/links/tags BEFORE locking SQLite or Tantivy
+    let generation = state.next_vault_generation.fetch_add(1, Ordering::SeqCst) + 1;
+    let search_index = Arc::new(VaultSearchIndex::new()?);
+    let watcher = start_vault_watcher(app_handle, vault_root.clone(), &state, generation)?;
+    let mut snapshot = scan_vault_snapshot(&vault_root)?;
     let scanned_files = scan_dir_files_from_disk(&vault_root, &vault_root)?;
-
-    // Stop the previous vault's watcher and invalidate its pending batches before the index swap.
-    if let Ok(mut w_guard) = state.watcher.lock() {
-        *w_guard = None;
-    }
-    let generation = state.vault_generation.fetch_add(1, Ordering::SeqCst) + 1;
 
     // Each vault keeps its own SQLite index cache (and edit history).
     let app_data_dir = state
@@ -377,25 +411,23 @@ fn open_vault(
     let vault_conn = Connection::open(&db_path)
         .or_else(|_| Connection::open_in_memory())
         .map_err(|e| format!("Failed to open vault index database: {e}"))?;
-    init_index_schema(&vault_conn)?;
-    {
-        let mut conn = state
-            .sqlite_conn
-            .lock()
-            .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
-        *conn = vault_conn;
-        apply_scanned_vault_index(&conn, &scanned_files)?;
-    }
-    state.search_index.rebuild_from_scanned(&scanned_files)?;
+    search_index.rebuild_from_scanned(&scanned_files)?;
+    apply_scanned_vault_index(&vault_conn, &scanned_files)?;
 
-    let watcher = start_vault_watcher(app_handle, vault_root.clone(), &state, generation)?;
-
-    if let Ok(mut w_guard) = state.watcher.lock() {
-        *w_guard = Some(watcher);
-    }
-    if let Ok(mut v_guard) = state.active_vault.lock() {
-        *v_guard = Some(vault_root.clone());
-    }
+    // Publish only after all fallible setup completes. Watcher batches wait on vault_operation.
+    let mut conn = state.sqlite_conn.lock_recover();
+    let mut search = state.search_index.lock_recover();
+    *conn = vault_conn;
+    state.sqlite_conn.clear_poison();
+    *search = search_index;
+    state.index_dirty.store(false, Ordering::Relaxed);
+    state.recent_self_writes.lock_recover().clear();
+    state.vault_generation.store(generation, Ordering::SeqCst);
+    *state.active_vault.lock_recover() = Some(vault_root.clone());
+    *state.watcher.lock_recover() = Some(watcher);
+    snapshot.generation = Some(generation);
+    drop(search);
+    drop(conn);
 
     // Notes deleted a month ago or more give their history back to the disk.
     crate::versions::prune_orphans(
@@ -408,7 +440,7 @@ fn open_vault(
     Ok(snapshot)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn create_new_vault(
     app_handle: AppHandle,
     state: State<'_, AppState>,
@@ -446,13 +478,12 @@ fn create_new_vault(
     open_vault(app_handle, state, vault_root.to_string_lossy().into_owned())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_vault_snapshot(state: State<'_, AppState>) -> Result<Option<VaultSnapshot>, String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let _operation = state.vault_operation.lock_recover();
     let root_opt = state
         .active_vault
-        .lock()
-        .map_err(|e| format!("Failed to lock active vault: {e}"))?
+        .lock_recover()
         .clone();
     match root_opt {
         Some(root) => Ok(Some(scan_vault_snapshot(&root)?)),
@@ -460,16 +491,12 @@ fn get_vault_snapshot(state: State<'_, AppState>) -> Result<Option<VaultSnapshot
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn close_vault(state: State<'_, AppState>) -> Result<(), String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
-    state.vault_generation.fetch_add(1, Ordering::SeqCst);
-    if let Ok(mut w_guard) = state.watcher.lock() {
-        *w_guard = None;
-    }
-    if let Ok(mut v_guard) = state.active_vault.lock() {
-        *v_guard = None;
-    }
+    let _operation = state.vault_operation.lock_recover();
+    state.vault_generation.store(0, Ordering::SeqCst);
+    *state.watcher.lock_recover() = None;
+    *state.active_vault.lock_recover() = None;
     Ok(())
 }
 
@@ -486,50 +513,71 @@ fn remove_recent_vault_entry(
     Ok(remove_recent_vault(&state.recent_vaults_file, &path))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn read_note(state: State<'_, AppState>, rel_path: String) -> Result<NoteDocument, String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
     read_vault_note(&vault_root, &rel_path)
 }
 
-#[tauri::command]
+/// Reads `rel_path` back from disk and updates the note index and the search index. The note is
+/// already written when this runs, so a failure is logged and never turns a finished write into
+/// an error the page would show as a failed save.
+fn reindex_note(state: &AppState, vault_root: &Path, rel_path: &str, in_app_save_ms: Option<i64>) {
+    let result = (|| -> Result<(), String> {
+        let scanned = scan_single_file_from_disk(vault_root, &vault_root.join(rel_path))?;
+        let sqlite_result = upsert_scanned_note(&state.sqlite_conn.lock_recover(), &scanned, in_app_save_ms);
+        let search_result = state.search_index.lock_recover().upsert_scanned_note(&scanned);
+        sqlite_result.and(search_result)
+    })();
+    if let Err(err) = result {
+        state.index_dirty.store(true, Ordering::Relaxed);
+        eprintln!("Index update failed for {rel_path}: {err}");
+    }
+}
+
+/// Stores the text a note holds now in its version history, before a write replaces it. Does
+/// nothing when history is off or the note does not exist yet. A failed snapshot never stops the write.
+fn keep_previous_text(state: &AppState, vault_root: &Path, rel_path: &str, min_interval_ms: i64) {
+    if !state.version_history.load(Ordering::Relaxed) {
+        return;
+    }
+    let Ok((note_path, clean)) = crate::versions::resolve_note_path(vault_root, rel_path) else { return };
+    if let Ok(previous) = std::fs::read_to_string(&note_path) {
+        let dir = crate::versions::versions_dir(&app_data_dir_of(state), vault_root);
+        let _ = crate::versions::snapshot(&dir, &clean, &previous, system_time_to_ms(SystemTime::now()), min_interval_ms);
+    }
+}
+
+#[tauri::command(async)]
 fn create_note(
     state: State<'_, AppState>,
     rel_path: String,
     initial_content: Option<String>,
 ) -> Result<(VaultSnapshot, NoteDocument), String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
     let content = initial_content.unwrap_or_default();
     let (snapshot, doc) = create_vault_note(&vault_root, &rel_path, &content)?;
-    mark_self_write(&state.recent_self_writes, &doc.rel_path);
-
-    let abs = vault_root.join(&doc.rel_path);
-    let now_ms = system_time_to_ms(SystemTime::now());
-    let scanned = scan_single_file_from_disk(&vault_root, &abs)?;
-    {
-        let conn = state
-            .sqlite_conn
-            .lock()
-            .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
-        upsert_scanned_note(&conn, &scanned, Some(now_ms))?;
-    }
-    state.search_index.upsert_scanned_note(&scanned)?;
+    record_self_write_content(&state.recent_self_writes, &doc.rel_path, &content);
+    reindex_note(&state, &vault_root, &doc.rel_path, Some(system_time_to_ms(SystemTime::now())));
 
     Ok((snapshot, doc))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn save_note(
     state: State<'_, AppState>,
     rel_path: String,
     content: String,
+    vault_generation: u64,
 ) -> Result<NoteDocument, String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let _operation = state.vault_operation.lock_recover();
+    if vault_generation != state.vault_generation.load(Ordering::SeqCst) {
+        return Err("The vault changed before the note could be saved.".into());
+    }
     let vault_root = require_active_vault(&state)?;
     let (note_path, normalized_rel) = crate::versions::resolve_note_path(&vault_root, &rel_path)?;
-    mark_self_write(&state.recent_self_writes, &normalized_rel);
 
     // Keep the text on disk before this save replaces it, so the note can go back to it.
     if state.version_history.load(Ordering::Relaxed) {
@@ -551,39 +599,29 @@ fn save_note(
 
     let (doc, changed) = save_vault_note(&vault_root, &normalized_rel, &content)?;
     if changed {
-        mark_self_write(&state.recent_self_writes, &doc.rel_path);
-        let abs = vault_root.join(&doc.rel_path);
-        let now_ms = system_time_to_ms(SystemTime::now());
-        let scanned = scan_single_file_from_disk(&vault_root, &abs)?;
-        {
-            let conn = state
-                .sqlite_conn
-                .lock()
-                .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
-            upsert_scanned_note(&conn, &scanned, Some(now_ms))?;
-        }
-        state.search_index.upsert_scanned_note(&scanned)?;
+        record_self_write_content(&state.recent_self_writes, &doc.rel_path, &content);
+        reindex_note(&state, &vault_root, &doc.rel_path, Some(system_time_to_ms(SystemTime::now())));
     }
 
     Ok(doc)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn create_folder(state: State<'_, AppState>, rel_path: String) -> Result<VaultSnapshot, String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
     let clean = crate::vault::normalize_rel_path(&rel_path);
     mark_self_write(&state.recent_self_writes, &clean);
     create_vault_folder(&vault_root, &clean)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn rename_entry(
     state: State<'_, AppState>,
     old_rel_path: String,
     new_rel_path: String,
 ) -> Result<RenameEntryResult, String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
     let res = rename_vault_entry(&vault_root, &old_rel_path, &new_rel_path)?;
     mark_self_write(&state.recent_self_writes, &res.old_rel_path);
@@ -602,27 +640,30 @@ fn rename_entry(
         None
     };
 
-    {
-        let conn = state
-            .sqlite_conn
-            .lock()
-            .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
-        rename_edit_log_paths(&conn, &res.old_rel_path, &res.new_rel_path)?;
-        delete_indexed_path(&conn, &res.old_rel_path)?;
-        if let Some(scanned) = &single_scanned {
-            upsert_scanned_note(&conn, scanned, None)?;
-        } else if let Some(scanned_list) = &dir_scanned {
-            apply_incremental_index(&conn, &[], scanned_list, None)?;
+    // The rename is on disk, so a failure below is logged: reporting it would tell the page the
+    // rename failed when the file has already moved.
+    let reindex = (|| -> Result<(), String> {
+        {
+            let conn = state.sqlite_conn.lock_recover();
+            rename_edit_log_paths(&conn, &res.old_rel_path, &res.new_rel_path)?;
+            delete_indexed_path(&conn, &res.old_rel_path)?;
+            if let Some(scanned) = &single_scanned {
+                upsert_scanned_note(&conn, scanned, None)?;
+            } else if let Some(scanned_list) = &dir_scanned {
+                apply_incremental_index(&conn, &[], scanned_list, None)?;
+            }
         }
-    }
-
-    state
-        .search_index
-        .delete_path_or_prefix(&res.old_rel_path)?;
-    if let Some(scanned) = &single_scanned {
-        state.search_index.upsert_scanned_note(scanned)?;
-    } else if let Some(scanned_list) = &dir_scanned {
-        state.search_index.upsert_batch(scanned_list)?;
+        state.search_index.lock_recover().delete_path_or_prefix(&res.old_rel_path)?;
+        if let Some(scanned) = &single_scanned {
+            state.search_index.lock_recover().upsert_scanned_note(scanned)?;
+        } else if let Some(scanned_list) = &dir_scanned {
+            state.search_index.lock_recover().upsert_batch(scanned_list)?;
+        }
+        Ok(())
+    })();
+    if let Err(err) = reindex {
+        state.index_dirty.store(true, Ordering::Relaxed);
+        eprintln!("Index update after rename failed: {err}");
     }
 
     // Version history follows the note, the same way pins do.
@@ -637,33 +678,38 @@ fn rename_entry(
     let pins = crate::pins::load_pins(&file);
     let moved = crate::pins::rename_pins(&pins, &res.old_rel_path, &res.new_rel_path);
     if moved != pins {
-        crate::pins::save_pins(&file, &vault_root, &moved)?;
+        if let Err(err) = crate::pins::save_pins(&file, &vault_root, &moved) {
+            eprintln!("Cannot move pins after rename: {err}");
+        }
     }
 
     Ok(res)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn delete_entry(state: State<'_, AppState>, rel_path: String) -> Result<VaultSnapshot, String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
     let clean = crate::vault::normalize_rel_path(&rel_path);
     mark_self_write(&state.recent_self_writes, &clean);
 
     let snapshot = delete_vault_entry(&vault_root, &clean)?;
-    {
-        let conn = state
-            .sqlite_conn
-            .lock()
-            .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
-        delete_indexed_path(&conn, &clean)?;
+    // The entry is in the trash, so an index failure is logged instead of reported as a failed delete.
+    let conn = state.sqlite_conn.lock_recover();
+    if let Err(err) = delete_indexed_path(&conn, &clean) {
+        state.index_dirty.store(true, Ordering::Relaxed);
+        eprintln!("Index update after delete failed: {err}");
     }
-    state.search_index.delete_path_or_prefix(&clean)?;
+    drop(conn);
+    if let Err(err) = state.search_index.lock_recover().delete_path_or_prefix(&clean) {
+        state.index_dirty.store(true, Ordering::Relaxed);
+        eprintln!("Search update after delete failed: {err}");
+    }
 
     Ok(snapshot)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn query_calendar_days(
     state: State<'_, AppState>,
     year_month: String,
@@ -671,12 +717,11 @@ fn query_calendar_days(
 ) -> Result<Vec<CalendarDaySummary>, String> {
     let conn = state
         .sqlite_conn
-        .lock()
-        .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+        .lock_recover();
     query_calendar_month(&conn, &year_month, field)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn query_calendar_date_notes(
     state: State<'_, AppState>,
     date: String,
@@ -684,41 +729,37 @@ fn query_calendar_date_notes(
 ) -> Result<Vec<CalendarNoteEntry>, String> {
     let conn = state
         .sqlite_conn
-        .lock()
-        .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+        .lock_recover();
     query_notes_on_date(&conn, &date, field)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_backlinks(
     state: State<'_, AppState>,
     rel_path: String,
 ) -> Result<Vec<BacklinkEntry>, String> {
     let conn = state
         .sqlite_conn
-        .lock()
-        .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+        .lock_recover();
     query_backlinks_for_note(&conn, &rel_path)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_all_tags(state: State<'_, AppState>) -> Result<Vec<TagSummary>, String> {
     let conn = state
         .sqlite_conn
-        .lock()
-        .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+        .lock_recover();
     query_all_tags(&conn)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_notes_by_tag(
     state: State<'_, AppState>,
     tag: String,
 ) -> Result<Vec<CalendarNoteEntry>, String> {
     let conn = state
         .sqlite_conn
-        .lock()
-        .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+        .lock_recover();
     query_notes_by_tag(&conn, &tag)
 }
 
@@ -731,35 +772,44 @@ fn search_vault(
     query: String,
     limit: Option<usize>,
 ) -> Result<Vec<SearchHit>, String> {
-    state.search_index.search(&query, limit.unwrap_or(40))
+    let index = state.search_index.lock_recover().clone();
+    index.search(&query, limit.unwrap_or(40))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn rebuild_vault_index(state: State<'_, AppState>) -> Result<usize, String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
-    let scanned_files = scan_dir_files_from_disk(&vault_root, &vault_root)?;
-    {
-        let conn = state
-            .sqlite_conn
-            .lock()
-            .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
-        apply_scanned_vault_index(&conn, &scanned_files)?;
-    }
-    state.search_index.rebuild_from_scanned(&scanned_files)?;
+    rebuild_indexes(&state, &vault_root)
+}
+
+/// The caller holds vault_operation so both indexes belong to the same vault.
+fn rebuild_indexes(state: &AppState, vault_root: &Path) -> Result<usize, String> {
+    let scanned_files = scan_dir_files_from_disk(vault_root, vault_root)?;
+    let search = Arc::new(VaultSearchIndex::new()?);
+    search.rebuild_from_scanned(&scanned_files)?;
+    let conn = state.sqlite_conn.lock_recover();
+    apply_scanned_vault_index(&conn, &scanned_files)?;
+    *state.search_index.lock_recover() = search;
+    // Repair the connection after a panic. The rebuild succeeded on this connection.
+    state.sqlite_conn.clear_poison();
+    drop(conn);
+    state.index_dirty.store(false, Ordering::Relaxed);
     Ok(scanned_files.len())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn save_pasted_image(
     state: State<'_, AppState>,
-    png_bytes: Option<Vec<u8>>,
+    request: tauri::ipc::Request<'_>,
 ) -> Result<(String, String), String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
-    let (file_name, rel_path) = match png_bytes {
-        Some(bytes) if !bytes.is_empty() => {
-            crate::media_export::save_png_to_vault_attachments(&vault_root, &bytes, None)?
+    // The page sends the image as the raw request body, which avoids encoding every byte as a
+    // JSON number. An empty body asks for the image on the system clipboard instead.
+    let (file_name, rel_path) = match request.body() {
+        tauri::ipc::InvokeBody::Raw(bytes) if !bytes.is_empty() => {
+            crate::media_export::save_png_to_vault_attachments(&vault_root, bytes, None)?
         }
         _ => crate::media_export::paste_clipboard_image_to_vault(&vault_root)?,
     };
@@ -767,9 +817,9 @@ fn save_pasted_image(
     Ok((file_name, rel_path))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn read_vault_image_data_url(state: State<'_, AppState>, target: String) -> Result<String, String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
     crate::media_export::read_vault_image_as_data_url(&vault_root, &target)
 }
@@ -794,12 +844,11 @@ async fn export_active_note_html(
     }).await.map_err(|e| e.to_string())?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn query_due_tasks(state: State<'_, AppState>) -> Result<Vec<TaskEntry>, String> {
     let conn = state
         .sqlite_conn
-        .lock()
-        .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+        .lock_recover();
     crate::index::query_due_tasks(&conn)
 }
 
@@ -813,7 +862,7 @@ async fn plan_link_updates(
     let vault_root = require_active_vault(&state)?;
     let operation = Arc::clone(&state.vault_operation);
     tauri::async_runtime::spawn_blocking(move || {
-        let _operation = operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+        let _operation = operation.lock_recover();
         crate::link_update::plan_link_updates(&vault_root, &old_rel_path, &new_rel_path)
     })
     .await
@@ -822,26 +871,20 @@ async fn plan_link_updates(
 
 /// Applies planned link edits to a note that is not open in the editor. The write is not marked
 /// as the app's own, so the file watcher refreshes the note if a tab has it open.
-#[tauri::command]
+#[tauri::command(async)]
 fn apply_link_edits(
     state: State<'_, AppState>,
     rel_path: String,
     edits: Vec<crate::link_update::TextEdit>,
 ) -> Result<crate::link_update::AppliedEdits, String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
+    // The rewritten note keeps its previous text in version history, as it does for the CLI.
+    keep_previous_text(&state, &vault_root, &rel_path, 0);
     let applied = crate::link_update::apply_edits_to_note(&vault_root, &rel_path, &edits)?;
     if applied.applied > 0 {
         let rel = crate::vault::ensure_md_extension(&rel_path);
-        let scanned = scan_single_file_from_disk(&vault_root, &vault_root.join(&rel))?;
-        {
-            let conn = state
-                .sqlite_conn
-                .lock()
-                .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
-            upsert_scanned_note(&conn, &scanned, None)?;
-        }
-        state.search_index.upsert_scanned_note(&scanned)?;
+        reindex_note(&state, &vault_root, &rel, None);
     }
     Ok(applied)
 }
@@ -860,22 +903,25 @@ async fn get_vault_health(
     .map_err(|e| format!("Vault health scan failed: {e}"))?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn get_note_cards(state: State<'_, AppState>) -> Result<Vec<NoteCard>, String> {
     let conn = state
         .sqlite_conn
-        .lock()
-        .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+        .lock_recover();
     crate::index::query_note_cards(&conn)
 }
 
 /// The app data folder, beside the recent vaults list.
-fn app_data_dir(state: &State<'_, AppState>) -> PathBuf {
+fn app_data_dir_of(state: &AppState) -> PathBuf {
     state
         .recent_vaults_file
         .parent()
         .map(Path::to_path_buf)
         .unwrap_or_else(std::env::temp_dir)
+}
+
+fn app_data_dir(state: &State<'_, AppState>) -> PathBuf {
+    app_data_dir_of(state)
 }
 
 /// Returns the saved app settings as JSON, or `None` before the first save.
@@ -944,8 +990,8 @@ fn configure_backups(
         }
     }
     let enabled = config.is_some();
-    *state.config.lock().map_err(|e| e.to_string())? = config;
-    *state.last_error.lock().map_err(|e| e.to_string())? = None;
+    *state.config.lock_recover() = config;
+    *state.last_error.lock_recover() = None;
     // Don't make the first backup wait for the next minute tick.
     if enabled {
         std::thread::spawn(move || run_due_backup(&app));
@@ -961,7 +1007,7 @@ fn get_backup_status(
     let vault_root = require_active_vault(&state)?;
     Ok(crate::backup::BackupStatus {
         last_backup_ms: crate::backup::last_backup_ms(&crate::backup::record_path(&app_data_dir(&state), &vault_root)),
-        last_error: backups.last_error.lock().map_err(|e| e.to_string())?.clone(),
+        last_error: backups.last_error.lock_recover().clone(),
     })
 }
 
@@ -974,20 +1020,19 @@ async fn run_backup_now(
     let vault_root = require_active_vault(&state)?;
     let config = backups
         .config
-        .lock()
-        .map_err(|e| e.to_string())?
+        .lock_recover()
         .clone()
         .filter(|c| c.vault == vault_root.to_string_lossy())
         .ok_or_else(|| "Choose a folder for the backups".to_string())?;
     let record = crate::backup::record_path(&app_data_dir(&state), &vault_root);
     let running = backups.running.clone();
     let outcome = tauri::async_runtime::spawn_blocking(move || {
-        let _running = running.lock().map_err(|e| e.to_string())?;
+        let _running = running.lock_recover();
         crate::backup::run(&vault_root, &config, &record, chrono::Local::now())
     })
     .await
     .map_err(|e| e.to_string())?;
-    *backups.last_error.lock().map_err(|e| e.to_string())? = outcome.as_ref().err().cloned();
+    *backups.last_error.lock_recover() = outcome.as_ref().err().cloned();
     outcome.map(|p| p.to_string_lossy().into_owned())
 }
 
@@ -1018,9 +1063,9 @@ fn spawn_backup_loop(app: AppHandle) {
 fn run_due_backup(app: &AppHandle) {
     let state = app.state::<AppState>();
     let backups = app.state::<crate::backup::BackupState>();
-    let Ok(_running) = backups.running.lock() else { return };
-    let Some(config) = backups.config.lock().ok().and_then(|c| c.clone()) else { return };
-    let Some(root) = state.active_vault.lock().ok().and_then(|r| r.clone()) else { return };
+    let _running = backups.running.lock_recover();
+    let Some(config) = backups.config.lock_recover().clone() else { return };
+    let Some(root) = state.active_vault.lock_recover().clone() else { return };
     if config.vault != root.to_string_lossy() {
         return;
     }
@@ -1033,10 +1078,30 @@ fn run_due_backup(app: &AppHandle) {
     if let Err(err) = &outcome {
         eprintln!("Scheduled backup failed: {err}");
     }
-    let mut last = backups.last_error.lock().ok();
-    if let Some(last) = last.as_mut() {
-        **last = outcome.err();
-    }
+    *backups.last_error.lock_recover() = outcome.err();
+}
+
+fn spawn_index_repair_loop(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(5));
+        let state = app.state::<AppState>();
+        if !state.index_dirty.load(Ordering::Relaxed) && !state.sqlite_conn.is_poisoned() {
+            continue;
+        }
+        let _operation = state.vault_operation.lock_recover();
+        if !state.index_dirty.load(Ordering::Relaxed) && !state.sqlite_conn.is_poisoned() {
+            continue;
+        }
+        let Ok(root) = require_active_vault(&state) else { continue };
+        if let Err(err) = rebuild_indexes(&state, &root) {
+            eprintln!("Cannot repair vault index: {err}");
+            continue;
+        }
+        let _ = app.emit("vault-fs-event", VaultFsEvent {
+            generation: state.vault_generation.load(Ordering::SeqCst),
+            changed_paths: Vec::new(),
+        });
+    });
 }
 
 /// Checks the open vault's tasks every 30 seconds and shows a notification for each one that
@@ -1065,8 +1130,8 @@ fn spawn_reminder_loop(app: AppHandle) {
             }
             // Serialize with vault open/close so the database and vault identity belong together.
             // Keep this guard through notification submission; SQLite is released after the query.
-            let Ok(_operation) = state.vault_operation.lock() else { continue };
-            let Ok(root) = state.active_vault.lock().map(|root| root.clone()) else { continue };
+            let _operation = state.vault_operation.lock_recover();
+            let root = state.active_vault.lock_recover().clone();
             let Some(root) = root else { continue };
             let tasks = match crate::reminders::query_tasks(&state.sqlite_conn, &root) {
                 Ok(tasks) => tasks,
@@ -1118,8 +1183,9 @@ async fn pick_task_calendar_path(
 /// Writes the open vault's due-dated tasks to an `.ics` file. Skips the write when only the
 /// timestamp would change, so sync clients and subscribed calendars see no churn.
 /// Returns whether the file changed.
-#[tauri::command]
+#[tauri::command(async)]
 fn write_task_calendar(state: State<'_, AppState>, target_path: String) -> Result<bool, String> {
+    let operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
     let target = PathBuf::from(target_path.trim());
     if target.as_os_str().is_empty() {
@@ -1128,10 +1194,10 @@ fn write_task_calendar(state: State<'_, AppState>, target_path: String) -> Resul
     let tasks = {
         let conn = state
             .sqlite_conn
-            .lock()
-            .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+            .lock_recover();
         crate::index::query_due_tasks(&conn)?
     };
+    drop(operation);
     let name = vault_root
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -1204,8 +1270,7 @@ async fn caldav_sync(
     let tasks = {
         let conn = state
             .sqlite_conn
-            .lock()
-            .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+            .lock_recover();
         crate::index::query_due_tasks(&conn)?
     };
     let now_ms = system_time_to_ms(SystemTime::now());
@@ -1226,18 +1291,17 @@ async fn caldav_sync(
     Ok(report)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn render_note_html_preview(
     state: State<'_, AppState>,
     title: String,
     markdown: String,
     dark_mode: bool,
 ) -> Result<String, String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let _operation = state.vault_operation.lock_recover();
     let vault_root = state
         .active_vault
-        .lock()
-        .map_err(|e| format!("Failed to lock active vault state: {e}"))?
+        .lock_recover()
         .clone();
     Ok(crate::media_export::build_self_contained_html(
         &title,
@@ -1257,12 +1321,12 @@ async fn list_deleted_entries(state: State<'_, AppState>) -> Result<Vec<DeletedE
 
 /// Restores a trashed vault entry to its original path and indexes it. Returns the restored
 /// relative path and a fresh snapshot.
-#[tauri::command]
-async fn restore_deleted_entry(
+#[tauri::command(async)]
+fn restore_deleted_entry(
     state: State<'_, AppState>,
     id: String,
 ) -> Result<(String, VaultSnapshot), String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
     let rel_path = crate::recycle::restore(&vault_root, &id)?;
     mark_self_write(&state.recent_self_writes, &rel_path);
@@ -1276,11 +1340,10 @@ async fn restore_deleted_entry(
     {
         let conn = state
             .sqlite_conn
-            .lock()
-            .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
+            .lock_recover();
         apply_incremental_index(&conn, &[], &scanned, None)?;
     }
-    state.search_index.upsert_batch(&scanned)?;
+    state.search_index.lock_recover().upsert_batch(&scanned)?;
 
     Ok((rel_path, scan_vault_snapshot(&vault_root)?))
 }
@@ -1326,22 +1389,22 @@ fn versions_dir(state: &State<'_, AppState>, vault_root: &Path) -> PathBuf {
     crate::versions::versions_dir(&app_data_dir(state), vault_root)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 fn list_pinned_notes(state: State<'_, AppState>) -> Result<Vec<String>, String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
     let stored = crate::pins::load_pins(&pins_file(&state, &vault_root));
     Ok(crate::pins::existing_pins(&stored, &vault_root))
 }
 
 /// Pins or unpins one note and returns the whole list, so the sidebar never guesses the order.
-#[tauri::command]
+#[tauri::command(async)]
 fn set_note_pinned(
     state: State<'_, AppState>,
     rel_path: String,
     pinned: bool,
 ) -> Result<Vec<String>, String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
     let clean = crate::vault::normalize_rel_path(&rel_path);
     if pinned && !vault_root.join(&clean).is_file() {
@@ -1354,38 +1417,38 @@ fn set_note_pinned(
 }
 
 /// Every stored version of a note, newest first.
-#[tauri::command]
+#[tauri::command(async)]
 fn list_note_versions(
     state: State<'_, AppState>,
     rel_path: String,
 ) -> Result<Vec<crate::versions::NoteVersion>, String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
     let (_, clean) = crate::versions::resolve_note_path(&vault_root, &rel_path)?;
     Ok(crate::versions::list(&versions_dir(&state, &vault_root), &clean))
 }
 
 /// The text of one stored version, for the timeline's diff.
-#[tauri::command]
+#[tauri::command(async)]
 fn read_note_version(
     state: State<'_, AppState>,
     rel_path: String,
     id: String,
 ) -> Result<String, String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
     let (_, clean) = crate::versions::resolve_note_path(&vault_root, &rel_path)?;
     crate::versions::read(&versions_dir(&state, &vault_root), &clean, &id)
 }
 
 /// Writes a stored version back to the note, keeping the text it replaces as a new version.
-#[tauri::command]
+#[tauri::command(async)]
 fn restore_note_version(
     state: State<'_, AppState>,
     rel_path: String,
     id: String,
 ) -> Result<NoteDocument, String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
     let (note_path, clean) = crate::versions::resolve_note_path(&vault_root, &rel_path)?;
     let dir = versions_dir(&state, &vault_root);
@@ -1402,21 +1465,10 @@ fn restore_note_version(
         Err(e) => return Err(format!("Cannot read the current note before restoring: {e}")),
     }
 
-    mark_self_write(&state.recent_self_writes, &clean);
     let (doc, changed) = save_vault_note(&vault_root, &clean, &wanted)?;
     if changed {
-        mark_self_write(&state.recent_self_writes, &doc.rel_path);
-        let abs = vault_root.join(&doc.rel_path);
-        let now_ms = system_time_to_ms(SystemTime::now());
-        let scanned = scan_single_file_from_disk(&vault_root, &abs)?;
-        {
-            let conn = state
-                .sqlite_conn
-                .lock()
-                .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
-            upsert_scanned_note(&conn, &scanned, Some(now_ms))?;
-        }
-        state.search_index.upsert_scanned_note(&scanned)?;
+        record_self_write_content(&state.recent_self_writes, &doc.rel_path, &wanted);
+        reindex_note(&state, &vault_root, &doc.rel_path, Some(system_time_to_ms(SystemTime::now())));
     }
     Ok(doc)
 }
@@ -1486,25 +1538,18 @@ fn open_dictionaries_folder(app_handle: AppHandle, state: State<'_, AppState>) -
 
 /// Appends text from the quick capture window to the inbox note. The write is not marked as the
 /// app's own, so the file watcher tells the main window to reload the note if it has it open.
-#[tauri::command]
+#[tauri::command(async)]
 fn quick_capture_append(
     state: State<'_, AppState>,
     rel_path: String,
     text: String,
     compact: Option<bool>,
 ) -> Result<String, String> {
-    let _operation = state.vault_operation.lock().map_err(|e| format!("Cannot lock vault operation: {e}"))?;
+    let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
+    keep_previous_text(&state, &vault_root, &rel_path, crate::versions::SNAPSHOT_INTERVAL_MS);
     let rel = crate::capture::append_to_note(&vault_root, &rel_path, &text, compact.unwrap_or(false))?;
-    let scanned = scan_single_file_from_disk(&vault_root, &vault_root.join(&rel))?;
-    {
-        let conn = state
-            .sqlite_conn
-            .lock()
-            .map_err(|e| format!("Failed to lock SQLite index: {e}"))?;
-        upsert_scanned_note(&conn, &scanned, None)?;
-    }
-    state.search_index.upsert_scanned_note(&scanned)?;
+    reindex_note(&state, &vault_root, &rel, None);
     Ok(rel)
 }
 
@@ -1715,11 +1760,13 @@ pub fn run() {
         .manage(AppState {
             active_vault: Mutex::new(None),
             sqlite_conn: Arc::new(Mutex::new(conn)),
-            search_index: Arc::new(search_idx),
+            search_index: Mutex::new(Arc::new(search_idx)),
             watcher: Mutex::new(None),
             recent_self_writes: Arc::new(Mutex::new(HashMap::new())),
             recent_vaults_file,
             vault_generation: Arc::new(AtomicU64::new(0)),
+            next_vault_generation: AtomicU64::new(0),
+            index_dirty: Arc::new(AtomicBool::new(false)),
             vault_operation: Arc::new(Mutex::new(())),
             version_history: Arc::new(AtomicBool::new(true)),
         })
@@ -1727,6 +1774,7 @@ pub fn run() {
             crate::tray::create_tray(app)?;
             spawn_reminder_loop(app.handle().clone());
             spawn_backup_loop(app.handle().clone());
+            spawn_index_repair_loop(app.handle().clone());
             Ok(())
         })
         .on_window_event(|window, event| {

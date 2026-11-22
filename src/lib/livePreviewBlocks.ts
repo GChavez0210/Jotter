@@ -1,3 +1,5 @@
+import { blockRemoteImages } from './remoteImages';
+import { IMAGE_REFRESH_EVENT, remoteImagesAllowed } from './imagePreviewCache';
 import { editorLocaleChanged, LocalizedWidget } from './editorLocale';
 import { markdownLanguage } from '@codemirror/lang-markdown';
 import { m } from './i18n.svelte';
@@ -81,9 +83,11 @@ class RichBlockWidget extends LocalizedWidget {
     super();
   }
 
+  readonly remoteImages = remoteImagesAllowed();
+
   eq(other: RichBlockWidget): boolean {
     return this.locale === other.locale && (
-      other.kind === this.kind &&
+      other.kind === this.kind && other.remoteImages === this.remoteImages &&
       other.source === this.source &&
       other.editFrom === this.editFrom
     );
@@ -112,14 +116,14 @@ class RichBlockWidget extends LocalizedWidget {
     const cached =
       this.kind === 'math' ? cachedMath(this.source, true) : cachedDiagram(this.source);
     if (cached !== undefined) {
-      el.innerHTML = cached;
+      el.innerHTML = this.kind === 'diagram' && !remoteImagesAllowed() ? blockRemoteImages(cached) : cached;
       return el;
     }
     el.classList.add('cm-rich-block-loading');
     const pending =
       this.kind === 'math' ? renderMath(this.source, true) : renderDiagram(this.source);
     void pending.then((html) => {
-      el.innerHTML = html;
+      el.innerHTML = this.kind === 'diagram' && !remoteImagesAllowed() ? blockRemoteImages(html) : html;
       el.classList.remove('cm-rich-block-loading');
       view.requestMeasure();
     });
@@ -194,6 +198,11 @@ export function createRichBlockExtension(): Extension {
   });
   const parser = ViewPlugin.fromClass(class {
     timer: ReturnType<typeof setTimeout> | undefined;
+    readonly refresh: () => void;
+    constructor(view: EditorView) {
+      this.refresh = () => view.dispatch({ effects: updateBlocks.of([...view.state.field(field).blocks]) });
+      window.addEventListener(IMAGE_REFRESH_EVENT, this.refresh);
+    }
     update(update: import('@codemirror/view').ViewUpdate) {
       if (!update.docChanged) return;
       clearTimeout(this.timer);
@@ -201,7 +210,10 @@ export function createRichBlockExtension(): Extension {
         update.view.dispatch({effects:updateBlocks.of(findRichBlocks(update.view.state))});
       }, 100);
     }
-    destroy() { clearTimeout(this.timer); }
+    destroy() {
+      clearTimeout(this.timer);
+      window.removeEventListener(IMAGE_REFRESH_EVENT, this.refresh);
+    }
   });
   return [field, parser];
 }

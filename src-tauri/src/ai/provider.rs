@@ -29,6 +29,29 @@ pub struct ChatCall<'a> {
     pub user: &'a str,
 }
 
+/// The most reply text Jotter reads from a provider. A chat reply is at most a few hundred
+/// kilobytes and a batch of embeddings a few megabytes, so this only stops a runaway server.
+pub const MAX_REPLY_BYTES: usize = 32 * 1024 * 1024;
+
+/// Reads a reply body, giving up once it passes [`MAX_REPLY_BYTES`].
+pub async fn read_limited_body(
+    mut response: reqwest::Response,
+    on_error: impl Fn(&reqwest::Error) -> String,
+) -> Result<String, String> {
+    let too_large = || "The provider's reply is too large for Jotter to read.".to_string();
+    if response.content_length().is_some_and(|len| len > MAX_REPLY_BYTES as u64) {
+        return Err(too_large());
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|e| on_error(&e))? {
+        if body.len() + chunk.len() > MAX_REPLY_BYTES {
+            return Err(too_large());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(String::from_utf8_lossy(&body).into_owned())
+}
+
 pub fn build_client() -> reqwest::Client {
     reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
@@ -190,10 +213,7 @@ pub async fn send_chat(client: &reqwest::Client, call: &ChatCall<'_>) -> Result<
         .await
         .map_err(|e| describe_transport_error(call.provider, call.base_url, &e))?;
     let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|e| describe_transport_error(call.provider, call.base_url, &e))?;
+    let body = read_limited_body(response, |e| describe_transport_error(call.provider, call.base_url, e)).await?;
     if !status.is_success() {
         return Err(describe_http_error(call.provider, status.as_u16(), &body));
     }

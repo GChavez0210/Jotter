@@ -1,3 +1,4 @@
+import { allowRemoteImages } from '../imagePreviewCache';
 import { appStorage } from '../appStorage';
 import { defaultCaptureShortcut, defaultSummonShortcut } from '../platform';
 import { m } from '../i18n.svelte';
@@ -104,6 +105,8 @@ export class SettingsStore {
   versionHistory = $state(true);
   /** Ask the release feed for a newer version at startup and once a day. */
   autoUpdateCheck = $state(true);
+  /** Load images that notes link from web addresses. Off by default for privacy. */
+  remoteImages = $state(false);
   /** The note whose version history the timeline shows, or `null` while it is closed. */
   versionHistoryNote = $state<string | null>(null);
   /** Hiding to the tray needs the tray icon, so the two settings move together. */
@@ -317,6 +320,12 @@ export class SettingsStore {
   setSpellCheck(enabled: boolean) {
     this.spellCheck = enabled;
     this.persist('jotter.spellCheck', String(enabled));
+  }
+
+  setRemoteImages(enabled: boolean) {
+    this.remoteImages = enabled;
+    allowRemoteImages(enabled);
+    this.persist('jotter.remoteImages', String(enabled));
   }
 
   setShowLineNumbers(enabled: boolean) {
@@ -797,6 +806,8 @@ export class SettingsStore {
       const savedHome = appStorage.getItem('jotter.showHomePage');
       if (savedHome === 'true' || savedHome === 'false') this.showHomePage = savedHome === 'true';
       this.showLineNumbers = appStorage.getItem('jotter.showLineNumbers') === 'true';
+      this.remoteImages = appStorage.getItem('jotter.remoteImages') === 'true';
+      allowRemoteImages(this.remoteImages);
       const savedSpell = appStorage.getItem('jotter.spellCheck');
       if (savedSpell === 'true' || savedSpell === 'false') {
         this.spellCheck = savedSpell === 'true';

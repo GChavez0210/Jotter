@@ -601,3 +601,41 @@ test('choosing a capture profile sends a selection without writing the secondary
     assert.equal(await page.evaluate(() => JSON.parse(window.__review.settingsControl.stored)['jotter.themePref']), 'light');
   } finally { await browser.close(); }
 });
+
+test('remote image opt-out removes HTML and diagram sources before insertion', async () => {
+  const browser = await launchBrowser();
+  try {
+    const page = await browser.newPage();
+    const requests = [];
+    await page.route('https://images.invalid/**', (route) => {
+      requests.push(route.request().url());
+      return route.fulfill({ status: 204 });
+    });
+    const bundle = await build({
+      stdin: {
+        contents: "export { blockRemoteImages } from './src/lib/remoteImages';",
+        resolveDir: resolve('.'),
+      },
+      bundle: true, write: false, format: 'iife', globalName: 'imagePolicy',
+    });
+    await page.addScriptTag({ content: bundle.outputFiles[0].text });
+    const { renderAsync } = await import('pele/lazy');
+    const { svg } = await renderAsync(
+      'flowchart LR\n A@{ img: "https://images.invalid/diagram", label: "Diagram" }'
+    );
+    assert.match(svg, /<image href="https:\/\/images\.invalid\/diagram"/);
+    await page.evaluate((svg) => {
+      document.body.innerHTML = window.imagePolicy.blockRemoteImages(
+        '<img src="https://images.invalid/image" alt="Photo">' +
+        '<img src="//images.invalid/protocol-relative">' +
+        '<img src="data:image/png;base64," srcset="https://images.invalid/srcset 1x">' + svg
+      );
+    }, svg);
+    assert.equal(await page.locator('img[src^="data:"]').count(), 1);
+    assert.equal(await page.locator('img[srcset], svg image').count(), 0);
+    assert.equal(await page.locator('.jotter-remote-image-blocked').count(), 2);
+    assert.deepEqual(requests, []);
+  } finally {
+    await browser.close();
+  }
+});

@@ -33,15 +33,22 @@ pub fn append_to_note(
         format!("# {title}\n")
     };
 
+    // A note saved with Windows line endings keeps them, so the file never mixes the two styles.
+    let eol = if content.contains("\r\n") { "\r\n" } else { "\n" };
+    let entry = if eol == "\r\n" { entry.replace("\r\n", "\n").replace('\n', "\r\n") } else { entry.to_string() };
+
     // Entries sit one blank line apart, or on consecutive lines when compact, whatever the note
     // ended with. A note this call just created still gets a blank line after its title.
     let kept = content.trim_end().len();
     content.truncate(kept);
     if !content.is_empty() {
-        content.push_str(if compact && existed { "\n" } else { "\n\n" });
+        content.push_str(eol);
+        if !(compact && existed) {
+            content.push_str(eol);
+        }
     }
-    content.push_str(entry);
-    content.push('\n');
+    content.push_str(&entry);
+    content.push_str(eol);
 
     atomic_write_str(&abs_path, &content)?;
     Ok(clean_rel)
@@ -70,6 +77,17 @@ mod tests {
         assert_eq!(
             fs::read_to_string(dir.path().join("Inbox.md")).unwrap(),
             "# Inbox\n\nfirst\n\n- [ ] second\n  third line\n"
+        );
+    }
+
+    #[test]
+    fn a_note_with_windows_line_endings_keeps_them() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("Inbox.md"), "# Inbox\r\n\r\nfirst\r\n").unwrap();
+        append_to_note(dir.path(), "Inbox.md", "second\nthird", false).unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.path().join("Inbox.md")).unwrap(),
+            "# Inbox\r\n\r\nfirst\r\n\r\nsecond\r\nthird\r\n"
         );
     }
 

@@ -1,3 +1,4 @@
+use base64::Engine as _;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -32,101 +33,44 @@ pub fn format_pasted_image_filename(ms: i64) -> String {
     format!("Pasted image {year:04}{m:02}{d:02}-{hours:02}{minutes:02}{seconds:02}.png")
 }
 
-fn crc32(bytes: &[u8]) -> u32 {
-    let mut crc: u32 = 0xffff_ffff;
-    for &b in bytes {
-        crc ^= b as u32;
-        for _ in 0..8 {
-            if (crc & 1) != 0 {
-                crc = (crc >> 1) ^ 0xedb8_8320;
-            } else {
-                crc >>= 1;
-            }
-        }
-    }
-    !crc
-}
-
-fn adler32(bytes: &[u8]) -> u32 {
-    let mut a: u32 = 1;
-    let mut b: u32 = 0;
-    for &byte in bytes {
-        a = (a + byte as u32) % 65_521;
-        b = (b + a) % 65_521;
-    }
-    (b << 16) | a
-}
-
-fn write_png_chunk(out: &mut Vec<u8>, chunk_type: &[u8; 4], data: &[u8]) {
-    out.extend_from_slice(&(data.len() as u32).to_be_bytes());
-    let crc_start = out.len();
-    out.extend_from_slice(chunk_type);
-    out.extend_from_slice(data);
-    let checksum = crc32(&out[crc_start..]);
-    out.extend_from_slice(&checksum.to_be_bytes());
-}
-
-/// Encodes raw 8-bit RGBA pixels into a valid standard PNG byte buffer.
+/// Encodes raw 8-bit RGBA pixels as a compressed PNG.
 pub fn encode_rgba_to_png(width: u32, height: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
-    let expected_len = (width as usize)
-        .checked_mul(height as usize)
-        .and_then(|px| px.checked_mul(4))
-        .ok_or_else(|| "Image dimensions overflow".to_string())?;
-    if width == 0 || height == 0 || rgba.len() < expected_len {
-        return Err("Invalid RGBA buffer length for PNG encoding".to_string());
-    }
-
-    let row_bytes = (width as usize) * 4;
-    let mut raw_scanlines = Vec::with_capacity((row_bytes + 1) * (height as usize));
-    for y in 0..(height as usize) {
-        raw_scanlines.push(0u8); // Filter type 0 (None)
-        let start = y * row_bytes;
-        raw_scanlines.extend_from_slice(&rgba[start..start + row_bytes]);
-    }
-
-    // Wrap scanlines in a valid zlib stream using uncompressed DEFLATE blocks (max 65535 bytes per block)
-    let mut zlib_data = Vec::with_capacity(raw_scanlines.len() + 64);
-    zlib_data.push(0x78); // CMF (Deflate, 32K window)
-    zlib_data.push(0x01); // FLG (No preset dict, check bits for 0x7801)
-
-    let chunks: Vec<&[u8]> = raw_scanlines.chunks(65_535).collect();
-    for (idx, chunk) in chunks.iter().enumerate() {
-        let is_final = idx + 1 == chunks.len();
-        zlib_data.push(if is_final { 0x01 } else { 0x00 });
-        let len = chunk.len() as u16;
-        let nlen = !len;
-        zlib_data.extend_from_slice(&len.to_le_bytes());
-        zlib_data.extend_from_slice(&nlen.to_le_bytes());
-        zlib_data.extend_from_slice(chunk);
-    }
-    zlib_data.extend_from_slice(&adler32(&raw_scanlines).to_be_bytes());
-
-    let mut png = Vec::with_capacity(zlib_data.len() + 64);
-    // PNG Magic Signature
-    png.extend_from_slice(&[137, 80, 78, 71, 13, 10, 26, 10]);
-
-    // IHDR chunk
-    let mut ihdr = Vec::with_capacity(13);
-    ihdr.extend_from_slice(&width.to_be_bytes());
-    ihdr.extend_from_slice(&height.to_be_bytes());
-    ihdr.push(8); // Bit depth: 8
-    ihdr.push(6); // Color type: 6 (RGBA)
-    ihdr.push(0); // Compression: 0
-    ihdr.push(0); // Filter: 0
-    ihdr.push(0); // Interlace: 0
-    write_png_chunk(&mut png, b"IHDR", &ihdr);
-
-    // IDAT chunk
-    write_png_chunk(&mut png, b"IDAT", &zlib_data);
-
-    // IEND chunk
-    write_png_chunk(&mut png, b"IEND", &[]);
-
+    let mut png = Vec::new();
+    let mut encoder = png::Encoder::new(&mut png, width, height);
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().map_err(|e| format!("Cannot encode PNG: {e}"))?;
+    writer.write_image_data(rgba).map_err(|e| format!("Cannot encode PNG: {e}"))?;
+    writer.finish().map_err(|e| format!("Cannot finish PNG: {e}"))?;
     Ok(png)
 }
 
-/// Saves PNG bytes into `<vault_root>/attachments/Pasted image YYYYMMDD-HHMMSS.png`
-/// and returns `(file_name, rel_path)` (e.g. `("Pasted image 20261019-014000.png", "attachments/Pasted image 20261019-014000.png")`).
+/// The file extension for the image format that `bytes` starts with, or `None` for anything else.
+pub fn image_extension(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(&[137, 80, 78, 71, 13, 10, 26, 10]) {
+        Some("png")
+    } else if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        Some("jpg")
+    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        Some("gif")
+    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("webp")
+    } else if bytes.starts_with(b"BM") {
+        Some("bmp")
+    } else {
+        None
+    }
+}
+
+/// The largest attachment `read_vault_image_as_data_url` will load into memory.
+const MAX_IMAGE_BYTES: u64 = 25 * 1024 * 1024;
+// Older versions wrote uncompressed 4K PNGs. Keep those attachments readable.
+const MAX_PREVIEW_IMAGE_BYTES: u64 = 40 * 1024 * 1024;
+
+/// Saves image bytes into `<vault_root>/attachments/Pasted image YYYYMMDD-HHMMSS.<ext>`, where the
+/// extension matches the image format, and returns `(file_name, rel_path)`
+/// (e.g. `("Pasted image 20261019-014000.png", "attachments/Pasted image 20261019-014000.png")`).
+/// Bytes that are not a supported image are refused.
 pub fn save_png_to_vault_attachments(
     vault_root: &Path,
     png_bytes: &[u8],
@@ -134,6 +78,11 @@ pub fn save_png_to_vault_attachments(
 ) -> Result<(String, String), String> {
     let attachments_dir = vault_root.join("attachments");
     crate::vault::ensure_vault_containment(vault_root, &attachments_dir)?;
+    if png_bytes.len() as u64 > MAX_IMAGE_BYTES {
+        return Err("The pasted image is larger than 25 MiB.".into());
+    }
+    let extension = image_extension(png_bytes)
+        .ok_or_else(|| "The pasted data is not a PNG, JPEG, GIF, WebP, or BMP image.".to_string())?;
     fs::create_dir_all(&attachments_dir)
         .map_err(|e| format!("Failed to create attachments folder: {e}"))?;
 
@@ -143,14 +92,14 @@ pub fn save_png_to_vault_attachments(
             .map(|d| d.as_millis() as i64)
             .unwrap_or(0)
     });
-    let base_name = format_pasted_image_filename(ms);
-    let stem = base_name.strip_suffix(".png").unwrap_or(&base_name);
+    let png_name = format_pasted_image_filename(ms);
+    let stem = png_name.strip_suffix(".png").unwrap_or(&png_name);
 
-    let mut final_name = base_name.clone();
+    let mut final_name = format!("{stem}.{extension}");
     let mut target_path = attachments_dir.join(&final_name);
     let mut counter = 1u32;
     while target_path.exists() {
-        final_name = format!("{stem}-{counter}.png");
+        final_name = format!("{stem}-{counter}.{extension}");
         target_path = attachments_dir.join(&final_name);
         counter += 1;
     }
@@ -173,31 +122,6 @@ pub fn paste_clipboard_image_to_vault(vault_root: &Path) -> Result<(String, Stri
         image.bytes.as_ref(),
     )?;
     save_png_to_vault_attachments(vault_root, &png_bytes, None)
-}
-
-fn base64_encode(bytes: &[u8]) -> String {
-    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
-    for chunk in bytes.chunks(3) {
-        let b0 = chunk[0] as u32;
-        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
-        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
-        let triple = (b0 << 16) | (b1 << 8) | b2;
-
-        out.push(TABLE[((triple >> 18) & 0x3f) as usize] as char);
-        out.push(TABLE[((triple >> 12) & 0x3f) as usize] as char);
-        if chunk.len() > 1 {
-            out.push(TABLE[((triple >> 6) & 0x3f) as usize] as char);
-        } else {
-            out.push('=');
-        }
-        if chunk.len() > 2 {
-            out.push(TABLE[(triple & 0x3f) as usize] as char);
-        } else {
-            out.push('=');
-        }
-    }
-    out
 }
 
 fn percent_decode_path(raw: &str) -> String {
@@ -276,10 +200,16 @@ pub fn read_vault_image_as_data_url(vault_root: &Path, raw_target: &str) -> Resu
     let pipe_trimmed = raw_target.split('|').next().unwrap_or(raw_target).trim();
     let path = resolve_vault_image_path(vault_root, pipe_trimmed)
         .ok_or_else(|| format!("Attachment not found in vault: {pipe_trimmed}"))?;
-    let bytes = fs::read(&path)
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    fs::File::open(&path)
+        .and_then(|file| file.take(MAX_PREVIEW_IMAGE_BYTES + 1).read_to_end(&mut bytes))
         .map_err(|e| format!("Failed to read attachment {}: {e}", path.display()))?;
+    if bytes.len() as u64 > MAX_PREVIEW_IMAGE_BYTES {
+        return Err(format!("Attachment is larger than {} MB: {pipe_trimmed}", MAX_PREVIEW_IMAGE_BYTES / 1024 / 1024));
+    }
     let mime = image_mime_for_path(&path);
-    let encoded = base64_encode(&bytes);
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Ok(format!("data:{mime};base64,{encoded}"))
 }
 
@@ -574,6 +504,29 @@ mod tests {
         // Read back as data URL via wiki-link target name
         let data_url = read_vault_image_as_data_url(root, &name).unwrap();
         assert!(data_url.starts_with("data:image/png;base64,"));
+    }
+
+    #[test]
+    fn a_4k_clipboard_image_can_be_saved_and_previewed() {
+        let temp = tempfile::tempdir().unwrap();
+        let rgba = vec![255; 3840 * 2160 * 4];
+        let png = encode_rgba_to_png(3840, 2160, &rgba).unwrap();
+        let (_, path) = save_png_to_vault_attachments(temp.path(), &png, None).unwrap();
+        assert!(read_vault_image_as_data_url(temp.path(), &path).unwrap().starts_with("data:image/png;base64,"));
+    }
+
+    #[test]
+    fn saved_attachments_take_the_extension_of_their_real_format() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let jpeg = [0xff, 0xd8, 0xff, 0xe0, 0, 0x10];
+        let (name, _) = save_png_to_vault_attachments(root, &jpeg, Some(1_792_374_000_000)).unwrap();
+        assert_eq!(name, "Pasted image 20261019-014000.jpg");
+        let webp = *b"RIFF\x00\x00\x00\x00WEBPVP8 ";
+        let (name, _) = save_png_to_vault_attachments(root, &webp, Some(1_792_374_000_000)).unwrap();
+        assert_eq!(name, "Pasted image 20261019-014000.webp");
+        assert!(save_png_to_vault_attachments(root, b"not an image", None).is_err());
+        assert!(save_png_to_vault_attachments(root, b"", None).is_err());
     }
 
     #[test]

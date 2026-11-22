@@ -137,6 +137,15 @@ pub fn init_index_schema(conn: &Connection) -> Result<(), String> {
     // Ensure `resolved_path` exists if upgrading an older schema on disk
     let _ = conn.execute("ALTER TABLE links ADD COLUMN resolved_path TEXT", []);
 
+    // Older versions kept one row per save. Keep only the latest row of each note.
+    let _ = conn.execute(
+        "DELETE FROM edit_log WHERE id NOT IN (
+             SELECT id FROM (
+                 SELECT id, ROW_NUMBER() OVER (PARTITION BY path ORDER BY edited_ms DESC, id DESC) AS rank
+                 FROM edit_log) WHERE rank = 1)",
+        [],
+    );
+
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_notes_modified_date ON notes(modified_date);
         CREATE INDEX IF NOT EXISTS idx_notes_created_date ON notes(created_date);
@@ -285,6 +294,13 @@ pub fn record_edit_log(conn: &Connection, rel_path: &str, edited_ms: i64) -> Res
         params![rel_path, edited_ms],
     )
     .map_err(|e| format!("Failed to insert into edit_log for {rel_path}: {e}"))?;
+    // Only the latest time per note is ever read, so older rows would just pile up with every save.
+    conn.execute(
+        "DELETE FROM edit_log WHERE path = ?1 AND id NOT IN (
+             SELECT id FROM edit_log WHERE path = ?1 ORDER BY edited_ms DESC, id DESC LIMIT 1)",
+        params![rel_path],
+    )
+    .map_err(|e| format!("Failed to trim edit_log for {rel_path}: {e}"))?;
     Ok(())
 }
 
@@ -526,7 +542,10 @@ fn walk_and_scan_dir(
             continue;
         }
         if path.is_dir() {
-            walk_and_scan_dir(vault_root, &path, out)?;
+            // An unreadable subfolder is skipped, so one bad folder cannot block the whole scan.
+            if let Err(err) = walk_and_scan_dir(vault_root, &path, out) {
+                eprintln!("Skipping unreadable folder: {err}");
+            }
         } else if path
             .extension()
             .and_then(|e| e.to_str())
@@ -660,7 +679,9 @@ pub fn apply_scanned_vault_index(
     scanned_files: &[ScannedNoteFile],
 ) -> Result<usize, String> {
     init_index_schema(conn)?;
-    conn.execute_batch(
+    let tx = conn.unchecked_transaction()
+        .map_err(|e| format!("Cannot start index rebuild: {e}"))?;
+    tx.execute_batch(
         "DELETE FROM notes;
          DELETE FROM links;
          DELETE FROM note_tags;
@@ -669,10 +690,11 @@ pub fn apply_scanned_vault_index(
     .map_err(|e| format!("Failed to clear derived index tables: {e}"))?;
 
     for scanned in scanned_files {
-        upsert_scanned_note_no_resolve(conn, scanned, None)?;
+        upsert_scanned_note_no_resolve(&tx, scanned, None)?;
     }
 
-    re_resolve_all_links(conn)?;
+    re_resolve_all_links(&tx)?;
+    tx.commit().map_err(|e| format!("Cannot commit index rebuild: {e}"))?;
     Ok(scanned_files.len())
 }
 
@@ -737,7 +759,7 @@ pub fn query_all_tags(conn: &Connection) -> Result<Vec<TagSummary>, String> {
         .query_map([], |row| {
             Ok(TagSummary {
                 tag: row.get(0)?,
-                count: row.get::<_, usize>(1)?,
+                count: row.get::<_, i64>(1)? as usize,
             })
         })
         .map_err(|e| format!("Failed to execute tags query: {e}"))?;
@@ -805,7 +827,7 @@ pub fn query_calendar_month(
         .query_map(params![prefix], |row| {
             Ok(CalendarDaySummary {
                 date: row.get(0)?,
-                count: row.get::<_, usize>(1)?,
+                count: row.get::<_, i64>(1)? as usize,
             })
         })
         .map_err(|e| format!("Failed to execute month query: {e}"))?;
@@ -1034,6 +1056,28 @@ mod tests {
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].path, "Welcome.md");
         assert_eq!(remaining[0].preview, "Welcome Note");
+    }
+
+    #[test]
+    fn the_edit_log_keeps_one_row_per_note_whatever_the_save_order() {
+        let conn = Connection::open_in_memory().unwrap();
+        init_index_schema(&conn).unwrap();
+        for ms in [100, 300, 200] {
+            record_edit_log(&conn, "A.md", ms).unwrap();
+        }
+        record_edit_log(&conn, "B.md", 50).unwrap();
+        let rows: i64 = conn.query_row("SELECT COUNT(*) FROM edit_log", [], |r| r.get(0)).unwrap();
+        assert_eq!(rows, 2);
+        assert_eq!(latest_edit_log_ms(&conn, "A.md").unwrap(), Some(300));
+
+        // A file written by an older version, with a row per save, is trimmed when it opens.
+        for ms in [10, 30, 20] {
+            conn.execute("INSERT INTO edit_log (path, edited_ms) VALUES ('C.md', ?1)", [ms]).unwrap();
+        }
+        init_index_schema(&conn).unwrap();
+        let rows: i64 = conn.query_row("SELECT COUNT(*) FROM edit_log WHERE path = 'C.md'", [], |r| r.get(0)).unwrap();
+        assert_eq!(rows, 1);
+        assert_eq!(latest_edit_log_ms(&conn, "C.md").unwrap(), Some(30));
     }
 
     #[test]

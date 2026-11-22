@@ -44,6 +44,7 @@ export interface VaultNode {
 }
 
 export interface VaultSnapshot {
+  generation?: number;
   rootPath: string;
   name: string;
   tree: VaultNode[];
@@ -71,6 +72,7 @@ export interface RenameEntryResult {
 }
 
 export interface VaultFsEvent {
+  generation?: number;
   changedPaths: string[];
 }
 

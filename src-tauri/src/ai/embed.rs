@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use url::Url;
 
 use super::config::AiProvider;
-use super::provider::{describe_http_error, describe_transport_error};
+use super::provider::{describe_http_error, describe_transport_error, read_limited_body};
 
 pub struct EmbedCall<'a> {
     pub provider: AiProvider,
@@ -86,10 +86,7 @@ pub async fn send_embeddings(client: &reqwest::Client, call: &EmbedCall<'_>) -> 
         .await
         .map_err(|e| describe_transport_error(call.provider, call.base_url, &e))?;
     let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|e| describe_transport_error(call.provider, call.base_url, &e))?;
+    let body = read_limited_body(response, |e| describe_transport_error(call.provider, call.base_url, e)).await?;
     if !status.is_success() {
         return Err(describe_http_error(call.provider, status.as_u16(), &body));
     }

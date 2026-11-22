@@ -77,7 +77,11 @@ pub async fn index_vault(ai: &AiState, app_data_dir: &Path, vault_root: &Path) -
     let files = index::scan_dir_files_from_disk(vault_root, vault_root)?;
     let mut store = VectorStore::open(&store_path(app_data_dir, vault_root))?;
     let plan = store.plan(&listing(&files), &model)?;
-    store.remove_notes(&plan.removed)?;
+    // A partial filesystem scan does not prove the note was removed.
+    let removed: Vec<_> = plan.removed.into_iter().filter(|path| {
+        matches!(vault_root.join(path).try_exists(), Ok(false))
+    }).collect();
+    store.remove_notes(&removed)?;
 
     let mut passages = 0;
     for path in &plan.stale {
@@ -93,7 +97,7 @@ pub async fn index_vault(ai: &AiState, app_data_dir: &Path, vault_root: &Path) -
         passages += stored.len();
         store.replace_note(&file.path, file.fs_modified_ms, &model, &stored)?;
     }
-    Ok(IndexReport { embedded_notes: plan.stale.len(), removed_notes: plan.removed.len(), passages })
+    Ok(IndexReport { embedded_notes: plan.stale.len(), removed_notes: removed.len(), passages })
 }
 
 /// The passages closest to `question`, best first.
@@ -113,9 +117,14 @@ fn current_chunks(app_data_dir: &Path, vault_root: &Path, profile: &EmbeddingPro
     let mut store = VectorStore::open(&store_path(app_data_dir, vault_root))?;
     let identity = profile.identity();
     let plan = store.plan(&listing(&files), &identity)?;
-    store.remove_notes(&plan.removed)?;
+    // A partial filesystem scan does not prove the note was removed.
+    let removed: Vec<_> = plan.removed.into_iter().filter(|path| {
+        matches!(vault_root.join(path).try_exists(), Ok(false))
+    }).collect();
+    store.remove_notes(&removed)?;
+    let present: std::collections::HashSet<_> = files.iter().map(|file| file.path.as_str()).collect();
     let stale: std::collections::HashSet<_> = plan.stale.into_iter().collect();
-    Ok(store.load(&identity)?.into_iter().filter(|s| !stale.contains(&s.chunk.path)).collect())
+    Ok(store.load(&identity)?.into_iter().filter(|s| present.contains(s.chunk.path.as_str()) && !stale.contains(&s.chunk.path)).collect())
 }
 
 async fn search_for_profile(

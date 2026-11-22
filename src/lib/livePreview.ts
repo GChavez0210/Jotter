@@ -36,7 +36,7 @@ import {
 import { foldEffect, unfoldEffect } from '@codemirror/language';
 import type { SyntaxNode } from '@lezer/common';
 import type { EditingMode } from './types';
-import { cachedImage, rememberImage, imagePreviewEpoch, IMAGE_REFRESH_EVENT } from './imagePreviewCache';
+import { cachedImage, rememberImage, imagePreviewEpoch, IMAGE_REFRESH_EVENT, remoteImagesAllowed } from './imagePreviewCache';
 const refreshImages = StateEffect.define<void>();
 
 export interface LivePreviewConfig {
@@ -277,11 +277,15 @@ class ImageEmbedWidget extends LocalizedWidget {
     img.alt = this.altText || this.target;
 
     const cleanTarget = this.target.split('|')[0].trim();
-    if (
-      cleanTarget.startsWith('http://') ||
-      cleanTarget.startsWith('https://') ||
-      cleanTarget.startsWith('data:')
-    ) {
+    const isRemote = cleanTarget.startsWith('http://') || cleanTarget.startsWith('https://');
+    if (isRemote && !remoteImagesAllowed()) {
+      // The site hosting an image learns when a note is opened, so web images wait for opt-in.
+      container.textContent = `🖼 ${this.altText || cleanTarget}`;
+      container.classList.add('cm-live-image-missing');
+      container.title = m.preview_remote_image_blocked();
+      return container;
+    }
+    if (isRemote || cleanTarget.startsWith('data:')) {
       img.src = cleanTarget;
     } else {
       const cached = cachedImage(cleanTarget);

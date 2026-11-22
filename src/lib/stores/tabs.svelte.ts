@@ -89,6 +89,9 @@ class TabsStore {
   private autosaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private saves = new Map<string, Promise<boolean>>();
   private generation = 0;
+  private vaultGeneration: number | undefined;
+  get activeVaultGeneration() { return this.vaultGeneration; }
+  vaultTransition = $state(false);
 
   activeTab = $derived(
     this.openTabs.find((t) => t.relPath === this.activeTabPath) ?? null
@@ -102,9 +105,11 @@ class TabsStore {
 
   get focusedTabPath(): string | null { return this.focusedTab?.relPath ?? null; }
 
-  resetTabs() {
+  resetTabs(vaultGeneration?: number) {
+    this.vaultGeneration = vaultGeneration;
     this.generation++;
     this.clearAllTimers();
+    this.saves.clear();
     this.openTabs = [];
     this.activeTabPath = null;
     this.pendingScrollTarget = null;
@@ -289,11 +294,13 @@ class TabsStore {
     try {
       return await save;
     } finally {
-      this.saves.delete(relPath);
+      if (this.saves.get(relPath) === save) this.saves.delete(relPath);
     }
   }
 
   private async saveUntilClean(relPath: string): Promise<boolean> {
+    const generation = this.generation;
+    const vaultGeneration = this.vaultGeneration;
     // Include edits made while an earlier save is waiting for disk.
     while (true) {
       const tab = this.openTabs.find((t) => sameNotePath(t.relPath, relPath));
@@ -303,7 +310,8 @@ class TabsStore {
 
       const contentToSave = tab.content;
       try {
-        const savedDoc = await saveNote(relPath, contentToSave);
+        const savedDoc = await saveNote(relPath, contentToSave, vaultGeneration);
+        if (generation !== this.generation) return false;
         this.openTabs = this.openTabs.map((t) =>
           sameNotePath(t.relPath, relPath)
             ? {
@@ -413,8 +421,10 @@ class TabsStore {
     relPath: string,
     onReplaceEditor?: (relPath: string, newContent: string) => void
   ) {
+    const generation = this.generation;
     try {
       const doc = await readNote(relPath);
+      if (generation !== this.generation) return;
       this.openTabs = this.openTabs.map((t) =>
         sameNotePath(t.relPath, relPath)
           ? {
@@ -429,7 +439,15 @@ class TabsStore {
       // Either pane may hold the note, so the caller matches the path to its editor.
       onReplaceEditor?.(relPath, doc.content);
       clipboardStore.setStatus(m.status_reloaded({ path: relPath }));
-    } catch {
+    } catch (err) {
+      if (generation !== this.generation) return;
+      // A sync client or a virus scanner can lock a note for a moment. Only a note that is gone
+      // closes its tab; any other failure keeps the tab and the text it shows.
+      const message = err instanceof Error ? err.message : String(err);
+      if (!message.startsWith('Note does not exist: ')) {
+        clipboardStore.setStatus(m.status_open_failed({ error: message }));
+        return;
+      }
       this.openTabs = this.openTabs.filter((t) => !sameNotePath(t.relPath, relPath));
       if (sameNotePath(this.activeTabPath, relPath)) {
         this.activeTabPath =
@@ -444,7 +462,9 @@ class TabsStore {
     changedPaths: string[],
     onReplaceEditor?: (relPath: string, newContent: string) => void
   ) {
+    const generation = this.generation;
     for (const rel of changedPaths) {
+      if (generation !== this.generation) return;
       const tab = this.openTabs.find(
         (t) => sameNotePath(t.relPath, rel)
       );
