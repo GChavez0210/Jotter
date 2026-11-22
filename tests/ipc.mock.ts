@@ -186,6 +186,7 @@ export const updateControl = {
   install: async (_expectedVersion: string): Promise<void> => {},
   progress: null as null | ((event: import('../src/lib/types').UpdateProgress) => void),
 };
+export const getCliPath = async (): Promise<string | null> => String.raw`C:\Users\me\AppData\Local\Jotter\jotter.exe`;
 export const checkForUpdate = () => updateControl.check();
 export const installUpdate = (expectedVersion: string) => updateControl.install(expectedVersion);
 export const listenUpdateProgress = async (handler: (event: import('../src/lib/types').UpdateProgress) => void) => {

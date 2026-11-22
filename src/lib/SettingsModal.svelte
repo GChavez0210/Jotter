@@ -20,7 +20,8 @@
   import { backupStore, MAX_BACKUP_KEEP } from './stores/backups.svelte';
   import { updateStore } from './stores/updates.svelte';
   import { spellingStore } from './stores/spelling.svelte';
-  import { askDeleteIndex, exportSettingsFile, importSettingsFile, openDictionariesFolder } from './ipc';
+  import { askDeleteIndex, copyToClipboard, exportSettingsFile, getCliPath, importSettingsFile, openDictionariesFolder } from './ipc';
+  import { mcpSetupPrompt } from './mcpSetup';
   import { appStorage } from './appStorage';
   import { saveBeforeLeaving } from './saveBeforeLeaving';
   import { tabsStore } from './stores/tabs.svelte';
@@ -151,6 +152,24 @@
     caldavPasswordDraft = '';
   });
   let styleDraft = $state<string | null>(null);
+  // `undefined` until the backend answers; `null` when this copy of Jotter has no CLI.
+  let cliPath = $state<string | null | undefined>(undefined);
+  let mcpReadOnly = $state(false);
+  let mcpNotice = $state('');
+  let mcpError = $state('');
+  const mcpPrompt = $derived(mcpSetupPrompt(cliPath ?? null, mcpReadOnly));
+  const mcpCliPathParts = $derived(splitSlots(m.settings_mcp_cli_path({ path: SLOT })));
+
+  async function copyMcpPrompt() {
+    mcpNotice = '';
+    mcpError = '';
+    try {
+      await copyToClipboard({ text: mcpPrompt, mode: 'markdown_source' });
+      mcpNotice = m.settings_mcp_copied();
+    } catch (err) {
+      mcpError = m.settings_mcp_copy_failed({ error: String(err) });
+    }
+  }
   const aiProvider = $derived<AiProvider>(aiStore.status?.config.provider ?? 'openai-compatible');
   const aiEndpoint = $derived(aiStore.endpoint(aiProvider));
   const aiKey = $derived(aiStore.keyStatus(aiProvider));
@@ -220,6 +239,9 @@
     closeBtnRef?.focus();
     void spellingStore.ensureLoaded();
     void aiStore.reload();
+    getCliPath()
+      .then((path) => (cliPath = path))
+      .catch(() => (cliPath = null));
     getVersion()
       .then((version) => (appVersion = version))
       .catch(() => {
@@ -1187,6 +1209,36 @@
                 <div class="setting-desc" role="status">{aiNotice}</div>
               {/if}
             {/if}
+
+            <div class="setting-card column-card">
+              <div class="setting-info">
+                <div class="setting-label">{m.settings_mcp_title()}</div>
+                <div class="setting-desc">{m.settings_mcp_desc()}</div>
+                {#if cliPath}
+                  <div class="setting-desc">{mcpCliPathParts[0]}<code>{cliPath}</code>{mcpCliPathParts[1]}</div>
+                {:else if cliPath === null}
+                  <div class="setting-desc"><span class="field-warning">{m.settings_mcp_cli_missing()}</span></div>
+                {/if}
+                <div class="setting-desc">{m.settings_mcp_vault_note()}</div>
+              </div>
+              <div class="setting-row-top">
+                <div class="setting-info">
+                  <label for="toggle-mcp-read-only" class="setting-label">{m.settings_mcp_read_only()}</label>
+                  <div class="setting-desc">{m.settings_mcp_read_only_desc()}</div>
+                </div>
+                <input id="toggle-mcp-read-only" type="checkbox" class="fluent-toggle" bind:checked={mcpReadOnly} />
+              </div>
+              <label for="mcp-prompt" class="setting-label">{m.settings_mcp_prompt_label()}</label>
+              <textarea id="mcp-prompt" class="style-field mcp-prompt" rows="10" readonly spellcheck="false" value={mcpPrompt}></textarea>
+              <div class="button-row">
+                <Button variant="primary" onclick={() => void copyMcpPrompt()}>{m.settings_mcp_copy()}</Button>
+              </div>
+              {#if mcpError}
+                <div class="field-error" role="alert">{mcpError}</div>
+              {:else if mcpNotice}
+                <div class="setting-desc" role="status">{mcpNotice}</div>
+              {/if}
+            </div>
           </section>
         {:else if activeSection === 'system'}
           <section class="settings-section" aria-labelledby="sec-system">
@@ -1698,6 +1750,12 @@
     color: var(--text-primary);
     font: var(--fs-13) / 1.5 var(--font-ui);
     resize: vertical;
+  }
+
+  .mcp-prompt {
+    min-height: 180px;
+    font: var(--fs-12) / 1.5 var(--font-mono);
+    white-space: pre-wrap;
   }
 
   .style-field.default-style,

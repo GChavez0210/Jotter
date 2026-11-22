@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Puts the install folder on the system PATH so `jotter` runs from any terminal. The MSI
+     installs for all users, so the entry goes in the system PATH, and Windows Installer removes
+     it on uninstall. -->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Fragment>
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="JotterCliPath" Guid="37140ed4-1c02-4d27-9f9b-cf052da6b89a">
+        <Environment Id="JotterCliPathEntry" Name="PATH" Value="[INSTALLDIR]" Part="last"
+                     Action="set" System="yes" Permanent="no" />
+        <RegistryValue Root="HKLM" Key="Software\Jotter\Jotter" Name="CliOnPath" Type="integer"
+                       Value="1" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+  </Fragment>
+</Wix>

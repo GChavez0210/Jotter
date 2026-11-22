@@ -6,12 +6,16 @@
 //! app uses, keep the text they replace in the note's version history first, and send deletes
 //! to the Recycle Bin. A read-only handle refuses every write.
 
+use std::cell::RefCell;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::time::SystemTime;
 
 use rusqlite::Connection;
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 
 use crate::index::{self, system_time_to_ms};
 use crate::search::VaultSearchIndex;
@@ -22,6 +26,20 @@ pub struct AgentVault {
     root: PathBuf,
     read_only: bool,
     versions_dir: PathBuf,
+    app_data_dir: PathBuf,
+    /// The last search index and note index, with the fingerprint of the files they were built
+    /// from. A long-lived MCP server reuses them until a file changes.
+    search_cache: RefCell<Option<(u64, VaultSearchIndex)>>,
+    index_cache: RefCell<Option<(u64, Rc<Connection>)>>,
+}
+
+/// Changes when a note is added, removed, renamed, or edited.
+fn fingerprint(files: &[index::ScannedNoteFile]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    for file in files {
+        (&file.path, file.fs_modified_ms, file.content.len(), &file.content).hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 fn to_json<T: Serialize>(value: &T) -> Result<Value, String> {
@@ -47,7 +65,14 @@ impl AgentVault {
         if !root.is_dir() {
             return Err(format!("'{}' is not a folder", root.display()));
         }
-        Ok(Self { root, read_only, versions_dir })
+        Ok(Self {
+            root,
+            read_only,
+            versions_dir,
+            app_data_dir: app_data_dir.to_path_buf(),
+            search_cache: RefCell::new(None),
+            index_cache: RefCell::new(None),
+        })
     }
 
     pub fn root(&self) -> &Path {
@@ -62,10 +87,18 @@ impl AgentVault {
         }
     }
 
-    fn index(&self) -> Result<Connection, String> {
-        let conn = Connection::open_in_memory().map_err(|e| format!("Cannot build the index: {e}"))?;
+    fn index(&self) -> Result<Rc<Connection>, String> {
         let files = index::scan_dir_files_from_disk(&self.root, &self.root)?;
+        let print = fingerprint(&files);
+        if let Some((cached, conn)) = self.index_cache.borrow().as_ref() {
+            if *cached == print {
+                return Ok(conn.clone());
+            }
+        }
+        let conn = Connection::open_in_memory().map_err(|e| format!("Cannot build the index: {e}"))?;
         index::apply_scanned_vault_index(&conn, &files)?;
+        let conn = Rc::new(conn);
+        *self.index_cache.borrow_mut() = Some((print, conn.clone()));
         Ok(conn)
     }
 
@@ -77,15 +110,21 @@ impl AgentVault {
 
     pub fn search(&self, query: &str, limit: usize) -> Result<Value, String> {
         let files = index::scan_dir_files_from_disk(&self.root, &self.root)?;
-        let search = VaultSearchIndex::new()?;
-        search.rebuild_from_scanned(&files)?;
+        let print = fingerprint(&files);
+        let mut cache = self.search_cache.borrow_mut();
+        if cache.as_ref().is_none_or(|(cached, _)| *cached != print) {
+            let search = VaultSearchIndex::new()?;
+            search.rebuild_from_scanned(&files)?;
+            *cache = Some((print, search));
+        }
+        let (_, search) = cache.as_ref().expect("the cache was just filled");
         let hits = search.search(query, limit.clamp(1, 200))?;
         to_json(&hits)
     }
 
     /// Every note with its metadata and link counts, optionally only those under `folder`.
     pub fn list(&self, folder: Option<&str>) -> Result<Value, String> {
-        let mut cards = index::query_note_cards(&self.index()?)?;
+        let mut cards = index::query_note_cards(&*self.index()?)?;
         if let Some(folder) = folder {
             let folder = vault::normalize_rel_path(folder);
             if !folder.is_empty() {
@@ -181,7 +220,7 @@ impl AgentVault {
 
     pub fn backlinks(&self, path: &str) -> Result<Value, String> {
         let (_, clean) = vault::resolve_safe_vault_path(&self.root, &vault::ensure_md_extension(path))?;
-        to_json(&index::query_backlinks_for_note(&self.index()?, &clean)?)
+        to_json(&index::query_backlinks_for_note(&*self.index()?, &clean)?)
     }
 
     /// All tags with their note counts, or the notes carrying `tag`.
@@ -195,7 +234,7 @@ impl AgentVault {
 
     /// Checklist items that have a due date.
     pub fn tasks(&self) -> Result<Value, String> {
-        to_json(&index::query_due_tasks(&self.index()?)?)
+        to_json(&index::query_due_tasks(&*self.index()?)?)
     }
 
     pub fn health(&self) -> Result<Value, String> {
@@ -218,12 +257,208 @@ impl AgentVault {
         let (abs, _) = vault::resolve_safe_vault_path(&self.root, CONTEXT_NOTE)?;
         let content = if abs.exists() { Some(vault::read_vault_note(&self.root, CONTEXT_NOTE)?.content) } else { None };
         let prefix = format!("{CONTEXT_FOLDER}/");
-        let others: Vec<String> = index::query_note_cards(&self.index()?)?
-            .into_iter()
-            .map(|card| card.path)
-            .filter(|path| path.starts_with(&prefix) && path != CONTEXT_NOTE)
+        let conversations_prefix = format!("{CONVERSATIONS_FOLDER}/");
+        let cards = index::query_note_cards(&*self.index()?)?;
+        let others: Vec<&str> = cards
+            .iter()
+            .map(|card| card.path.as_str())
+            .filter(|path| path.starts_with(&prefix) && *path != CONTEXT_NOTE && !path.starts_with(&conversations_prefix))
             .collect();
-        Ok(json!({ "path": CONTEXT_NOTE, "exists": content.is_some(), "content": content.unwrap_or_default(), "otherNotes": others }))
+        let mut conversations: Vec<_> = cards.iter().filter(|card| card.path.starts_with(&conversations_prefix)).collect();
+        conversations.sort_by_key(|card| std::cmp::Reverse(card.modified_ms));
+        let recent: Vec<Value> = conversations
+            .iter()
+            .take(RECENT_CONVERSATIONS)
+            .map(|card| json!({ "path": card.path, "title": card.title, "modifiedMs": card.modified_ms }))
+            .collect();
+        Ok(json!({
+            "path": CONTEXT_NOTE,
+            "exists": content.is_some(),
+            "content": content.unwrap_or_default(),
+            "otherNotes": others,
+            "recentConversations": recent,
+        }))
+    }
+
+    /// Replaces `old_text` with `new_text` in a note. `old_text` must appear exactly once unless
+    /// `replace_all` is set, so an edit never lands somewhere the caller did not mean. The note's
+    /// previous text stays in version history.
+    pub fn edit(&self, path: &str, old_text: &str, new_text: &str, replace_all: bool) -> Result<Value, String> {
+        self.writable()?;
+        if old_text.is_empty() {
+            return Err("old_text is empty. Give the exact text to replace".to_string());
+        }
+        let clean = self.existing_note(path)?;
+        let (abs, _) = vault::resolve_safe_vault_path(&self.root, &clean)?;
+        let previous = std::fs::read_to_string(&abs).map_err(|e| format!("Cannot read {clean}: {e}"))?;
+        // A note saved with Windows line endings still matches text written with "\n".
+        let (old, new) = if !previous.contains(old_text) && previous.contains("\r\n") {
+            (old_text.replace('\n', "\r\n"), new_text.replace('\n', "\r\n"))
+        } else {
+            (old_text.to_string(), new_text.to_string())
+        };
+        let count = previous.matches(&old).count();
+        match count {
+            0 => return Err(format!("old_text does not appear in {clean}. Read the note and copy the text exactly")),
+            1 => {}
+            _ if !replace_all => {
+                return Err(format!(
+                    "old_text appears {count} times in {clean}. Add surrounding text to make it unique, or set replace_all"
+                ))
+            }
+            _ => {}
+        }
+        let updated = previous.replace(&old, &new);
+        self.keep_previous(&clean, &previous);
+        vault::save_vault_note(&self.root, &clean, &updated)?;
+        Ok(json!({ "path": clean, "replacements": count }))
+    }
+
+    /// Sets or removes frontmatter properties. A `null` value removes that property.
+    pub fn set_properties(&self, path: &str, set: &Map<String, Value>, remove: &[String]) -> Result<Value, String> {
+        self.writable()?;
+        let clean = self.existing_note(path)?;
+        self.rewrite(&clean, |text| crate::frontmatter::set_properties(text, set, remove))?;
+        Ok(json!({ "path": clean }))
+    }
+
+    /// Adds and removes tags in the note's frontmatter `tags` list. Tags written as `#tag` in the
+    /// body are left alone, so the answer lists any that keep a removed tag on the note.
+    pub fn update_tags(&self, path: &str, add: &[String], remove: &[String]) -> Result<Value, String> {
+        self.writable()?;
+        let clean = self.existing_note(path)?;
+        let normalize = |tag: &String| tag.trim().trim_start_matches('#').to_string();
+        let add: Vec<String> = add.iter().map(normalize).collect();
+        let remove: Vec<String> = remove.iter().map(normalize).collect();
+        for tag in &add {
+            let valid = !tag.is_empty()
+                && tag.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == '/')
+                && tag.chars().any(|c| !c.is_numeric());
+            if !valid {
+                return Err(format!("'{tag}' is not a valid tag. Use letters, digits, _, -, and /, with at least one non-digit"));
+            }
+        }
+        let mut tags = Vec::new();
+        self.rewrite(&clean, |text| {
+            let inner = crate::frontmatter::split(text).map(|(inner, _)| inner).unwrap_or("");
+            let tag_keys: Vec<String> = inner.lines().filter_map(crate::frontmatter::key_of)
+                .filter(|key| key.eq_ignore_ascii_case("tag") || key.eq_ignore_ascii_case("tags"))
+                .collect();
+            let normalized = inner.lines().map(|line| {
+                if crate::frontmatter::key_of(line).is_some_and(|key| tag_keys.contains(&key)) {
+                    format!("tags:{}", line.split_once(':').map(|(_, value)| value).unwrap_or_default())
+                } else {
+                    line.to_string()
+                }
+            }).collect::<Vec<_>>().join("\n");
+            tags = crate::links::extract_frontmatter_tags(&normalized);
+            tags.retain(|t| !remove.iter().any(|r| r.eq_ignore_ascii_case(t)));
+            for tag in &add {
+                if !tags.iter().any(|t| t.eq_ignore_ascii_case(tag)) {
+                    tags.push(tag.clone());
+                }
+            }
+            let mut set = Map::new();
+            set.insert("tags".to_string(), if tags.is_empty() { Value::Null } else { json!(tags) });
+            // Fold singular and differently cased spellings into the existing canonical key.
+            let aliases: Vec<String> = tag_keys.into_iter().filter(|key| key != "tags").collect();
+            crate::frontmatter::set_properties(text, &set, &aliases)
+        })?;
+        let content = std::fs::read_to_string(vault::resolve_safe_vault_path(&self.root, &clean)?.0).unwrap_or_default();
+        let body = crate::frontmatter::split(&content).map(|(_, body)| body).unwrap_or(&content);
+        let body_tags = crate::links::extract_tags(body);
+        let still_in_body: Vec<&String> = remove.iter().filter(|r| body_tags.iter().any(|t| t.eq_ignore_ascii_case(r))).collect();
+        Ok(json!({ "path": clean, "tags": tags, "stillInBody": still_in_body }))
+    }
+
+    /// Saves notes from a conversation to `_context/Conversations/<date> <title>.md`. A later call
+    /// with the same title appends to that note, even on another day, so one conversation keeps
+    /// one note.
+    pub fn save_conversation(&self, title: &str, text: &str) -> Result<Value, String> {
+        self.writable()?;
+        let title = conversation_title(title);
+        let suffix = format!(" {}.md", title.to_lowercase());
+        let (folder_abs, _) = vault::resolve_safe_vault_path(&self.root, CONVERSATIONS_FOLDER)?;
+        let existing = std::fs::read_dir(&folder_abs)
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+            .filter(|name| {
+                let lower = name.to_lowercase();
+                lower.ends_with(&suffix) && lower.len() == suffix.len() + 10 && is_iso_date(&lower[..10])
+            })
+            .max();
+        if let Some(name) = existing {
+            let path = format!("{CONVERSATIONS_FOLDER}/{name}");
+            self.append(&path, &format!("\n{}", text.trim_end()), false)?;
+            return Ok(json!({ "path": path, "created": false }));
+        }
+        let path = format!("{CONVERSATIONS_FOLDER}/{} {title}.md", chrono::Local::now().format("%Y-%m-%d"));
+        self.create(&path, &format!("# {title}\n\n{}", with_final_newline(text.trim_end())))?;
+        Ok(json!({ "path": path, "created": true }))
+    }
+
+    /// Adds `text` to the end of today's daily note, creating the note the way the app does:
+    /// in the daily folder from Settings, from the daily template, named `YYYY-MM-DD.md`.
+    pub fn append_to_daily(&self, text: &str) -> Result<Value, String> {
+        self.writable()?;
+        let settings = self.app_settings();
+        let setting = |key: &str, default: &str| {
+            settings.get(key).and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| default.to_string())
+        };
+        let folder = setting("jotter.dailyFolder", "Daily").trim_matches('/').to_string();
+        let now = chrono::Local::now();
+        let date = now.format("%Y-%m-%d").to_string();
+        let path = if folder.is_empty() { format!("{date}.md") } else { format!("{folder}/{date}.md") };
+        let (abs, clean) = vault::resolve_safe_vault_path(&self.root, &path)?;
+        let created = !abs.exists();
+        if created {
+            let template_path = setting("jotter.dailyTemplatePath", "Templates/Daily.md");
+            let template = (!template_path.is_empty())
+                .then(|| vault::read_vault_note(&self.root, &vault::ensure_md_extension(&template_path)).ok())
+                .flatten()
+                .map(|doc| doc.content)
+                .unwrap_or_else(|| DEFAULT_DAILY_TEMPLATE.to_string());
+            let filled = template
+                .replace("{{date}}", &date)
+                .replace("{{time}}", &now.format("%H:%M").to_string())
+                .replace("{{title}}", &date);
+            self.create(&clean, &filled)?;
+        }
+        self.append(&clean, text, false)?;
+        Ok(json!({ "path": clean, "created": created }))
+    }
+
+    /// The app's settings map, or an empty one when the app has not saved settings.
+    fn app_settings(&self) -> Map<String, Value> {
+        std::fs::read_to_string(self.app_data_dir.join("settings.json"))
+            .ok()
+            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok())
+            .and_then(|value| value.as_object().cloned())
+            .unwrap_or_default()
+    }
+
+    /// The vault path of an existing note. A name without `.md` finds the note.
+    fn existing_note(&self, path: &str) -> Result<String, String> {
+        let (abs, clean) = vault::resolve_safe_vault_path(&self.root, &vault::ensure_md_extension(path))?;
+        if abs.is_file() {
+            Ok(clean)
+        } else {
+            Err(format!("Note does not exist: {clean}"))
+        }
+    }
+
+    /// Rewrites a note with `change`, keeping the old text in version history. A change that
+    /// leaves the text as it was writes nothing.
+    fn rewrite(&self, clean: &str, change: impl FnOnce(&str) -> Result<String, String>) -> Result<(), String> {
+        let (abs, _) = vault::resolve_safe_vault_path(&self.root, clean)?;
+        let previous = std::fs::read_to_string(&abs).map_err(|e| format!("Cannot read {clean}: {e}"))?;
+        let updated = change(&previous)?;
+        if updated != previous {
+            self.keep_previous(clean, &previous);
+            vault::save_vault_note(&self.root, clean, &updated)?;
+        }
+        Ok(())
     }
 
     /// Replaces the context note. The text it replaces stays in version history.
@@ -243,6 +478,27 @@ impl AgentVault {
 
 const CONTEXT_FOLDER: &str = "_context";
 const CONTEXT_NOTE: &str = "_context/Context.md";
+const CONVERSATIONS_FOLDER: &str = "_context/Conversations";
+const RECENT_CONVERSATIONS: usize = 5;
+/// The app's built-in daily template, used when the configured template note is missing.
+const DEFAULT_DAILY_TEMPLATE: &str = "## Today\n\n- [ ] \n\n## Log\n\n";
+
+/// A conversation title made safe for a file name on every system: no path or reserved
+/// characters, no leading or trailing dots, at most 80 characters.
+fn conversation_title(title: &str) -> String {
+    let cleaned: String = title
+        .chars()
+        .map(|c| if c.is_control() || "\\/:*?\"<>|#^[]".contains(c) { ' ' } else { c })
+        .collect();
+    let words: Vec<&str> = cleaned.split_whitespace().collect();
+    let mut title: String = words.join(" ").chars().take(80).collect();
+    title = title.trim_matches(|c: char| c == '.' || c.is_whitespace()).to_string();
+    if title.is_empty() { "Conversation".to_string() } else { title }
+}
+
+fn is_iso_date(text: &str) -> bool {
+    chrono::NaiveDate::parse_from_str(text, "%Y-%m-%d").is_ok()
+}
 
 fn with_final_newline(text: &str) -> String {
     if text.ends_with('\n') { text.to_string() } else { format!("{text}\n") }
@@ -418,4 +674,115 @@ mod tests {
         assert_eq!(versions::list(&versions::versions_dir(data.path(), &alias), "Plan.md").len(), 1);
     }
 
+    #[test]
+    fn edit_replaces_one_exact_match_and_keeps_the_old_text() {
+        let (vault, data) = vault_with_notes();
+        let agent = open(&vault, &data, false);
+        agent.edit("Home", "- [ ] Pay", "- [x] Pay", false).unwrap();
+        assert!(agent.read("Home").unwrap()["content"].as_str().unwrap().contains("- [x] Pay"));
+        assert_eq!(agent.versions("Home").unwrap().as_array().unwrap().len(), 1);
+        assert!(agent.edit("Home", "not there", "x", false).unwrap_err().contains("does not appear"));
+
+        std::fs::write(vault.path().join("Twice.md"), "a\r\nb\r\na\r\nb\r\n").unwrap();
+        assert!(agent.edit("Twice", "a\nb", "c", false).unwrap_err().contains("2 times"));
+        assert_eq!(agent.edit("Twice", "a\nb", "c", true).unwrap()["replacements"], 2);
+        assert_eq!(std::fs::read_to_string(vault.path().join("Twice.md")).unwrap(), "c\r\nc\r\n");
+    }
+
+    #[test]
+    fn edits_are_refused_on_a_read_only_handle() {
+        let (vault, data) = vault_with_notes();
+        let agent = open(&vault, &data, true);
+        assert!(agent.edit("Plan", "plan", "x", false).is_err());
+        assert!(agent.update_tags("Plan", &["x".into()], &[]).is_err());
+        assert!(agent.save_conversation("Chat", "text").is_err());
+        assert!(agent.append_to_daily("text").is_err());
+    }
+
+    #[test]
+    fn properties_and_tags_change_only_the_frontmatter() {
+        let (vault, data) = vault_with_notes();
+        let agent = open(&vault, &data, false);
+        std::fs::write(vault.path().join("Tagged.md"), "---\ntags:\n  - work\n  - old\n---\nBody #old\n").unwrap();
+        let answer = agent.update_tags("Tagged", &["#new".into()], &["old".into()]).unwrap();
+        assert_eq!(answer["tags"], json!(["work", "new"]));
+        assert_eq!(answer["stillInBody"], json!(["old"]));
+        let mut set = Map::new();
+        set.insert("status".into(), json!("done"));
+        agent.set_properties("Tagged", &set, &[]).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(vault.path().join("Tagged.md")).unwrap(),
+            "---\ntags: [\"work\",\"new\"]\nstatus: \"done\"\n---\nBody #old\n"
+        );
+        assert!(agent.update_tags("Tagged", &["bad tag".into()], &[]).is_err());
+    }
+
+    #[test]
+    fn tag_updates_fold_case_variants_and_quoted_aliases_without_losing_other_tags() {
+        let (vault, data) = vault_with_notes();
+        let agent = open(&vault, &data, false);
+        for key in ["Tags", "Tag", "TAG", "\"Tags\"", "'tag'"] {
+            std::fs::write(vault.path().join("Tagged.md"),
+                format!("---\n{key}: [old, keep]\nstatus: draft\n---\nBody #old\n")).unwrap();
+            let result = agent.update_tags("Tagged", &["new".into()], &["old".into()]).unwrap();
+            assert_eq!(result["tags"], json!(["keep", "new"]));
+            assert_eq!(result["stillInBody"], json!(["old"]));
+            let text = std::fs::read_to_string(vault.path().join("Tagged.md")).unwrap();
+            assert_eq!(text, "---\nstatus: draft\ntags: [\"keep\",\"new\"]\n---\nBody #old\n");
+            agent.update_tags("Tagged", &[], &["keep".into(), "new".into()]).unwrap();
+            assert_eq!(std::fs::read_to_string(vault.path().join("Tagged.md")).unwrap(),
+                "---\nstatus: draft\n---\nBody #old\n");
+        }
+        std::fs::write(vault.path().join("Tagged.md"), "---\nTags: [old]\n---\nBody\n").unwrap();
+        let result = agent.update_tags("Tagged", &[], &["old".into()]).unwrap();
+        assert_eq!(result["stillInBody"], json!([]));
+        assert_eq!(std::fs::read_to_string(vault.path().join("Tagged.md")).unwrap(), "Body\n");
+    }
+
+    #[test]
+    fn one_conversation_keeps_one_note_and_the_context_lists_it() {
+        let (vault, data) = vault_with_notes();
+        let agent = open(&vault, &data, false);
+        let first = agent.save_conversation("Launch: plan / budget?", "Decided the date.").unwrap();
+        assert_eq!(first["created"], true);
+        let path = first["path"].as_str().unwrap().to_string();
+        assert!(path.starts_with("_context/Conversations/") && path.ends_with(" Launch plan budget.md"), "{path}");
+        let second = agent.save_conversation("launch plan budget", "Moved it a week.").unwrap();
+        assert_eq!(second["path"], path.as_str());
+        let text = agent.read(&path).unwrap()["content"].as_str().unwrap().to_string();
+        assert!(text.starts_with("# Launch plan budget\n\nDecided the date.\n") && text.ends_with("Moved it a week.\n"), "{text}");
+
+        agent.set_context("Now").unwrap();
+        let context = agent.context().unwrap();
+        assert_eq!(context["recentConversations"][0]["path"], path.as_str());
+        assert_eq!(context["otherNotes"], json!([]));
+        assert_eq!(conversation_title(" .. "), "Conversation");
+    }
+
+    #[test]
+    fn the_daily_note_follows_the_apps_folder_and_template() {
+        let (vault, data) = vault_with_notes();
+        std::fs::write(data.path().join("settings.json"), r#"{"jotter.dailyFolder":"Journal","jotter.dailyTemplatePath":"Tpl"}"#).unwrap();
+        std::fs::write(vault.path().join("Tpl.md"), "# {{title}}\n").unwrap();
+        let agent = open(&vault, &data, false);
+        let first = agent.append_to_daily("- 09:00 started").unwrap();
+        assert_eq!(first["created"], true);
+        let date = chrono::Local::now().format("%Y-%m-%d").to_string();
+        assert_eq!(first["path"], format!("Journal/{date}.md"));
+        agent.append_to_daily("- 10:00 more").unwrap();
+        assert_eq!(
+            agent.read(&format!("Journal/{date}")).unwrap()["content"],
+            format!("# {date}\n- 09:00 started\n- 10:00 more\n")
+        );
+    }
+
+    #[test]
+    fn a_reused_search_index_sees_changed_files() {
+        let (vault, data) = vault_with_notes();
+        let agent = open(&vault, &data, false);
+        assert_eq!(agent.search("bananas", 10).unwrap().as_array().unwrap().len(), 0);
+        std::fs::write(vault.path().join("Fruit.md"), "bananas").unwrap();
+        assert_eq!(agent.search("bananas", 10).unwrap()[0]["path"], "Fruit.md");
+        assert_eq!(agent.list(None).unwrap().as_array().unwrap().len(), 3);
+    }
 }

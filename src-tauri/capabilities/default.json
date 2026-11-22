@@ -99,6 +99,7 @@
     "allow-ask-vault",
     "allow-ask-delete-index",
     "allow-ai-cancel",
+    "allow-get-cli-path",
     "allow-check-for-update",
     "allow-install-update"
   ]

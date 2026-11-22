@@ -235,7 +235,16 @@ Put `.css` files in the app data `snippets` folder, then turn each one on in **S
 
 ## Command line and MCP server
 
-`jotter` is a command-line tool that lets scripts and AI agents work on a vault without the app. Build it with `cargo build --release -p jotter-cli` from `src-tauri/`. It reads and writes the Markdown files directly, so the app does not need to be running. Every answer is JSON.
+`jotter` is a command-line tool that lets scripts and AI agents work on a vault without the app. The installers include it:
+
+| Package | Location | On `PATH` |
+| :--- | :--- | :--- |
+| Windows `.exe` | `%LOCALAPPDATA%\Jotter\jotter.exe` | Added to your user `PATH` |
+| Windows `.msi` | `C:\Program Files\Jotter\jotter.exe` | Added to the system `PATH` |
+| Linux `.deb` | `/usr/bin/jotter` | Yes |
+| Linux AppImage | Inside the image | No. Build it from source. |
+
+Open a new terminal after installing so it sees the new `PATH`. Uninstalling removes the `PATH` entry. To build the CLI from source, run `cargo build --release -p jotter-cli` from `src-tauri/`. It reads and writes the Markdown files directly, so the app does not need to be running. Every answer is JSON.
 
 The desktop executable is `jotter-desktop`; the CLI executable is `jotter`. Both can be built in the same workspace without overwriting each other.
 
@@ -246,13 +255,17 @@ echo "- call the bank" | jotter --vault ~/Notes append Inbox --create
 jotter --vault ~/Notes rename "Projects/Plan" "Projects/Roadmap"
 ```
 
-Set `JOTTER_VAULT` instead of repeating `--vault`. The commands are `search`, `list`, `read`, `create`, `append`, `rename`, `delete`, `backlinks`, `tags`, `tasks`, `health`, `versions`, `version`, `context`, and `set-context`. Run `jotter --help` for the options.
+Without `--vault`, the CLI uses the vault you last opened in the app, so an installed copy works with no setup. Set `JOTTER_VAULT` or pass `--vault` to pick another. An MCP server starts on that vault and can move to another with `open_vault`. The commands are `search`, `list`, `read`, `create`, `append`, `edit`, `props`, `tag`, `daily`, `rename`, `delete`, `backlinks`, `tags`, `tasks`, `health`, `versions`, `version`, `context`, `set-context`, `save-conversation`, and `vaults`. Run `jotter --help` for the options.
 
 - **Safe writes.** Writes use the app's atomic write path. Before `append` or a link rewrite replaces a note's text, the CLI saves that text to the note's version history, so the app's timeline shows it and can restore it. `delete` moves to the Recycle Bin. `rename` moves version history and rewrites links to the note or folder unless you pass `--no-update-links`.
 - **Limits.** Pass `--read-only` to refuse every write. A command works on the one vault you name, and paths cannot leave it. The CLI has no access to the AI keys in your keychain.
-- **MCP.** `jotter --vault ~/Notes mcp` serves the same operations as tools over standard input and output, for any MCP client. Add `--read-only` to list and run only the tools that do not change the vault. For Claude Code, run `claude mcp add jotter -- jotter --vault ~/Notes --read-only mcp`.
+- **MCP.** `jotter mcp` serves the same operations as tools over standard input and output, for any MCP client. Add `--read-only` to list and run only the tools that do not change the vault. For Claude Code, run `claude mcp add jotter -- jotter mcp`. **Settings → AI → Connect AI assistants (MCP)** shows a setup prompt with the installed `jotter` path, with a **Read only** switch and a **Copy prompt** button. Paste the prompt into an assistant such as Claude Code, Codex, or Claude Desktop, and the assistant adds the server to its own configuration. Other clients take the same command, `jotter` with the argument `mcp`, in their MCP server settings. The Windows `.exe` installer can replace `jotter.exe` while MCP clients are running, including across successive updates. Each client picks up the new version when it restarts the server. Close MCP clients before uninstalling: the `.exe` uninstaller stops if a CLI executable is still locked, so it can remove the CLI completely without administrator access.
+- **Editing.** `edit` (MCP `edit_note`) replaces exact text in a note. The text must appear once, or pass `--all` (`replace_all`) to replace every occurrence; a note with Windows line endings still matches text written with plain line breaks. `props` (`set_properties`) sets or removes frontmatter properties and leaves the rest of the note as it was. New values are written as JSON, which YAML reads as-is, such as `status: "done"`. `tag` (`update_tags`) adds and removes tags in the frontmatter `tags` list; tags written as `#tag` in the body stay, and the answer lists them. Each edit keeps the note's previous text in version history.
+- **Daily note.** `daily` (`append_to_daily`) adds text to the end of today's daily note. It creates a missing note the way the app does: `YYYY-MM-DD.md` in the daily folder from Settings, from the daily template, with `{{date}}`, `{{time}}`, and `{{title}}` filled in. Other template variables stay as written.
+- **Vaults.** `jotter vaults` and the MCP tool `list_vaults` list the vaults the app has opened, newest first, and mark the one in use. The MCP tool `open_vault` switches a running server to one of them by name or path, so an assistant can move between vaults without a restart. It accepts only vaults from that list and the one the server started on, so an assistant cannot open an arbitrary folder. A read-only server stays read-only in every vault.
+- **Conversation notes.** `save-conversation` (`save_conversation`) saves text to `_context/Conversations/<date> <title>.md`. Later saves with the same title add to that note, even on another day, so each conversation keeps one note. `get_context` returns the five most recently changed conversation notes as `recentConversations`, so a new conversation can pick up where an earlier one stopped. Titles lose characters that file names cannot hold.
 - **Shared context.** `_context/Context.md` holds what you are working on. The MCP tools `get_context` and `update_context` (and the `context` and `set-context` commands) read and replace it, and the server tells each client to call `get_context` first. Every assistant connected to the same vault, such as Claude and ChatGPT, sees the same note. `update_context` is a write, so it is absent under `--read-only`; the previous text stays in version history.
-- **Index.** Each read builds a fresh index from the files, so a very large vault takes a moment per call and the answer is always current.
+- **Index.** Every read scans the files, so the answer is always current. A running MCP server keeps its search and link indexes and rebuilds them only when a note has changed since the last call, so repeated searches skip most of the work.
 
 ## Accessibility
 
@@ -359,6 +372,14 @@ Build native desktop bundles under `src-tauri/target/release/bundle/` (Windows i
 npm run tauri build
 ```
 
+To include the `jotter` CLI and MCP server in the installers, as releases do, run this instead:
+
+```sh
+npm run package
+```
+
+It adds `src-tauri/tauri.cli.conf.json`, which runs `scripts/build-cli-sidecar.mjs` to build the CLI into `src-tauri/target/cli-sidecar/` and copy it to `src-tauri/binaries/jotter-<target triple>`. Tauri bundles it next to the app, and the Windows installers add the install folder to `PATH` through `src-tauri/windows/cli-path.nsh` and `src-tauri/windows/cli-path.wxs`. Plain `npm run tauri build`, `tauri dev`, and `cargo test` skip this step.
+
 ### Linux
 
 Linux support is groundwork awaiting a native build, package installation, and desktop smoke tests. The Linux configuration uses native window decorations. Desktop behavior depends on the session:
@@ -371,7 +392,7 @@ The AppImage needs no installation: make it executable and run it. The `.deb` in
 
 ### Releases and Code Signing
 
-Pushing a tag such as `v0.5.0` runs `.github/workflows/release.yml`. It builds the x64 and ARM64 Windows installers (an `.exe` per-user setup and an `.msi` for each) and the Linux x86_64 AppImage and `.deb`, and attaches them to a draft GitHub release, which you review and publish. The tag must match the version in `src-tauri/tauri.conf.json`. A pull request that edits the workflow builds the same packages as workflow artifacts, with no release.
+Pushing a tag such as `v0.5.0` runs `.github/workflows/release.yml`. It builds the x64 and ARM64 Windows installers (an `.exe` per-user setup and an `.msi` for each) and the Linux x86_64 AppImage and `.deb`, each with the `jotter` CLI, and attaches them to a draft GitHub release, which you review and publish. The tag must match the version in `src-tauri/tauri.conf.json`. A pull request that edits the workflow builds the same packages as workflow artifacts, with no release.
 
 The installers are unsigned until signing is set up, so Windows SmartScreen warns on first launch. The workflow signs every executable and installer with [Azure Trusted Signing](https://learn.microsoft.com/azure/trusted-signing/) once these exist in the repository settings:
 

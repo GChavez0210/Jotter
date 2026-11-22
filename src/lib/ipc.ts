@@ -494,6 +494,11 @@ export async function aiCancel(operationId: string): Promise<boolean> {
   return invoke<boolean>('ai_cancel', { operationId });
 }
 
+/** The installed `jotter` CLI's absolute path, or `null` when this copy of Jotter has none. */
+export async function getCliPath(): Promise<string | null> {
+  return invoke<string | null>('get_cli_path');
+}
+
 /** Asks the release feed for a newer version, or `null` when this one is current. */
 export async function checkForUpdate(): Promise<UpdateInfo | null> {
   return invoke<UpdateInfo | null>('check_for_update');

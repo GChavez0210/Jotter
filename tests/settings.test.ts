@@ -327,3 +327,36 @@ test('a read-only capture snapshot cannot overwrite newer main-window settings o
     assert.equal(settingsControl.saves.length, saves);
   } finally { settingsControl.stored = stored; }
 });
+
+test('the MCP setup prompt names the installed CLI and quotes it for each client', async () => {
+  const { mcpSetupPrompt } = await import('../src/lib/mcpSetup');
+  const path = String.raw`C:\Program Files\Jotter\jotter.exe`;
+  const prompt = mcpSetupPrompt(path, false);
+  assert.ok(prompt.includes(String.raw`claude mcp add --scope user jotter -- 'C:\Program Files\Jotter\jotter.exe' mcp`));
+  assert.ok(prompt.includes(String.raw`"command": "C:\\Program Files\\Jotter\\jotter.exe"`));
+  assert.ok(prompt.includes('- Arguments: ["mcp"]'));
+  assert.ok(prompt.includes('get_context'));
+
+  const readOnly = mcpSetupPrompt('/usr/bin/jotter', true);
+  assert.ok(readOnly.includes('codex mcp add jotter -- /usr/bin/jotter --read-only mcp'));
+  assert.ok(readOnly.includes('"--read-only",'));
+  assert.ok(!readOnly.includes('update_context') && !readOnly.includes('save_conversation'));
+  assert.ok(prompt.includes('update_context') && prompt.includes('save_conversation'));
+  assert.ok(readOnly.includes('open_vault'));
+
+  assert.ok(mcpSetupPrompt(null, false).includes('- Command: jotter\n'));
+});
+
+test('the MCP prompt escapes metacharacters and apostrophes for each named shell', async () => {
+  const { mcpSetupPrompt } = await import('../src/lib/mcpSetup');
+  const path = "C:\\Users\\A&B'$dev`\\Jotter\\jotter.exe";
+  const prompt = mcpSetupPrompt(path, false);
+  const powershell = "'C:\\Users\\A&B''$dev`\\Jotter\\jotter.exe'";
+  const posix = "'C:\\Users\\A&B'\"'\"'$dev`\\Jotter\\jotter.exe'";
+  assert.ok(prompt.includes(`Codex CLI (PowerShell): codex mcp add jotter -- ${powershell} mcp`));
+  assert.ok(prompt.includes(`Codex CLI (Bash/Zsh): codex mcp add jotter -- ${posix} mcp`));
+  assert.ok(prompt.includes(`Claude Code (PowerShell): claude mcp add --scope user jotter -- ${powershell} mcp`));
+  assert.ok(prompt.includes(`Claude Code (Bash/Zsh): claude mcp add --scope user jotter -- ${posix} mcp`));
+  const ordinary = mcpSetupPrompt(String.raw`C:\Users\me\Jotter\jotter.exe`, true);
+  assert.ok(ordinary.includes(String.raw`-- 'C:\Users\me\Jotter\jotter.exe' --read-only mcp`));
+});

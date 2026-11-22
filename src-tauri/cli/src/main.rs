@@ -3,6 +3,7 @@
 //! `{"error": "..."}` with exit code 1.
 
 mod mcp;
+mod vaults;
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -15,7 +16,7 @@ use serde_json::{json, Value};
 #[derive(Parser)]
 #[command(name = "jotter", version, about = "Work with a Jotter vault from the command line")]
 struct Cli {
-    /// The vault folder.
+    /// The vault folder. Defaults to the vault last opened in the Jotter app.
     #[arg(long, global = true, env = "JOTTER_VAULT")]
     vault: Option<PathBuf>,
     /// Refuse every command that would change the vault.
@@ -91,15 +92,66 @@ enum Command {
         #[arg(long)]
         text: Option<String>,
     },
+    /// Replace exact text in a note. The text must appear once unless --all is given.
+    Edit {
+        path: String,
+        #[arg(long)]
+        old: String,
+        #[arg(long)]
+        new: String,
+        /// Replace every occurrence.
+        #[arg(long)]
+        all: bool,
+    },
+    /// Set or remove frontmatter properties. Values are JSON; plain text counts as a string.
+    Props {
+        path: String,
+        /// key=value, such as status=done or rating=3. Repeat for more.
+        #[arg(long = "set", value_name = "KEY=VALUE")]
+        set: Vec<String>,
+        /// A property to remove. Repeat for more.
+        #[arg(long = "remove", value_name = "KEY")]
+        remove: Vec<String>,
+    },
+    /// Add or remove tags in a note's frontmatter.
+    Tag {
+        path: String,
+        #[arg(long = "add", value_name = "TAG")]
+        add: Vec<String>,
+        #[arg(long = "remove", value_name = "TAG")]
+        remove: Vec<String>,
+    },
+    /// Add text to today's daily note. Reads standard input unless --text is given.
+    Daily {
+        #[arg(long)]
+        text: Option<String>,
+    },
+    /// Save notes to the conversation note with this title. Reads standard input unless --text is given.
+    SaveConversation {
+        title: String,
+        #[arg(long)]
+        text: Option<String>,
+    },
+    /// List the vaults the Jotter app has opened, newest first.
+    Vaults,
     /// Serve the vault to an MCP client over standard input and output.
     Mcp,
 }
 
 fn run(cli: Cli) -> Result<Value, String> {
-    let root = cli
-        .vault
-        .ok_or_else(|| "Give the vault folder with --vault or the JOTTER_VAULT variable".to_string())?;
     let data_dir = jotter_core::platform::app_data_dir()?;
+    let root = cli.vault.or_else(|| vaults::last_opened(&data_dir));
+    if let Command::Vaults = cli.command {
+        // An empty recent list is the only way to have no vault here, so there is nothing to list.
+        return Ok(root.map_or(json!([]), |root| vaults::list(&data_dir, &root, &root)));
+    }
+    let root = match root {
+        Some(root) => root,
+        None => {
+            return Err("No vault given and the Jotter app has not opened one. Give the vault folder with --vault or the JOTTER_VAULT variable"
+                .to_string())
+        }
+    };
     let agent = AgentVault::open(&root, cli.read_only, &data_dir)?;
     match cli.command {
         Command::Search { query, limit } => agent.search(&query, limit),
@@ -117,11 +169,29 @@ fn run(cli: Cli) -> Result<Value, String> {
         Command::Version { path, id } => agent.version(&path, &id),
         Command::Context => agent.context(),
         Command::SetContext { text } => agent.set_context(&text_or_stdin(text)?),
+        Command::Edit { path, old, new, all } => agent.edit(&path, &old, &new, all),
+        Command::Props { path, set, remove } => agent.set_properties(&path, &parse_props(&set)?, &remove),
+        Command::Tag { path, add, remove } => agent.update_tags(&path, &add, &remove),
+        Command::Daily { text } => agent.append_to_daily(&text_or_stdin(text)?),
+        Command::SaveConversation { title, text } => agent.save_conversation(&title, &text_or_stdin(text)?),
+        Command::Vaults => unreachable!("handled before the vault opens"),
         Command::Mcp => {
-            mcp::serve(&agent, cli.read_only)?;
+            mcp::serve(mcp::Session::new(agent, cli.read_only, data_dir))?;
             Ok(Value::Null)
         }
     }
+}
+
+/// Reads `key=value` pairs. A value that parses as JSON keeps its type; anything else is text.
+fn parse_props(pairs: &[String]) -> Result<serde_json::Map<String, Value>, String> {
+    pairs
+        .iter()
+        .map(|pair| {
+            let (key, value) = pair.split_once('=').ok_or_else(|| format!("'{pair}' needs the form key=value"))?;
+            let value = serde_json::from_str(value).unwrap_or_else(|_| Value::String(value.to_string()));
+            Ok((key.trim().to_string(), value))
+        })
+        .collect()
 }
 
 fn text_or_stdin(text: Option<String>) -> Result<String, String> {

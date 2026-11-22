@@ -82,6 +82,7 @@ const COMMANDS: &[&str] = &[
     "ask_vault",
     "ask_delete_index",
     "ai_cancel",
+    "get_cli_path",
     "check_for_update",
     "install_update",
 ];
