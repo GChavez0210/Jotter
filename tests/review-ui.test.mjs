@@ -378,7 +378,7 @@ test('the app has no accessibility violations in its main states', async () => {
 
     await page.keyboard.press('Control+,');
     await expect(page.getByRole('dialog', {name: 'Settings'})).toBeVisible();
-    for (const section of ['Editor', 'Appearance', 'Vault', 'System']) {
+    for (const section of ['Editor', 'Appearance', 'Vault', 'AI', 'System']) {
       await page.getByRole('dialog', {name: 'Settings'}).getByRole('button', {name: section, exact: true}).click();
       found.push(...await auditPage(page, `${theme}: settings: ${section}`));
     }

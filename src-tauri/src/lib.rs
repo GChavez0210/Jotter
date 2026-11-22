@@ -1644,6 +1644,15 @@ fn ai_cancel(ai: State<'_, Arc<crate::ai::AiState>>, operation_id: String) -> bo
     ai.cancel(&operation_id)
 }
 
+/// The `jotter` CLI the installer put next to the app, or `None` when this copy has none,
+/// such as an AppImage or a build that skipped the CLI.
+#[tauri::command]
+fn get_cli_path() -> Option<String> {
+    let exe = std::env::current_exe().ok()?;
+    let cli = exe.parent()?.join(format!("jotter{}", std::env::consts::EXE_SUFFIX));
+    cli.is_file().then(|| cli.to_string_lossy().into_owned())
+}
+
 /// Asks the update feed whether a newer release exists.
 #[tauri::command]
 async fn check_for_update(
@@ -1809,6 +1818,7 @@ pub fn run() {
             ask_vault,
             ask_delete_index,
             ai_cancel,
+            get_cli_path,
             check_for_update,
             install_update
         ])

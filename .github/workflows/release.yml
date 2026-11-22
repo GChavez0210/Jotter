@@ -1,7 +1,7 @@
 name: Release
 
-# A `v*` tag builds the Windows x64 and ARM64 installers and the Linux AppImage and .deb, and
-# attaches them to a draft GitHub release, which a maintainer reviews and publishes. A pull
+# A `v*` tag builds the Windows x64 and ARM64 installers and the Linux AppImage and .deb, each
+# with the jotter CLI inside, and attaches them to a draft GitHub release, which a maintainer reviews and publishes. A pull
 # request that changes this file builds the same packages as workflow artifacts, without a
 # release, so the pipeline is tested first.
 #
@@ -104,7 +104,7 @@ jobs:
             echo 'body<<RELEASE_NOTES_EOF'
             node scripts/release-notes.mjs "${{ github.ref_name }}" $strict
             echo
-            echo 'Windows installers come in x64 and ARM64 builds, each as an .exe (per-user setup) and an .msi. Linux ships an x86_64 AppImage and a .deb.'
+            echo 'Windows installers come in x64 and ARM64 builds, each as an .exe (per-user setup) and an .msi. Linux ships an x86_64 AppImage and a .deb. The .exe, .msi, and .deb also install the jotter command-line tool and MCP server on PATH.'
             echo 'RELEASE_NOTES_EOF'
           } >> "$GITHUB_OUTPUT"
 
@@ -113,7 +113,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          args: --target ${{ matrix.target }} ${{ env.TAURI_SIGNING_ARGS }} ${{ env.TAURI_UPDATER_ARGS }}
+          # tauri.cli.conf.json builds the jotter CLI and MCP server and bundles it with the app.
+          args: --target ${{ matrix.target }} --config src-tauri/tauri.cli.conf.json ${{ env.TAURI_SIGNING_ARGS }} ${{ env.TAURI_UPDATER_ARGS }}
           tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
           releaseName: Jotter ${{ github.ref_name }}
           releaseBody: ${{ steps.notes.outputs.body }}
@@ -183,7 +184,7 @@ jobs:
             echo 'body<<RELEASE_NOTES_EOF'
             node scripts/release-notes.mjs "${{ github.ref_name }}" $strict
             echo
-            echo 'Windows installers come in x64 and ARM64 builds, each as an .exe (per-user setup) and an .msi. Linux ships an x86_64 AppImage and a .deb.'
+            echo 'Windows installers come in x64 and ARM64 builds, each as an .exe (per-user setup) and an .msi. Linux ships an x86_64 AppImage and a .deb. The .exe, .msi, and .deb also install the jotter command-line tool and MCP server on PATH.'
             echo 'RELEASE_NOTES_EOF'
           } >> "$GITHUB_OUTPUT"
 
@@ -192,8 +193,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          # The bundle targets come from tauri.linux.conf.json.
-          args: ${{ env.TAURI_UPDATER_ARGS }}
+          # The bundle targets come from tauri.linux.conf.json. tauri.cli.conf.json builds the
+          # jotter CLI and MCP server and bundles it with the app.
+          args: --config src-tauri/tauri.cli.conf.json ${{ env.TAURI_UPDATER_ARGS }}
           tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
           releaseName: Jotter ${{ github.ref_name }}
           releaseBody: ${{ steps.notes.outputs.body }}

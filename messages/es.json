@@ -1175,5 +1175,16 @@
   "ask_sources": "Fuentes",
   "ask_cleanup_needed": "Notas eliminadas aún en el índice: {count}.",
   "ask_cleanup_button": "Quitar notas eliminadas",
-  "ask_index_cleaned": "Entradas eliminadas del índice: {count}."
+  "ask_index_cleaned": "Entradas eliminadas del índice: {count}.",
+  "settings_mcp_title": "Conectar asistentes de IA (MCP)",
+  "settings_mcp_desc": "Claude Code, Codex, Claude Desktop y otros clientes MCP pueden usar tu bóveda como su cuaderno con el comando jotter. Pega el siguiente prompt en tu asistente y él mismo configura la conexión.",
+  "settings_mcp_cli_path": "Instalado en {path}.",
+  "settings_mcp_cli_missing": "Esta copia de Jotter no incluye el comando jotter, así que el prompt usa jotter desde el PATH. Instala Jotter con un instalador de la versión publicada o compila la CLI desde el código fuente.",
+  "settings_mcp_vault_note": "El servidor abre la última bóveda que abriste en Jotter. Reinicia el asistente después de cambiar de bóveda.",
+  "settings_mcp_read_only": "Solo lectura",
+  "settings_mcp_read_only_desc": "Los asistentes pueden buscar y leer notas, pero no pueden cambiarlas ni actualizar la nota de contexto compartida.",
+  "settings_mcp_prompt_label": "Copia este prompt en tu asistente de IA para configurar el servidor MCP de Jotter",
+  "settings_mcp_copy": "Copiar prompt",
+  "settings_mcp_copied": "Prompt copiado. Pégalo en tu asistente.",
+  "settings_mcp_copy_failed": "No se pudo copiar el prompt: {error}"
 }

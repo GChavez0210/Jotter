@@ -2,6 +2,7 @@
 //! tool both build on this crate, so a note is read, indexed, and written the same way by each.
 
 pub mod agent;
+pub mod frontmatter;
 pub mod fs_atomic;
 pub mod health;
 pub mod index;

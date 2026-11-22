@@ -1175,5 +1175,16 @@
   "ask_sources": "Sources",
   "ask_cleanup_needed": "Deleted notes remaining in the index: {count}.",
   "ask_cleanup_button": "Remove deleted notes",
-  "ask_index_cleaned": "Removed index entries: {count}."
+  "ask_index_cleaned": "Removed index entries: {count}.",
+  "settings_mcp_title": "Connect AI assistants (MCP)",
+  "settings_mcp_desc": "Claude Code, Codex, Claude Desktop, and other MCP clients can use your vault as their notebook through the jotter command. Paste the prompt below into your assistant, and it sets up the connection itself.",
+  "settings_mcp_cli_path": "Installed at {path}.",
+  "settings_mcp_cli_missing": "This copy of Jotter has no jotter command, so the prompt runs jotter from PATH. Install Jotter with a release installer, or build the CLI from source.",
+  "settings_mcp_vault_note": "The server opens the vault you last opened in Jotter. Restart the assistant after you switch vaults.",
+  "settings_mcp_read_only": "Read only",
+  "settings_mcp_read_only_desc": "Assistants can search and read notes but cannot change them or update the shared context note.",
+  "settings_mcp_prompt_label": "Copy this prompt into your AI assistant to set up the Jotter MCP server",
+  "settings_mcp_copy": "Copy prompt",
+  "settings_mcp_copied": "Prompt copied. Paste it into your assistant.",
+  "settings_mcp_copy_failed": "Could not copy the prompt: {error}"
 }

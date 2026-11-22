@@ -39,7 +39,7 @@ pub fn split_yaml_frontmatter(content: &str) -> (&str, Option<&str>) {
 /// one, a comment, a stray list item, or blank. A note that opens with a thematic break, such as
 /// `---` / `Intro text` / `---`, has no frontmatter. Mirrors `parseFrontmatter` in
 /// `src/lib/frontmatter.ts`, so the index and the editor agree on which notes have frontmatter.
-fn is_property_block(inner: &str) -> bool {
+pub(crate) fn is_property_block(inner: &str) -> bool {
     let mut in_property = false;
     for raw in inner.split('\n') {
         let line = raw.strip_suffix('\r').unwrap_or(raw);

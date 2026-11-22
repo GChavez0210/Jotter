@@ -4,6 +4,25 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-21
+
+### Added
+
+- **The CLI and MCP server ship with the app.** The Windows `.exe` and `.msi` and the Linux `.deb` install the `jotter` command next to Jotter and put it on `PATH`, so `jotter --vault ~/Notes mcp` works without building from source. The `.exe` adds it to your user `PATH`, the `.msi` to the system `PATH`, and uninstalling removes the entry. Open a new terminal after installing.
+- **The CLI finds your vault.** Without `--vault` or `JOTTER_VAULT`, `jotter` uses the vault last opened in the app, so `claude mcp add jotter -- jotter mcp` is the whole setup.
+- **Switch vaults from an assistant.** The MCP tools `list_vaults` and `open_vault` list the vaults Jotter has opened and switch the server to one of them. `jotter vaults` prints the same list. Only vaults the app has opened are accepted.
+- **Assistants can edit notes.** New MCP tools and CLI commands: `edit_note` (`edit`) replaces exact text, `set_properties` (`props`) sets frontmatter properties, `update_tags` (`tag`) adds and removes frontmatter tags, and `append_to_daily` (`daily`) adds to today's daily note, creating it from your daily template. Every change keeps the previous text in version history.
+- **One note per conversation.** `save_conversation` (`save-conversation`) keeps an assistant's decisions and summaries in `_context/Conversations/<date> <title>.md`, adding to the same note for the same title. `get_context` lists the five most recent.
+- **MCP setup prompt.** Settings → AI shows where the `jotter` command is installed and a prompt to copy into an AI assistant. The assistant uses the prompt to add Jotter's MCP server to its own configuration, read-only if you choose.
+
+### Fixed
+
+- CLI property edits preserve multiline values and recognize quoted keys; tag updates normalize case variants. MCP setup commands escape paths for PowerShell and Bash/Zsh. The Windows `.exe` installer handles successive updates with active MCP clients and requires closing them before uninstalling.
+
+### Changed
+
+- A running MCP server reuses its search and link indexes until a note changes, so repeated searches on a large vault return faster.
+
 ## [0.6.0] - 2026-11-16
 
 ### Added

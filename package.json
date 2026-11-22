@@ -1,7 +1,7 @@
 {
   "name": "jotter",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.7.0",
   "license": "MIT",
   "type": "module",
   "scripts": {
@@ -11,6 +11,7 @@
     "i18n": "paraglide-js compile --project ./project.inlang --outdir ./src/lib/paraglide --strategy globalVariable baseLocale --emit-ts-declarations --silent",
     "check": "npm run i18n && svelte-check --tsconfig ./tsconfig.json && tsc --noEmit",
     "tauri": "tauri",
+    "package": "tauri build --config src-tauri/tauri.cli.conf.json",
     "test": "npm run i18n && node scripts/test-frontend.mjs",
     "test:review-ui": "npm run i18n && node --test tests/review-ui.test.mjs"
   },
