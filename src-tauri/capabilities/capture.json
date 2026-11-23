@@ -6,8 +6,9 @@
     "capture"
   ],
   "permissions": [
-    "core:default",
-    "core:event:default",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:event:allow-emit-to",
     "core:window:allow-start-dragging",
     "core:window:allow-set-title",
     "allow-load-app-settings",

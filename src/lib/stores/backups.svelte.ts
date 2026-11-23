@@ -1,6 +1,6 @@
 import { appStorage } from '../appStorage';
 import { m } from '../i18n.svelte';
-import { configureBackups, getBackupStatus, pickBackupFolder, runBackupNow } from '../ipc';
+import { configureBackups, getBackupStatus, pickBackupFolder, runBackupNow, forgetExportDestination } from '../ipc';
 import type { BackupStatus } from '../types';
 import { clipboardStore } from './clipboard.svelte';
 import { vaultStore } from './vault.svelte';
@@ -104,6 +104,8 @@ export class BackupStore {
   }
 
   async chooseFolder() {
+    const root = vaultStore.vaultSnapshot?.rootPath;
+    if (!root) return;
     let picked: string | null;
     try {
       picked = await pickBackupFolder(m.dialog_backup_folder_title());
@@ -111,7 +113,7 @@ export class BackupStore {
       this.lastError = err instanceof Error ? err.message : String(err);
       return;
     }
-    if (!picked) return;
+    if (!picked || root !== vaultStore.vaultSnapshot?.rootPath) return;
     this.lastError = '';
     await this.update({ folder: picked });
   }
@@ -127,6 +129,13 @@ export class BackupStore {
   async turnOff() {
     const root = vaultStore.vaultSnapshot?.rootPath;
     if (!root) return;
+    try {
+      await forgetExportDestination('backup');
+    } catch (err) {
+      this.lastError = err instanceof Error ? err.message : String(err);
+      return;
+    }
+    if (root !== vaultStore.vaultSnapshot?.rootPath) return;
     const { [root]: _removed, ...rest } = this.all;
     this.all = rest;
     this.lastError = '';

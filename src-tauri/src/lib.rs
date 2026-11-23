@@ -4,6 +4,7 @@ pub mod backup;
 pub mod caldav;
 pub mod capture;
 pub mod clipboard;
+mod export_destination;
 pub use jotter_core::fs_atomic;
 pub use jotter_core::health;
 pub use jotter_core::index;
@@ -40,6 +41,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_notification::NotificationExt;
 
+use crate::export_destination::DestinationKind;
 use crate::clipboard::{
     build_clipboard_payload, read_plain_from_system_clipboard, write_to_system_clipboard,
 };
@@ -71,6 +73,7 @@ pub struct AppState {
     /// Bumped on every vault open or close so a stale watcher worker never writes into the next vault's index.
     pub vault_generation: Arc<AtomicU64>,
     next_vault_generation: AtomicU64,
+    vault_selection: Mutex<Option<(VaultFolderPurpose, PathBuf)>>,
     index_dirty: Arc<AtomicBool>,
     pub vault_operation: Arc<Mutex<()>>,
     /// Whether a save keeps the note's previous text. The frontend owns the setting.
@@ -369,32 +372,112 @@ impl DialogLabels {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+enum VaultFolderPurpose {
+    Open,
+    Create,
+}
+
 #[tauri::command]
-async fn pick_vault_folder(app: AppHandle, title: Option<String>) -> Result<Option<String>, String> {
+async fn pick_vault_folder(
+    app: AppHandle, title: Option<String>, purpose: VaultFolderPurpose,
+) -> Result<Option<String>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        app.dialog().file()
+        let Some(picked) = app.dialog().file()
             .set_title(title.unwrap_or_else(|| "Select a Markdown vault folder".into()))
-            .blocking_pick_folder()
-            .map(|p| p.into_path().map(|p| p.to_string_lossy().into_owned()).map_err(|e| e.to_string()))
-            .transpose()
+            .blocking_pick_folder() else { return Ok(None) };
+        let picked = picked.into_path().map_err(|err| err.to_string())?;
+        let selected = picked.to_str().ok_or("The folder cannot be displayed in Jotter.")?;
+        let resolved = canonical_vault_folder(&picked)?;
+        let state = app.state::<AppState>();
+        *state.vault_selection.lock_recover() = Some((purpose, resolved));
+        Ok(Some(selected.to_owned()))
     }).await.map_err(|e| e.to_string())?
 }
 
-#[tauri::command(async)]
-fn open_vault(
-    app_handle: AppHandle,
-    state: State<'_, AppState>,
-    path: String,
-) -> Result<VaultSnapshot, String> {
-    let _operation = state.vault_operation.lock_recover();
-    let trimmed = path.trim();
-    if trimmed.is_empty() {
-        return Err("Vault path cannot be empty".to_string());
+fn canonical_vault_folder(path: &Path) -> Result<PathBuf, String> {
+    if !path.is_absolute() {
+        return Err("Choose an absolute vault folder.".into());
     }
-    let vault_root = PathBuf::from(trimmed);
+    let resolved = path.canonicalize().map_err(|err| format!("Cannot open folder {}: {err}", path.display()))?;
+    if !resolved.is_dir() {
+        return Err(format!("This path is not a folder: {}", path.display()));
+    }
+    Ok(resolved)
+}
+
+fn take_vault_selection(
+    selection: &mut Option<(VaultFolderPurpose, PathBuf)>,
+    purpose: VaultFolderPurpose,
+    resolved: &Path,
+) -> bool {
+    if selection.as_ref().is_some_and(|(action, folder)| *action == purpose && folder == resolved) {
+        selection.take();
+        true
+    } else {
+        false
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn native_vault_selection_is_bound_to_one_folder_and_purpose() {
+    let path = PathBuf::from("Approved");
+    let mut selection = Some((VaultFolderPurpose::Open, path.clone()));
+    assert!(!take_vault_selection(&mut selection, VaultFolderPurpose::Create, &path));
+    assert!(!take_vault_selection(&mut selection, VaultFolderPurpose::Open, Path::new("Other")));
+    assert!(take_vault_selection(&mut selection, VaultFolderPurpose::Open, &path));
+    assert!(!take_vault_selection(&mut selection, VaultFolderPurpose::Open, &path));
+}
+
+fn approved_vault_folder(
+    app: &AppHandle, state: &AppState, path: &Path, purpose: VaultFolderPurpose,
+) -> Result<PathBuf, String> {
+    use crate::platform::vault_path_identity;
+    let resolved = canonical_vault_folder(path)?;
+    let same_spelling = vault_path_identity(path) == vault_path_identity(&resolved);
+    let known = purpose == VaultFolderPurpose::Open && same_spelling
+        && load_recent_vaults(&state.recent_vaults_file).iter().any(|recent| {
+            vault_path_identity(Path::new(&recent.path)) == vault_path_identity(path)
+                && canonical_vault_folder(Path::new(&recent.path)).is_ok_and(|folder| folder == resolved)
+        });
+    let selected = take_vault_selection(&mut state.vault_selection.lock_recover(), purpose, &resolved);
+    if !known && !selected {
+        let prompt = match purpose {
+            VaultFolderPurpose::Open => "Allow Jotter to open this folder as a vault?",
+            VaultFolderPurpose::Create => "Allow Jotter to create a vault inside this folder?",
+        };
+        if !app.dialog().message(format!("{prompt}\n\n{resolved:?}"))
+            .title("Approve vault folder")
+            .buttons(tauri_plugin_dialog::MessageDialogButtons::OkCancel)
+            .blocking_show()
+        {
+            return Err("Vault folder approval was cancelled.".into());
+        }
+        if canonical_vault_folder(path)? != resolved {
+            return Err("The vault folder changed during approval. Choose it again.".into());
+        }
+    }
+    // Preserve existing settings keys for ordinary paths. Activate the resolved folder
+    // when the input was an alias so later writes cannot follow a retargeted alias.
+    Ok(if same_spelling { path.to_owned() } else { resolved })
+}
+
+#[tauri::command]
+async fn open_vault(app_handle: AppHandle, path: String) -> Result<VaultSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app_handle.state::<AppState>();
+        let root = approved_vault_folder(&app_handle, &state, Path::new(path.trim()), VaultFolderPurpose::Open)?;
+        activate_vault(app_handle.clone(), &state, root)
+    }).await.map_err(|err| err.to_string())?
+}
+
+fn activate_vault(app_handle: AppHandle, state: &AppState, vault_root: PathBuf) -> Result<VaultSnapshot, String> {
+    let _operation = state.vault_operation.lock_recover();
     let generation = state.next_vault_generation.fetch_add(1, Ordering::SeqCst) + 1;
     let search_index = Arc::new(VaultSearchIndex::new()?);
-    let watcher = start_vault_watcher(app_handle, vault_root.clone(), &state, generation)?;
+    let watcher = start_vault_watcher(app_handle, vault_root.clone(), state, generation)?;
     let mut snapshot = scan_vault_snapshot(&vault_root)?;
     let scanned_files = scan_dir_files_from_disk(&vault_root, &vault_root)?;
 
@@ -442,36 +525,37 @@ fn open_vault(
     Ok(snapshot)
 }
 
-#[tauri::command(async)]
-fn create_new_vault(
+#[tauri::command]
+async fn create_new_vault(
     app_handle: AppHandle,
-    state: State<'_, AppState>,
     parent_path: String,
     vault_name: String,
 ) -> Result<VaultSnapshot, String> {
+    tauri::async_runtime::spawn_blocking(move || create_vault_in_parent(app_handle, parent_path, vault_name))
+        .await.map_err(|err| err.to_string())?
+}
+
+fn create_vault_in_parent(
+    app_handle: AppHandle, parent_path: String, vault_name: String,
+) -> Result<VaultSnapshot, String> {
     validate_entry_name(&vault_name)?;
     let clean_name = vault_name.trim_start();
-
-    let parent = PathBuf::from(parent_path.trim());
-    if !parent.exists() || !parent.is_dir() {
-        return Err(format!(
-            "Parent directory does not exist: {}",
-            parent.display()
-        ));
-    }
-
+    let state = app_handle.state::<AppState>();
+    let parent = approved_vault_folder(&app_handle, &state, Path::new(parent_path.trim()), VaultFolderPurpose::Create)?;
     let vault_root = parent.join(clean_name);
-    std::fs::create_dir_all(&vault_root).map_err(|e| {
+    crate::vault::ensure_vault_containment(&parent, &vault_root)?;
+    std::fs::create_dir(&vault_root).map_err(|e| {
         format!(
             "Failed to create vault directory {}: {e}",
             vault_root.display()
         )
     })?;
+    crate::vault::ensure_vault_containment(&parent, &vault_root)?;
 
     // Seed a starter Welcome.md note only if the newly created folder is completely empty
     {
         let _write_lock = jotter_core::vault_lock::VaultWriteLock::acquire(&app_data_dir_of(&state), &vault_root)?;
-        let welcome_path = vault_root.join("Welcome.md");
+        let (welcome_path, _) = crate::vault::resolve_safe_vault_path(&vault_root, "Welcome.md")?;
         if !welcome_path.exists() {
             let initial_welcome = format!(
                 "# Welcome to {clean_name}\n\nThis vault is stored as plain `.md` files on disk.\n\n- Press **Ctrl+N** to create a new note\n- Press **Ctrl+C** to copy with Notepad-identical line breaks\n- Press **Ctrl+Shift+V** to paste as plain text\n"
@@ -480,7 +564,7 @@ fn create_new_vault(
         }
     }
 
-    open_vault(app_handle, state, vault_root.to_string_lossy().into_owned())
+    activate_vault(app_handle.clone(), &state, vault_root)
 }
 
 #[tauri::command(async)]
@@ -994,20 +1078,26 @@ fn configure_task_reminders(
 }
 
 /// Sets the open vault's backup schedule, or turns scheduled backups off with `None`.
-#[tauri::command]
+#[tauri::command(async)]
 fn configure_backups(
     app: AppHandle,
-    state: State<'_, crate::backup::BackupState>,
+    state: State<'_, AppState>,
+    backups: State<'_, crate::backup::BackupState>,
     config: Option<crate::backup::BackupConfig>,
 ) -> Result<(), String> {
+    let _operation = state.vault_operation.lock_recover();
     if let Some(config) = &config {
-        if config.folder.trim().is_empty() {
-            return Err("Choose a folder for the backups".to_string());
+        let root = require_active_vault(&state)?;
+        if config.vault != root.to_string_lossy() {
+            return Err("The vault changed before the backup could be configured.".into());
         }
+        export_destination::require_approval(
+            &app_data_dir(&state), &root, DestinationKind::Backup, Path::new(&config.folder),
+        )?;
     }
     let enabled = config.is_some();
-    *state.config.lock_recover() = config;
-    *state.last_error.lock_recover() = None;
+    *backups.config.lock_recover() = config;
+    *backups.last_error.lock_recover() = None;
     // Don't make the first backup wait for the next minute tick.
     if enabled {
         std::thread::spawn(move || run_due_backup(&app));
@@ -1040,11 +1130,11 @@ async fn run_backup_now(
         .clone()
         .filter(|c| c.vault == vault_root.to_string_lossy())
         .ok_or_else(|| "Choose a folder for the backups".to_string())?;
-    let record = crate::backup::record_path(&app_data_dir(&state), &vault_root);
+    let data = app_data_dir(&state);
     let running = backups.running.clone();
     let outcome = tauri::async_runtime::spawn_blocking(move || {
         let _running = running.lock_recover();
-        crate::backup::run(&vault_root, &config, &record, chrono::Local::now())
+        run_approved_backup(&data, &vault_root, config, chrono::Local::now())
     })
     .await
     .map_err(|e| e.to_string())?;
@@ -1055,13 +1145,21 @@ async fn run_backup_now(
 /// Asks which folder should hold the backups. Returns `None` when the user cancels.
 #[tauri::command]
 async fn pick_backup_folder(app: AppHandle, title: Option<String>) -> Result<Option<String>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
+    pick_export_destination(app, DestinationKind::Backup, move |app| {
         app.dialog().file()
             .set_title(title.unwrap_or_else(|| "Choose a backup folder".into()))
             .blocking_pick_folder()
-            .map(|p| p.into_path().map(|p| p.to_string_lossy().into_owned()).map_err(|e| e.to_string()))
-            .transpose()
-    }).await.map_err(|e| e.to_string())?
+    }).await
+}
+
+fn run_approved_backup(
+    data: &Path, root: &Path, mut config: crate::backup::BackupConfig, now: chrono::DateTime<chrono::Local>,
+) -> Result<PathBuf, String> {
+    let approved = export_destination::require_approval(
+        data, root, DestinationKind::Backup, Path::new(&config.folder),
+    )?;
+    config.folder = approved.to_string_lossy().into_owned();
+    crate::backup::run(root, &config, &crate::backup::record_path(data, root), now)
 }
 
 /// Once a minute, backs up the open vault when its schedule says a backup is due. Runs for the
@@ -1090,7 +1188,7 @@ fn run_due_backup(app: &AppHandle) {
     if !crate::backup::is_due(crate::backup::last_backup_ms(&record), config.interval_hours, now.timestamp_millis()) {
         return;
     }
-    let outcome = crate::backup::run(&root, &config, &record, now);
+    let outcome = run_approved_backup(&app_data_dir(&state), &root, config, now);
     if let Err(err) = &outcome {
         eprintln!("Scheduled backup failed: {err}");
     }
@@ -1187,13 +1285,42 @@ async fn pick_task_calendar_path(
     labels: Option<DialogLabels>,
 ) -> Result<Option<String>, String> {
     let labels = labels.unwrap_or_else(|| DialogLabels::new("Save task calendar", "iCalendar file"));
-    tauri::async_runtime::spawn_blocking(move || {
+    pick_export_destination(app, DestinationKind::Calendar, move |app| {
         app.dialog().file().set_title(labels.title)
             .set_file_name(crate::platform::export_file_name(&default_name, "ics"))
             .add_filter(labels.filter, &["ics"]).blocking_save_file()
-            .map(|p| p.into_path().map(|p| p.to_string_lossy().into_owned()).map_err(|e| e.to_string()))
-            .transpose()
+    }).await
+}
+
+async fn pick_export_destination(
+    app: AppHandle,
+    kind: DestinationKind,
+    pick: impl FnOnce(&AppHandle) -> Option<tauri_plugin_dialog::FilePath> + Send + 'static,
+) -> Result<Option<String>, String> {
+    let (root, generation) = {
+        let state = app.state::<AppState>();
+        let _operation = state.vault_operation.lock_recover();
+        (require_active_vault(&state)?, state.vault_generation.load(Ordering::SeqCst))
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(picked) = pick(&app) else { return Ok(None) };
+        let path = picked.into_path().map_err(|err| err.to_string())?;
+        let selected = path.to_str().ok_or("The destination cannot be displayed in Jotter.")?;
+        let state = app.state::<AppState>();
+        let _operation = state.vault_operation.lock_recover();
+        if state.vault_generation.load(Ordering::SeqCst) != generation {
+            return Err("The vault changed while the destination picker was open.".into());
+        }
+        export_destination::approve(&app_data_dir(&state), &root, kind, &path)?;
+        Ok(Some(selected.to_owned()))
     }).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command(async)]
+fn forget_export_destination(state: State<'_, AppState>, kind: DestinationKind) -> Result<(), String> {
+    let _operation = state.vault_operation.lock_recover();
+    let root = require_active_vault(&state)?;
+    export_destination::revoke(&app_data_dir(&state), &root, kind)
 }
 
 /// Writes the open vault's due-dated tasks to an `.ics` file. Skips the write when only the
@@ -1201,19 +1328,17 @@ async fn pick_task_calendar_path(
 /// Returns whether the file changed.
 #[tauri::command(async)]
 fn write_task_calendar(state: State<'_, AppState>, target_path: String) -> Result<bool, String> {
-    let operation = state.vault_operation.lock_recover();
+    let _operation = state.vault_operation.lock_recover();
     let vault_root = require_active_vault(&state)?;
-    let target = PathBuf::from(target_path.trim());
-    if target.as_os_str().is_empty() {
-        return Err("Choose a file for the task calendar".to_string());
-    }
+    let target = export_destination::require_approval(
+        &app_data_dir(&state), &vault_root, DestinationKind::Calendar, Path::new(&target_path),
+    )?;
     let tasks = {
         let conn = state
             .sqlite_conn
             .lock_recover();
         crate::index::query_due_tasks(&conn)?
     };
-    drop(operation);
     let name = vault_root
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -1785,6 +1910,7 @@ pub fn run() {
             recent_vaults_file,
             vault_generation: Arc::new(AtomicU64::new(0)),
             next_vault_generation: AtomicU64::new(0),
+            vault_selection: Mutex::new(None),
             index_dirty: Arc::new(AtomicBool::new(false)),
             vault_operation: Arc::new(Mutex::new(())),
             version_history: Arc::new(AtomicBool::new(true)),
@@ -1843,6 +1969,7 @@ pub fn run() {
             export_settings_file,
             import_settings_file,
             write_task_calendar,
+            forget_export_destination,
             caldav_set_password,
             caldav_has_password,
             caldav_forget,

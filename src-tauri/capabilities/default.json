@@ -6,9 +6,10 @@
     "main"
   ],
   "permissions": [
-    "core:default",
-    "core:event:default",
-    "core:window:default",
+    "core:app:allow-version",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "core:event:allow-emit-to",
     "core:window:allow-set-title",
     "core:window:allow-set-size",
     "core:window:allow-set-fullscreen",
@@ -57,6 +58,7 @@
     "allow-export-settings-file",
     "allow-import-settings-file",
     "allow-write-task-calendar",
+    "allow-forget-export-destination",
     "allow-caldav-set-password",
     "allow-caldav-has-password",
     "allow-caldav-forget",

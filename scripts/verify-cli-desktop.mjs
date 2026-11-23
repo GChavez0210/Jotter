@@ -11,6 +11,13 @@ const vault = join(root, 'vault');
 await mkdir(vault, { recursive: true });
 await writeFile(join(vault, 'Integration.md'), '# Integration\n\nInitial text.\n');
 const env = { ...process.env, LOCALAPPDATA: join(root, 'app-data'), WEBVIEW2_USER_DATA_FOLDER: join(root, 'webview'), WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: '--remote-debugging-port=9433' };
+// This harness exercises Desktop and CLI interoperability. Seed a known vault in
+// the disposable profile so opening it does not require a native approval dialog.
+const appData = join(env.LOCALAPPDATA, 'Jotter');
+await mkdir(appData, { recursive: true });
+await writeFile(join(appData, 'recent_vaults.json'), JSON.stringify([
+  { path: vault, name: 'vault', lastOpenedMs: Date.now() },
+]));
 const desktop = resolve(process.env.JOTTER_TEST_EXE ?? 'src-tauri/target/release/jotter-desktop.exe');
 const cli = resolve('src-tauri/target/release/jotter.exe');
 const run = async (...args) => JSON.parse((await exec(cli, ['--vault', vault, ...args], { env, windowsHide: true, timeout: 15000 })).stdout);
@@ -26,9 +33,7 @@ try {
   if (!browser) throw new Error('WebView2 did not expose the test endpoint');
   page = browser.contexts()[0].pages()[0];
   await page.waitForLoadState('domcontentloaded');
-  await page.getByRole('button', { name: 'Enter path…' }).click();
-  await page.getByLabel('Vault folder path').fill(vault);
-  await page.getByRole('button', { name: 'Open folder', exact: true }).click();
+  await page.getByRole('button', { name: /^vault\b/ }).click();
   await page.getByRole('button', { name: 'Integration', exact: true }).click();
   const editor = page.locator('.cm-content');
   await expect(editor).toContainText('Initial text.');
@@ -72,7 +77,12 @@ try {
   const mcp = spawnSync(cli, ['--vault', vault, '--read-only', 'mcp'], { env, windowsHide: true, encoding: 'utf8', input: requests.map(JSON.stringify).join('\n') + '\n', timeout: 15000 });
   expect(mcp.status).toBe(0); expect(mcp.stderr).toBe('');
   const replies = mcp.stdout.trim().split('\n').map(JSON.parse);
-  expect(replies.length).toBe(3); expect(replies[1].result.tools.length).toBe(9); expect(replies[2].result.isError).toBe(false);
+  expect(replies.length).toBe(3); expect(replies[2].result.isError).toBe(false);
+  const tools = replies[1].result.tools.map(tool => tool.name);
+  expect(tools).toContain('read_note');
+  for (const name of ['create_note', 'append_to_note', 'edit_note', 'delete_note', 'update_context']) {
+    expect(tools).not.toContain(name);
+  }
   checks.push('Read-only MCP responds with three JSON messages while the native app is open');
   await page.screenshot({ path: join(root, 'success.png') });
   await writeFile(join(root, 'results.json'), JSON.stringify({ root, checks }, null, 2));

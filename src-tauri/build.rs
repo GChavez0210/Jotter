@@ -40,6 +40,7 @@ const COMMANDS: &[&str] = &[
     "export_settings_file",
     "import_settings_file",
     "write_task_calendar",
+    "forget_export_destination",
     "caldav_set_password",
     "caldav_has_password",
     "caldav_forget",

@@ -62,8 +62,8 @@ export async function pastePlainFromClipboard(): Promise<string> {
   return invoke<string>('paste_plain_from_clipboard');
 }
 
-export async function pickVaultFolder(title?: string): Promise<string | null> {
-  return invoke<string | null>('pick_vault_folder', { title: title ?? null });
+export async function pickVaultFolder(title: string, purpose: 'open' | 'create'): Promise<string | null> {
+  return invoke<string | null>('pick_vault_folder', { title, purpose });
 }
 
 export async function openVault(path: string): Promise<VaultSnapshot> {
@@ -417,6 +417,10 @@ export async function pickTaskCalendarPath(
 }
 
 /** Rewrites the task calendar file. Resolves to whether the file changed. */
+export async function forgetExportDestination(kind: 'calendar' | 'backup'): Promise<void> {
+  return invoke<void>('forget_export_destination', { kind });
+}
+
 export async function writeTaskCalendar(targetPath: string): Promise<boolean> {
   return invoke<boolean>('write_task_calendar', { targetPath });
 }
