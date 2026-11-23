@@ -139,6 +139,12 @@ enum Command {
         /// Stay on this vault: hide list_vaults and refuse open_vault.
         #[arg(long)]
         lock_vault: bool,
+        /// Restrict writes to existing vault-relative folders. Repeat for multiple folders.
+        #[arg(long, value_name = "FOLDER")]
+        write_folder: Vec<String>,
+        /// Offer only these write tools. Repeat for multiple tool names.
+        #[arg(long, value_name = "TOOL")]
+        allow_write_tool: Vec<String>,
     },
 }
 
@@ -179,8 +185,11 @@ fn run(cli: Cli) -> Result<Value, String> {
         Command::Daily { text } => agent.append_to_daily(&text_or_stdin(text)?),
         Command::SaveConversation { title, text } => agent.save_conversation(&title, &text_or_stdin(text)?),
         Command::Vaults => unreachable!("handled before the vault opens"),
-        Command::Mcp { lock_vault } => {
-            mcp::serve(mcp::Session::new(agent, cli.read_only, data_dir).locked_to_start_vault(lock_vault))?;
+        Command::Mcp { lock_vault, write_folder, allow_write_tool } => {
+            let session = mcp::Session::new(agent, cli.read_only, data_dir)
+                .locked_to_start_vault(lock_vault)
+                .with_write_scope(&write_folder, allow_write_tool)?;
+            mcp::serve(session)?;
             Ok(Value::Null)
         }
     }
