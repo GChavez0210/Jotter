@@ -45,7 +45,7 @@
     "dictionary-it": "^2.0.0",
     "dictionary-pt": "^4.0.0",
     "esbuild": "^0.28.2",
-    "svelte": "^5.16.0",
+    "svelte": "^5.58.0",
     "svelte-check": "^4.7.8",
     "typescript": "^5.7.2",
     "vite": "^6.0.5"
