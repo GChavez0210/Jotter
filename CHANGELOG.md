@@ -4,6 +4,26 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-22
+
+### Added
+
+- MCP can stay on a single vault with `--lock-vault`. Use `--write-folder` and `--allow-write-tool` to limit where an assistant can write and which write tools it can call.
+
+### Changed
+
+- Remote images are off by default in Live Preview, rendered notes, and exports. Enable **Load images from the web** in Settings if you want them. Exported HTML also blocks scripts.
+- Jotter asks for native approval before opening an unfamiliar vault or creating a vault in a new location. Calendar exports and backups use destinations approved through the native picker. **After upgrading, select existing calendar and backup destinations again once.**
+- Editing a note does less link indexing work. Ask Your Vault checks indexed files before embedding the question and loads vectors once after rechecking for edits and deletions.
+
+### Fixed
+
+- Autosave checks that the editor still belongs to the active vault and that the disk copy has not changed. When an external edit conflicts, Jotter keeps the local edits and prompts you to choose which copy to keep.
+- Desktop and CLI/MCP coordinate writes to the same vault when they share a Jotter app data directory. A failed vault switch leaves the previous vault open, and failed index updates retry in the background.
+- Clipboard images use their actual format, and Jotter compresses PNGs so typical 4K captures preview correctly.
+- Backup retention handles old and new filename formats together. Backup timestamps use UTC, and quick capture preserves Windows line endings.
+- CalDAV no longer follows redirects. Updated SQLite and URL dependencies and added dependency auditing to CI.
+
 ## [0.7.1] - 2026-11-22
 
 ### Fixed
