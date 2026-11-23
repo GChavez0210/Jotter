@@ -30,7 +30,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "time"] }
 arboard = "3.4"
-base64 = "0.22"
+base64 = "0.23"
 png = "0.18"
 dirs = "7"
 comrak = { version = "0.31", default-features = false }
