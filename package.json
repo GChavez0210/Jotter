@@ -35,7 +35,7 @@
     "@inlang/paraglide-js": "2.25.0",
     "@playwright/test": "^1.64.1",
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
-    "@tauri-apps/cli": "^2.1.0",
+    "@tauri-apps/cli": "^2.12.6",
     "axe-core": "^4.14.0",
     "dictionary-de": "^3.0.0",
     "dictionary-en": "^4.0.0",
