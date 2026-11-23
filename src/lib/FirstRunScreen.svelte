@@ -37,7 +37,7 @@
 
   async function handleOpenVaultClick() {
     try {
-      const picked = await pickVaultFolder(m.first_run_pick_vault());
+      const picked = await pickVaultFolder(m.first_run_pick_vault(), 'open');
       if (picked) {
         onOpenVaultPath(picked);
         return;
@@ -49,7 +49,7 @@
 
   async function handleBrowseParentClick() {
     try {
-      const picked = await pickVaultFolder(m.first_run_pick_parent());
+      const picked = await pickVaultFolder(m.first_run_pick_parent(), 'create');
       if (picked) {
         createParentPath = picked;
       }

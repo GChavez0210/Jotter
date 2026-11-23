@@ -27,6 +27,11 @@ fn fnv1a_64(input: &str) -> u64 {
 /// Names the app data files that belong to one vault: its index cache and its pinned notes.
 /// Windows resolves one vault through several spellings, so the key folds case and slashes.
 pub fn vault_key(vault_root: &Path) -> String {
+    format!("{:016x}", fnv1a_64(&vault_path_identity(vault_root)))
+}
+
+/// Stable path spelling used to compare a Windows path with its canonical extended form.
+pub fn vault_path_identity(vault_root: &Path) -> String {
     let key = vault_root.to_string_lossy().into_owned();
     #[cfg(target_os = "windows")]
     let key = {
@@ -37,7 +42,7 @@ pub fn vault_key(vault_root: &Path) -> String {
             key.strip_prefix("//?/").unwrap_or(&key).to_string()
         }
     };
-    format!("{:016x}", fnv1a_64(key.trim_end_matches('/')))
+    key.trim_end_matches('/').to_owned()
 }
 
 /// Names the folder holding one note's version history. Windows and macOS open `Note.md` and

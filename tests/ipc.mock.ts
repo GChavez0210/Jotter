@@ -9,6 +9,7 @@ export const control = {
 export const getNoteCards = async () => {control.noteCardCalls++; return [];};
 export const calendarControl = {pick: async (_name: string): Promise<string | null> => null, writes: [] as string[]};
 export const pickTaskCalendarPath = (name: string) => calendarControl.pick(name);
+export const forgetExportDestination = async (_kind: string) => {};
 export const writeTaskCalendar = async (path: string) => {calendarControl.writes.push(path); return true;};
 export const configureBackups = async (_config: unknown) => {};
 export const backupControl = {

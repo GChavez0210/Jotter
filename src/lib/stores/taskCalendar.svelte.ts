@@ -1,6 +1,6 @@
 import { appStorage } from '../appStorage';
 import { m } from '../i18n.svelte';
-import { pickTaskCalendarPath, writeTaskCalendar } from '../ipc';
+import { pickTaskCalendarPath, writeTaskCalendar, forgetExportDestination } from '../ipc';
 import { clipboardStore } from './clipboard.svelte';
 import { vaultStore } from './vault.svelte';
 
@@ -54,15 +54,22 @@ class TaskCalendarStore {
       this.lastError = err instanceof Error ? err.message : String(err);
       return;
     }
-    if (!picked) return;
+    if (!picked || snapshot.rootPath !== vaultStore.vaultSnapshot?.rootPath) return;
     this.paths = { ...this.paths, [snapshot.rootPath]: picked };
     this.persist();
     await this.writeNow();
   }
 
-  turnOff() {
+  async turnOff() {
     const root = vaultStore.vaultSnapshot?.rootPath;
     if (!root) return;
+    try {
+      await forgetExportDestination('calendar');
+    } catch (err) {
+      this.lastError = err instanceof Error ? err.message : String(err);
+      return;
+    }
+    if (root !== vaultStore.vaultSnapshot?.rootPath) return;
     const { [root]: _removed, ...rest } = this.paths;
     this.paths = rest;
     this.lastError = '';

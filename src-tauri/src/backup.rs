@@ -209,8 +209,10 @@ pub fn run(
         .unwrap_or_default();
     // Legacy flat backups have no vault identity, so leave them untouched.
     let root = vault_root.canonicalize().map_err(|e| format!("Cannot resolve the vault: {e}"))?;
-    let dest = PathBuf::from(config.folder.trim()).join(format!("{}-{}", file_prefix(&name), crate::platform::vault_key(&root)));
-    let file = create_backup_excluding(vault_root, &dest, &name, now, Path::new(config.folder.trim()))?;
+    let folder = Path::new(&config.folder);
+    let dest = folder.join(format!("{}-{}", file_prefix(&name), crate::platform::vault_key(&root)));
+    crate::vault::ensure_vault_containment(folder, &dest)?;
+    let file = create_backup_excluding(vault_root, &dest, &name, now, folder)?;
     save_last_backup(record_file, now.timestamp_millis())?;
     prune(&dest, &name, config.keep)?;
     Ok(file)
@@ -299,6 +301,7 @@ mod tests {
         std::fs::write(vault.join("a.md"), "alpha").unwrap();
         let record = record_path(dir.path(), &vault);
         assert_eq!(last_backup_ms(&record), None);
+        std::fs::create_dir(dir.path().join("out")).unwrap();
         let config = BackupConfig { vault: String::new(), folder: dir.path().join("out").to_string_lossy().into_owned(), interval_hours: 24, keep: 3 };
         run(&vault, &config, &record, moment()).unwrap();
         assert_eq!(last_backup_ms(&record), Some(moment().timestamp_millis()));
@@ -325,6 +328,7 @@ mod tests {
     #[test]
     fn same_named_vaults_do_not_overwrite_or_prune_each_others_backups() {
         let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("out")).unwrap();
         let mut paths = Vec::new();
         for name in ["a", "b"] {
             let vault = dir.path().join(name).join("Notes");
