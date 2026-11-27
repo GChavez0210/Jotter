@@ -276,6 +276,11 @@ impl AgentVault {
     /// unless `update_links` is false; each rewritten note keeps its old text in version history.
     pub fn rename(&self, from: &str, to: &str, update_links: bool) -> Result<Value, String> {
         let _write_lock = self.write_lock()?;
+        self.rename_locked(from, to, update_links)
+    }
+
+    /// The caller holds the vault write lock across a larger operation.
+    pub(crate) fn rename_locked(&self, from: &str, to: &str, update_links: bool) -> Result<Value, String> {
         let from = &self.existing_entry(from)?;
         self.permit_contents(from)?;
         let to = &self.permit_destination(from, to)?;
@@ -409,12 +414,18 @@ impl AgentVault {
     /// The stored versions of a note, newest first.
     pub fn versions(&self, path: &str) -> Result<Value, String> {
         let (_, clean) = versions::resolve_note_path(&self.root, &self.permit_note_path(path)?)?;
-        to_json(&versions::list(&self.versions_dir, &clean))
+        let mut listed = versions::list(&self.versions_dir, &clean);
+        if self.shared_only {
+            listed.retain(|version| versions::read(&self.versions_dir, &clean, &version.id)
+                .is_ok_and(|content| !ai_access::blocks_ai(&content)));
+        }
+        to_json(&listed)
     }
 
     pub fn version(&self, path: &str, id: &str) -> Result<Value, String> {
         let (_, clean) = versions::resolve_note_path(&self.root, &self.permit_note_path(path)?)?;
-        let content = versions::read(&self.versions_dir, &clean, id)?;
+        let content = versions::read(&self.versions_dir, &clean, id)
+            .map_err(|error| if self.shared_only { not_shared(&clean) } else { error })?;
         if self.shared_only && ai_access::blocks_ai(&content) {
             return Err(not_shared(&clean));
         }
@@ -773,6 +784,20 @@ mod tests {
         let with_hidden = agent.health().unwrap();
         std::fs::remove_file(vault.path().join("Plan.md")).unwrap();
         assert_eq!(with_hidden, agent.health().unwrap());
+    }
+
+    #[test]
+    fn blocked_historical_versions_do_not_expose_metadata() {
+        let (vault, data) = vault_with_notes();
+        let agent = open(&vault, &data, false).shared_only();
+        share(&vault, &data, "Plan.md", true);
+        versions::snapshot(&agent.versions_dir, "Plan.md", "---\nai: false\n---\nprivate past", 1000, 0).unwrap();
+        versions::snapshot(&agent.versions_dir, "Plan.md", "public past", 2000, 0).unwrap();
+        let listed = agent.versions("Plan").unwrap();
+        assert_eq!(listed.as_array().unwrap().len(), 1);
+        assert_eq!(listed[0]["id"], "2000");
+        assert_eq!(agent.version("Plan", "1000").unwrap_err(), agent.version("Plan", "9999").unwrap_err());
+        assert_eq!(open(&vault, &data, false).versions("Plan").unwrap().as_array().unwrap().len(), 2);
     }
 
     #[test]

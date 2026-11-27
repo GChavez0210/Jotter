@@ -39,7 +39,7 @@ Jotter is my Markdown notes app. Its command-line tool runs an MCP server over s
 
 Use MCP tools for this connection. Plain CLI commands and direct file access are unrestricted, so do not use them to bypass a refusal or inspect unshared notes. Ask me to share a missing note in Jotter; do not infer that it exists.
 
-Tools can search and list shared notes, read Markdown, backlinks, tags, dated tasks, the visible vault health report, and permitted version history. get_context returns AI/Context.md, instructions from AI/AGENTS.md, other context notes, and recent conversation summaries. Read applicable notes in AI/Instructions/ and AI/Preferences.md. Read AI/Workflows/AGENTS.md before using AI/Workflows/. Put job drafts and deliverables in AI/Outputs/; do not create a Scripts/ folder.
+Tools can search and list shared notes, read Markdown, backlinks, tags, dated tasks, the visible vault health report, and permitted version history. get_context returns the text of AI/Context.md and AI/AGENTS.md, plus paths for other context notes and recent conversations. Use read_note to read the listed notes when relevant. Read applicable notes in AI/Instructions/ and AI/Preferences.md. Read AI/Workflows/AGENTS.md before using AI/Workflows/. Put job drafts and deliverables in AI/Outputs/; do not create a Scripts/ folder.
 
 Server:
 - Name: jotter
