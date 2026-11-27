@@ -12,6 +12,7 @@
   import { designTokens } from './designTokens';
   import { maxSidebarWidth } from './layout';
   import { vaultStore } from './stores/vault.svelte';
+  import { askStore } from './stores/ask.svelte';
   import type { LeftSidebarView, RecentVault, VaultNode, VaultSnapshot } from './types';
   import { validateEntryName } from './validation';
   import { NOTE_DRAG_TYPE, noteMoveDestination } from './noteMove';
@@ -366,13 +367,25 @@
 
     <button
       type="button"
-      class="search-btn"
+      class="search-btn find-btn"
       title={m.sidebar_find_note_title({ shortcut: shortcutLabel('Ctrl+O') })}
       onclick={() => (settingsStore.showQuickSwitcher = true)}
     >
       <Icon name="magnifying-glass" />
       <span>{m.sidebar_search_notes()}</span>
       <kbd>{shortcutLabel('Ctrl O')}</kbd>
+    </button>
+
+    <button
+      type="button"
+      class="search-btn ask-btn"
+      aria-haspopup="dialog"
+      title={m.sidebar_ask_title({ shortcut: shortcutLabel('Ctrl+J') })}
+      onclick={() => askStore.open()}
+    >
+      <Icon name="sparkle" />
+      <span>{m.ask_title()}</span>
+      <kbd>{shortcutLabel('Ctrl J')}</kbd>
     </button>
 
     <nav class="library" aria-label={m.sidebar_views()}>
@@ -799,6 +812,17 @@
 
   .search-btn span {
     flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .find-btn {
+    margin-bottom: 0;
+  }
+
+  .ask-btn {
+    color: var(--text-primary);
   }
 
   .library {

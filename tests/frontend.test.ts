@@ -59,6 +59,7 @@ import { editsMatch, reverseEdits } from '../src/lib/linkUpdates';
 import { collectCheckableWords, findCheckableWords, matchDictionaries, resolveNoteLanguages } from '../src/lib/spellcheck';
 import { invalidateImagePreviews, cachedImage, rememberImage, imagePreviewEpoch } from '../src/lib/imagePreviewCache';
 import { buildAccessTree } from '../src/lib/aiAccessTree';
+import { citeAnswer } from '../src/lib/askCitations';
 import { aiResultChange, aiTargetRange } from '../src/lib/aiText';
 import { aiPopoverPosition, clampAiPopoverPosition } from '../src/lib/aiPopover';
 import { noteMoveDestination } from '../src/lib/noteMove';
@@ -1237,8 +1238,23 @@ test('the AI note tree marks mixed folders and ignores blocked notes', () => {
   assert.equal(folder(false, [['Work/A.md', true, false]]).children[0].state, 'some');
   assert.equal(folder(false, [['Work/A.md', false, false]]).state, 'none');
   assert.equal(folder(true, [['Work/A.md', false, false]]).children[0].state, 'some');
+  const counted = folder(false, [['Work/A.md', true, false], ['Work/B.md', false, false], ['Work/C.md', false, true]]);
+  assert.deepEqual([counted.children[0].shared, counted.children[0].total], [1, 2]);
   const ordered = folder(false, [['Alpha.md', false, false], ['Work/A.md', false, false]]);
   assert.deepEqual(ordered.children.map((row) => row.name), ['Work', 'Alpha.md']);
+});
+
+test('answers number their citations in the order cited and keep other brackets as text', () => {
+  const source = (path: string, line: number) => ({chunk: {path, line, heading: '', text: ''}, score: 1});
+  const sources = [source('A.md', 1), source('A.md', 12), source('R&D [old].md', 2), source('A.md', 1)];
+  const {parts, sources: cited} = citeAnswer(
+    'First [A.md:12]. Both [A.md:12, R&amp;D [old].md:2] [[A.md:1]] not [x] or [A.md:99] [A.md:1 draft]', sources);
+  assert.deepEqual(parts.map((part) => typeof part === 'string' ? part : part.number), [
+    'First ', 1, '. Both ', 1, 2, ' [', 3, '] not [x] or [A.md:99] [A.md:1 draft]',
+  ]);
+  assert.deepEqual(cited.map((c) => c.location), ['A.md:12', 'R&D [old].md:2', 'A.md:1']);
+  const uncited = citeAnswer('No citations', sources);
+  assert.deepEqual([uncited.parts, uncited.sources.map((c) => c.number)], [['No citations'], [1, 2, 3]]);
 });
 
 test('AI targets skip frontmatter and results apply as one undoable step', () => {

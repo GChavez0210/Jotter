@@ -319,10 +319,12 @@
   }
 
   function handleGlobalKeyDown(e: KeyboardEvent) {
-    if (tabsStore.vaultTransition) return;
-    if (closing) { e.preventDefault(); return; }
     const isMod = e.ctrlKey || e.metaKey;
     const keyLower = e.key.toLowerCase();
+    // WebView2 reserves Ctrl+J for downloads, even when a transition blocks app commands.
+    if (isMod && !e.shiftKey && !e.altKey && keyLower === 'j') e.preventDefault();
+    if (tabsStore.vaultTransition) return;
+    if (closing) { e.preventDefault(); return; }
     if (updateStore.dialogOpen) {
       if (e.key === 'Escape' && !updateStore.installing) {
         updateStore.closeDialog();
@@ -365,6 +367,20 @@
         askStore.close();
         settingsStore.showCommandPalette = false;
         settingsStore.showQuickSwitcher = !settingsStore.showQuickSwitcher;
+      }
+      return;
+    }
+
+    // Ask your vault (Ctrl+J)
+    if (isMod && !e.shiftKey && !e.altKey && keyLower === 'j') {
+      e.preventDefault();
+      if (vaultStore.vaultSnapshot) {
+        if (askStore.show) {
+          askStore.close();
+          activeEditor?.focusEditor();
+        } else {
+          askStore.open();
+        }
       }
       return;
     }
@@ -571,6 +587,7 @@
   });
 
   onMount(() => {
+    askStore.canOpen = () => !closing && !extractRequest && !missingWikiLinkPrompt && !vaultStore.linkUpdatePrompt;
     setOpenNoteEditApplier((path, edits) => editorForPath(path)?.applyTextEdits(edits) ?? false);
     const cleanupSettings = settingsStore.initFromStorageAndSystem();
     void systemStore.reloadSnippets();
@@ -645,6 +662,7 @@
       });
 
     return () => {
+      askStore.canOpen = () => true;
       cleanupSettings();
     };
   });

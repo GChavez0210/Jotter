@@ -6,6 +6,8 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 
 ### Added
 
+- **Ask your vault button and shortcut.** Open the panel from the sidebar or with `Ctrl+J`. Note selection and indexing sit beside your question, the panel names the providers that receive your notes, and numbered citations open the note at the cited line.
+
 - **AI folder.** Jotter creates an `AI` folder with notes for instructions, context, preferences, and workflows, plus folders for assistant logs and results. The MCP setup prompt has the assistant interview you and fill in your context.
 
 - **Notes AI can read.** Select the notes, folders, or whole vault that Ask your vault and MCP assistants may read, in Settings → AI or the Ask your vault panel. Add `ai: false` to a note's properties to block it, including from Rewrite, Translate, and Summarize.

@@ -7,11 +7,14 @@
   import type { AiAccessOverview } from './types';
 
   interface Props {
-    /** Called after the selection changes. */
-    onChange?: () => void;
+    /** Takes the height of its container and leaves the count to the caller. */
+    fill?: boolean;
+    /** Called when the selection loads, and after each change. */
+    onOverview?: (overview: AiAccessOverview, changed: boolean) => void;
   }
 
-  let { onChange }: Props = $props();
+  let { fill = false, onOverview }: Props = $props();
+  const id = $props.id();
 
   let overview = $state<AiAccessOverview | null>(null);
   let expanded = $state<Record<string, boolean>>({});
@@ -34,6 +37,7 @@
   onMount(async () => {
     try {
       overview = await aiAccessOverview();
+      onOverview?.(overview, false);
     } catch (err) {
       error = String(err);
     }
@@ -45,7 +49,7 @@
     error = '';
     try {
       overview = await aiAccessSet(path, shared);
-      onChange?.();
+      onOverview?.(overview, true);
     } catch (err) {
       error = String(err);
       input.checked = !shared;
@@ -55,11 +59,13 @@
   }
 </script>
 
-<div class="access">
+<div class="access" class:fill>
   {#if tree && overview}
-    <div class="muted" role="status">
-      {m.ai_access_count({ shared: overview.notes.filter((note) => note.shared).length, total: overview.notes.length })}
-    </div>
+    {#if !fill}
+      <div class="muted" role="status">
+        {m.ai_access_count({ shared: overview.notes.filter((note) => note.shared).length, total: overview.notes.length })}
+      </div>
+    {/if}
     <ul>
       <li>
         <span class="caret"></span>
@@ -74,7 +80,7 @@
           <span>{m.ai_access_vault()}</span>
         </label>
       </li>
-      {#each rows as { row, depth } (row.path)}
+      {#each rows as { row, depth }, index (row.path)}
         <li style:padding-left="{depth * 16}px">
           {#if row.folder}
             <button
@@ -95,11 +101,17 @@
               checked={row.state === 'all'}
               indeterminate={row.state === 'some'}
               disabled={busy || row.blocked}
+              aria-describedby={row.folder ? `${id}-${index}` : undefined}
               onchange={(e) => void set(row.path, e.currentTarget)}
             />
             <span>{row.name}{row.folder ? '/' : ''}</span>
-            {#if row.blocked}<span class="muted">ai: false</span>{/if}
+            {#if row.blocked}<span class="blocked">ai: false</span>{/if}
           </label>
+          {#if row.folder}
+            <span class="count" id="{id}-{index}">
+              {row.state === 'all' ? row.total : m.ai_access_folder_count({ shared: row.shared, total: row.total })}
+            </span>
+          {/if}
         </li>
       {/each}
     </ul>
@@ -113,6 +125,17 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
+  }
+
+  .access.fill {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .fill ul {
+    flex: 1;
+    max-height: none;
+    min-height: 96px;
   }
 
   ul {
@@ -161,6 +184,20 @@
 
   button.caret {
     cursor: pointer;
+  }
+
+  .count {
+    margin-left: auto;
+    padding-right: var(--space-1);
+    color: var(--text-muted);
+    font-size: var(--fs-12);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .blocked {
+    color: var(--text-muted);
+    font: var(--fs-11) var(--font-mono);
   }
 
   .muted {

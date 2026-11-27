@@ -41,6 +41,14 @@ function endpointKey(provider: AiProvider): 'openaiCompatible' | 'anthropic' | '
   return provider === 'openai-compatible' ? 'openaiCompatible' : provider;
 }
 
+/** The provider and server that receive what is sent to `provider`. */
+export function aiDestination(config: AiConfig, provider: AiProvider): string {
+  const label = AI_PROVIDER_LABELS[provider];
+  const { baseUrl } = config[endpointKey(provider)];
+  const host = URL.canParse(baseUrl) ? new URL(baseUrl).host : '';
+  return host ? `${label} (${host})` : label;
+}
+
 /**
  * Bring-your-own AI state. Settings and keys live in Rust; this store holds a copy of the
  * settings and each command tab's request state while the AI panel is open.

@@ -140,6 +140,55 @@ test('Ask cleans deleted-only indexes, prevents duplicate submits, and discards 
   } finally { await browser.close(); }
 });
 
+test('Settings keeps unsaved drafts when Ask replaces the dialog', async () => {
+  const bundle = await bundleHarness('AppHarness');
+  const browser = await launchBrowser();
+  try {
+    const page = await openHarness(browser, bundle);
+    await configureAsk(page);
+    await page.evaluate(async () => {
+      const {aiStore, aiControl} = window.__review;
+      await aiStore.updateConfig(c => {c.provider = 'openai-compatible';});
+      aiControl.getStatus = async () => aiStore.status;
+    });
+    await page.keyboard.press('Control+,');
+    await page.getByRole('button', {name: 'AI', exact: true}).click();
+    await page.locator('input[type="password"]').fill('synthetic-unsaved-key');
+    await page.locator('#ai-style').fill('Synthetic unsaved writing style');
+    await page.keyboard.press('Control+j');
+    await expect(page.locator('#ask-question')).toBeVisible();
+    await page.keyboard.press('Control+,');
+    await page.getByRole('button', {name: 'AI', exact: true}).click();
+    await expect(page.locator('input[type="password"]')).toHaveValue('synthetic-unsaved-key');
+    await expect(page.locator('#ai-style')).toHaveValue('Synthetic unsaved writing style');
+  } finally { await browser.close(); }
+});
+
+test('Ask suppresses downloads during a vault transition and preserves active dialogs', async () => {
+  const bundle = await bundleHarness('AppHarness');
+  const browser = await launchBrowser();
+  try {
+    const page = await openHarness(browser, bundle);
+    await configureAsk(page);
+    const prevented = await page.evaluate(() => {
+      const {tabsStore} = window.__review;
+      tabsStore.vaultTransition = true;
+      const event = new KeyboardEvent('keydown', {key: 'j', ctrlKey: true, bubbles: true, cancelable: true});
+      window.dispatchEvent(event);
+      tabsStore.vaultTransition = false;
+      return event.defaultPrevented;
+    });
+    assert.equal(prevented, true);
+    await page.evaluate(() => {
+      window.__review.updateStore.info = {version: '0.9.0', currentVersion: '0.8.0', notes: '', date: '2026-11-26', canInstall: true};
+      window.__review.updateStore.dialogOpen = true;
+      window.__review.askStore.open();
+    });
+    await expect(page.getByRole('dialog')).toHaveCount(1);
+    await expect(page.getByRole('dialog', {name: 'Ask your vault', exact: true})).toHaveCount(0);
+  } finally { await browser.close(); }
+});
+
 test('Ask clears visible and pending answers when access changes', async () => {
   const bundle = await bundleHarness('AppHarness');
   const browser = await launchBrowser();
@@ -177,11 +226,11 @@ test('Ask selects the notes AI can read from the keyboard', async () => {
       window.__review.askStore.open();
     });
     await expect(page.getByText('No notes are selected.', {exact: false})).toBeVisible();
-    await page.locator('summary', {hasText: 'Notes AI can read'}).click();
     await expect(page.getByRole('checkbox', {name: 'Diary.md ai: false'})).toBeDisabled();
     const toggle = page.getByRole('button', {name: 'Show or hide Work', exact: true});
     await toggle.press('Enter');
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.getByRole('checkbox', {name: 'Work/', exact: true})).toHaveAccessibleDescription(/^0 of \d+$/);
     await page.getByRole('checkbox', {name: 'Plan.md', exact: true}).press('Space');
     await page.getByRole('checkbox', {name: 'Whole vault', exact: true}).press('Space');
     assert.deepEqual(await page.evaluate(() => window.__review.accessControl.sets), [['Work/Plan.md', true], ['', true]]);
@@ -267,15 +316,23 @@ test('Ask replaces Settings, keeps modal focus, and passes accessibility in its 
     }
     await page.evaluate(() => {
       const source = {path: 'Work/Audit.md', heading: 'Audit', line: 3, text: 'One passage'};
-      window.__review.askControl.ask = async () => ({answer: 'Answer with two passages from one line', sources: [
-        {chunk: source, score: 1}, {chunk: {...source, text: 'Another passage'}, score: 0.9},
-      ]});
+      window.__review.askControl.ask = async () => ({
+        answer: 'Two passages share one line [Work/Audit.md:3]. Another follows [Work/Plan.md:7].',
+        sources: [
+          {chunk: {...source, path: 'Work/Plan.md', line: 7}, score: 1}, {chunk: source, score: 0.9},
+          {chunk: {...source, text: 'Another passage'}, score: 0.8},
+        ],
+      });
     });
     await page.locator('#ask-question').fill('Question');
     await page.getByRole('button', {name: 'Ask', exact: true}).click();
     await expect(page.locator('.answer')).toBeVisible();
-    await expect(page.locator('.source')).toHaveCount(2);
-    for (const box of await page.locator('.source').evaluateAll(els => els.map(el => {
+    await expect(page.locator('.asked')).toHaveText('Question');
+    await expect(page.locator('#ask-question')).toHaveValue('');
+    await expect(page.locator('.answer')).toHaveText('Two passages share one line 1. Another follows 2.');
+    await expect(page.locator('.source')).toHaveText(['1 · Work/Audit.md:3', '2 · Work/Plan.md:7']);
+    await expect(page.getByRole('button', {name: 'Source 2: Work/Plan.md:7', exact: true})).toBeVisible();
+    for (const box of await page.locator('.source, .cite').evaluateAll(els => els.map(el => {
       const {width, height} = el.getBoundingClientRect();
       return {width, height};
     }))) {
@@ -285,7 +342,22 @@ test('Ask replaces Settings, keeps modal focus, and passes accessibility in its 
       await page.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme);
       violations.push(...await auditPage(page, `${theme}: Ask answer`));
     }
+    // Narrow windows stack the answer above the note selection.
+    await page.setViewportSize({width: 520, height: 700});
+    violations.push(...await auditPage(page, 'narrow: Ask answer'));
+    const [composer, notes] = await Promise.all(
+      [page.locator('#ask-question'), page.getByRole('heading', {name: 'Notes AI can read'})].map(el => el.boundingBox()));
+    assert.ok(composer.y < notes.y, JSON.stringify({composer, notes}));
+    await page.setViewportSize({width: 1280, height: 720});
+    await page.keyboard.press('Control+j');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await page.keyboard.press('Control+j');
+    await expect(page.locator('#ask-question')).toBeFocused();
     await page.keyboard.press('Escape');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await page.getByRole('button', {name: /^Ask your vault/}).click();
+    await expect(page.locator('#ask-question')).toBeFocused();
+    await page.getByRole('dialog').getByRole('button', {name: 'Close', exact: true}).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await page.evaluate(async () => {
       await window.__review.aiStore.updateConfig(c => {c.askVaultEnabled = false;});

@@ -233,9 +233,19 @@ Put `.css` files in the app data `snippets` folder, then turn each one on in **S
 
 ---
 
+## Ask Your Vault
+
+Ask a question about your notes with the **Ask your vault** button in the sidebar or `Ctrl+J`. Turn it on in **Settings → AI** first.
+
+1. Select the notes it can read.
+2. Choose **Update index**. The panel names the provider that receives your notes.
+3. Type a question, then choose **Ask** or press `Ctrl+Enter`.
+
+The answer numbers its sources. Choose a number to open that note at the cited line. The sources below the answer list every passage Jotter sent, with the cited ones first. Each question stands alone: the model does not see earlier questions.
+
 ## What AI Can Read
 
-Ask your vault and MCP assistants read nothing until you select it. Choose notes in **Settings → AI → Notes AI can read**, or from the Ask your vault panel.
+Ask your vault and MCP assistants read nothing until you select it. Choose notes in **Settings → AI → Notes AI can read**, or in the Ask your vault panel.
 
 - Select single notes, folders, or the whole vault. A selected folder includes notes you add to it later. Clear a note or folder inside it to keep that part private.
 - Put `ai: false` in a note's properties to block it whatever you select. Jotter also refuses to send that note to Rewrite, Translate, or Summarize.
@@ -320,6 +330,7 @@ Shortcut labels use Ctrl on Windows/Linux and Cmd on macOS. Folding uses Cmd+Opt
 | `Ctrl+N` | Create new Markdown note in vault |
 | `Ctrl+O` | Open Quick Switcher (fuzzy search by note title & path) |
 | `Ctrl+P` | Open Command Palette (available in all modes, including Zen mode) |
+| `Ctrl+J` | Open or close Ask your vault |
 | `Ctrl+Shift+F` | Open full-text Vault Search (`tantivy` with highlighted snippets, tolerates typos) |
 | `Ctrl+Shift+D` | Open today's daily note, creating it from the template if needed |
 | `Ctrl+S` | Flush autosave for the active note immediately |
