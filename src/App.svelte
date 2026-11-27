@@ -369,6 +369,20 @@
       return;
     }
 
+    // Ask your vault (Ctrl+J)
+    if (isMod && !e.shiftKey && !e.altKey && keyLower === 'j') {
+      e.preventDefault();
+      if (vaultStore.vaultSnapshot) {
+        if (askStore.show) {
+          askStore.close();
+          activeEditor?.focusEditor();
+        } else {
+          askStore.open();
+        }
+      }
+      return;
+    }
+
     // Full-Text Vault Search (Ctrl+Shift+F)
     if (isMod && e.shiftKey && keyLower === 'f') {
       if (vaultStore.vaultSnapshot) {

@@ -9,6 +9,9 @@ export interface AccessRow {
   folder: boolean;
   blocked: boolean;
   state: AccessState;
+  /** Notes selected and notes that can be, counting those in subfolders. */
+  shared: number;
+  total: number;
   children: AccessRow[];
 }
 
@@ -27,6 +30,8 @@ export function buildAccessTree(overview: AiAccessOverview): AccessRow {
     folder,
     blocked: false,
     state: 'none',
+    shared: 0,
+    total: 0,
     children: [],
   });
   const root = row('', true);
@@ -43,12 +48,18 @@ export function buildAccessTree(overview: AiAccessOverview): AccessRow {
       ...row(note.path, false),
       blocked: note.blocked,
       state: note.shared ? 'all' : 'none',
+      shared: note.shared ? 1 : 0,
+      total: note.blocked ? 0 : 1,
     });
   }
   const shared = new Map(overview.folders.map((folder) => [folder.path, folder.shared]));
   const finish = (node: AccessRow) => {
     node.children.forEach((child) => child.folder && finish(child));
     node.children.sort((a, b) => Number(b.folder) - Number(a.folder) || a.name.localeCompare(b.name));
+    for (const child of node.children) {
+      node.shared += child.shared;
+      node.total += child.total;
+    }
     node.state = folderState(node.path ? shared.get(node.path)! : overview.vaultShared, node.children);
   };
   finish(root);
