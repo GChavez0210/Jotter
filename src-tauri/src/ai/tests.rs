@@ -361,6 +361,27 @@ fn a_note_marked_ai_false_after_indexing_is_removed_and_never_answered_from() {
 }
 
 #[test]
+fn revoking_a_large_note_stops_later_embedding_batches() {
+    let vault = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let text = (0..150).map(|i| format!("## Section {i}\n\n{}\n\n", "Synthetic private passage. ".repeat(80))).collect::<String>();
+    assert!(crate::semantic::chunk_note("A.md", &text).len() > EMBED_BATCH);
+    std::fs::write(vault.path().join("A.md"), text).unwrap();
+    share(data.path(), vault.path(), "A.md", true);
+    let (data_path, vault_path) = (data.path().to_owned(), vault.path().to_owned());
+    let rows = (0..EMBED_BATCH).map(|i| json!({"index":i,"embedding":[1.0,0.0]})).collect::<Vec<_>>();
+    let (base, server) = fake_server_with_hook(json!({"data":rows}), Duration::ZERO, move || {
+        share(&data_path, &vault_path, "A.md", false);
+    });
+    let (_dir, state, _) = state_with(AiProvider::OpenaiCompatible, &base);
+    let profile = enable_ask(&state);
+    let error = block_on(ask::index_vault(&state, data.path(), vault.path())).unwrap_err();
+    assert!(error.contains("no longer shared"), "{error}");
+    assert!(server.join().unwrap().starts_with("POST /embeddings"));
+    assert_eq!(stored_passages(data.path(), vault.path(), &profile), 0);
+}
+
+#[test]
 fn unselecting_a_note_during_question_embedding_prevents_sending_it_to_chat() {
     let vault = tempfile::tempdir().unwrap();
     let data = tempfile::tempdir().unwrap();

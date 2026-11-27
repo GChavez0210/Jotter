@@ -38,15 +38,21 @@ pub fn blocks_ai(content: &str) -> bool {
     if lines.next().map(str::trim_end) != Some("---") {
         return false;
     }
+    let lines: Vec<_> = lines.take_while(|line| !matches!(line.trim_end(), "---" | "...")).collect();
+    let indent = lines.iter()
+        .filter(|line| !line.trim().is_empty() && !line.trim_start().starts_with('#'))
+        .map(|line| line.len() - line.trim_start_matches([' ', '\t']).len())
+        .min().unwrap_or(0);
     // Set after an `ai:` line with no value, whose value may sit on the next indented line.
     let mut pending = false;
-    for line in lines {
+    for raw in lines {
+        let line = raw.get(indent..).unwrap_or(raw);
         let trimmed = line.trim_end();
         if trimmed == "---" || trimmed == "..." {
             break;
         }
         if pending {
-            if trimmed.is_empty() {
+            if trimmed.is_empty() || trimmed.trim_start().starts_with('#') {
                 continue;
             }
             if line.starts_with([' ', '\t']) && is_false(line) {
@@ -281,6 +287,8 @@ mod tests {
             "\u{feff}---\n\"ai\": 'no'\n---\n",
             "---\nai:\n  off\n---\n",
             "---\nai: false\nnever closed",
+            "---\n  ai: FALSE\n  title: Private\n---\n",
+            "---\nai:\n  # private\n  off\n---\n",
             "---\n: not yaml [\nai: false\n---\n",
         ] {
             assert!(blocks_ai(note), "{note:?}");

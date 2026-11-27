@@ -140,6 +140,32 @@ test('Ask cleans deleted-only indexes, prevents duplicate submits, and discards 
   } finally { await browser.close(); }
 });
 
+test('Ask clears visible and pending answers when access changes', async () => {
+  const bundle = await bundleHarness('AppHarness');
+  const browser = await launchBrowser();
+  try {
+    const page = await openHarness(browser, bundle);
+    await configureAsk(page);
+    await page.evaluate(() => window.__review.askStore.open());
+    const picker = page.locator('summary', {hasText: 'Notes AI can read'});
+    if (await picker.count()) await picker.click();
+    await page.locator('#ask-question').fill('Question');
+    await page.getByRole('button', {name: 'Ask', exact: true}).click();
+    await expect(page.locator('.answer')).toBeVisible();
+    await page.getByRole('checkbox', {name: 'Whole vault', exact: true}).click();
+    await expect(page.locator('.answer')).toHaveCount(0);
+    await page.evaluate(() => {
+      window.__review.askControl.ask = () => new Promise(resolve => { window.__finishAsk = resolve; });
+    });
+    await page.locator('#ask-question').fill('Pending question');
+    await page.getByRole('button', {name: 'Ask', exact: true}).click();
+    await page.getByRole('checkbox', {name: 'Whole vault', exact: true}).click();
+    await page.evaluate(() => window.__finishAsk({answer: 'Revoked reply', sources: []}));
+    await expect(page.locator('.answer')).toHaveCount(0);
+    await expect(page.getByRole('button', {name: 'Ask', exact: true})).toBeEnabled();
+  } finally { await browser.close(); }
+});
+
 test('Ask selects the notes AI can read from the keyboard', async () => {
   const bundle = await bundleHarness('AppHarness');
   const browser = await launchBrowser();

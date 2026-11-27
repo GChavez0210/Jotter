@@ -26,6 +26,13 @@
   let error = $state('');
   let phase = $state<'idle' | 'indexing' | 'asking'>('idle');
   let choosing = $state(false);
+  let accessGeneration = 0;
+
+  function accessChanged() {
+    accessGeneration++;
+    answer = null;
+    void refreshStatus();
+  }
 
   async function refreshStatus() {
     try {
@@ -64,10 +71,12 @@
     notice = '';
     answer = null;
     phase = 'asking';
+    const generation = accessGeneration;
     try {
-      answer = await askVault(question);
+      const result = await askVault(question);
+      if (generation === accessGeneration) answer = result;
     } catch (err) {
-      error = String(err);
+      if (generation === accessGeneration) error = String(err);
     } finally {
       phase = 'idle';
     }
@@ -109,7 +118,7 @@
 
       <details bind:open={choosing}>
         <summary>{m.ai_access_title()}</summary>
-        {#if choosing}<AiAccess onChange={() => void refreshStatus()} />{/if}
+        {#if choosing}<AiAccess onChange={accessChanged} />{/if}
       </details>
 
       <form
