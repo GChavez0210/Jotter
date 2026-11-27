@@ -127,6 +127,7 @@ pub fn status(app_data_dir: &Path, vault_root: &Path) -> Result<AiFolderStatus, 
 /// Creates the folder and its starting notes, and moves `_context` into it. Existing notes are
 /// never overwritten, so running it again only restores what is missing.
 pub fn set_up(app_data_dir: &Path, vault_root: &Path) -> Result<SetupReport, String> {
+    let _write_lock = VaultWriteLock::acquire(app_data_dir, vault_root)?;
     let spelled = ai_access::disk_spelling(vault_root, AI_FOLDER);
     let occupied = vault_root.join(AI_FOLDER);
     if spelled.as_deref() != Some(AI_FOLDER) || (occupied.exists() && !occupied.is_dir()) {
@@ -135,21 +136,39 @@ pub fn set_up(app_data_dir: &Path, vault_root: &Path) -> Result<SetupReport, Str
             spelled.as_deref().unwrap_or(AI_FOLDER)
         ));
     }
+    // Refuse collisions before moving notes, so a predictable setup failure cannot strand
+    // open tabs, pins, or edit times at their legacy paths.
+    for folder in FOLDERS {
+        let (path, _) = vault::resolve_safe_vault_path(vault_root, folder)?;
+        if path.exists() && !path.is_dir() {
+            return Err(format!("Cannot set up the AI folder: '{folder}' is not a folder."));
+        }
+    }
+    for (note, _) in NOTES {
+        let (path, _) = vault::resolve_safe_vault_path(vault_root, note)?;
+        if path.exists() && !path.is_file() {
+            return Err(format!("Cannot set up the AI folder: '{note}' is not a note."));
+        }
+    }
+    let legacy = notes_in(vault_root, LEGACY_FOLDER)?;
+    for from in &legacy {
+        let to = format!("{AI_FOLDER}{}", &from[LEGACY_FOLDER.len()..]);
+        vault::resolve_safe_vault_path(vault_root, &to)?;
+    }
     let mut report = SetupReport::default();
 
-    // Each rename takes the write lock itself, and rewrites links and moves version history.
+    // Keep the same lock through validation, renames, and consent recording.
     let agent = AgentVault::open(vault_root, false, app_data_dir)?;
-    for from in notes_in(vault_root, LEGACY_FOLDER)? {
+    for from in legacy {
         let to = format!("{AI_FOLDER}{}", &from[LEGACY_FOLDER.len()..]);
         if vault_root.join(&to).exists() {
             report.kept.push(from);
         } else {
-            agent.rename(&from, &to, true)?;
+            agent.rename_locked(&from, &to, true)?;
             report.moved.push(MovedNote { from, to });
         }
     }
 
-    let _write_lock = VaultWriteLock::acquire(app_data_dir, vault_root)?;
     for folder in FOLDERS {
         let (path, _) = vault::resolve_safe_vault_path(vault_root, folder)?;
         std::fs::create_dir_all(&path).map_err(|e| format!("Cannot create the folder '{folder}': {e}"))?;
@@ -230,6 +249,20 @@ mod tests {
         let data = tempfile::tempdir().unwrap();
         fs::write(vault.path().join("AI"), "not a folder").unwrap();
         assert!(set_up(data.path(), vault.path()).unwrap_err().contains("already named"));
+        assert!(!status(data.path(), vault.path()).unwrap().set_up);
+    }
+
+    #[test]
+    fn setup_checks_every_destination_before_moving_legacy_notes() {
+        let vault = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        fs::create_dir_all(vault.path().join("_context")).unwrap();
+        fs::write(vault.path().join("_context/Context.md"), "legacy context").unwrap();
+        fs::create_dir_all(vault.path().join("AI")).unwrap();
+        fs::write(vault.path().join("AI/Daily"), "existing file").unwrap();
+        assert!(set_up(data.path(), vault.path()).is_err());
+        assert_eq!(fs::read_to_string(vault.path().join("_context/Context.md")).unwrap(), "legacy context");
+        assert!(!vault.path().join("AI/Context.md").exists());
         assert!(!status(data.path(), vault.path()).unwrap().set_up);
     }
 

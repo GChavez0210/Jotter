@@ -276,6 +276,11 @@ impl AgentVault {
     /// unless `update_links` is false; each rewritten note keeps its old text in version history.
     pub fn rename(&self, from: &str, to: &str, update_links: bool) -> Result<Value, String> {
         let _write_lock = self.write_lock()?;
+        self.rename_locked(from, to, update_links)
+    }
+
+    /// The caller holds the vault write lock across a larger operation.
+    pub(crate) fn rename_locked(&self, from: &str, to: &str, update_links: bool) -> Result<Value, String> {
         let from = &self.existing_entry(from)?;
         self.permit_contents(from)?;
         let to = &self.permit_destination(from, to)?;
