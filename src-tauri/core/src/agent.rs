@@ -381,7 +381,9 @@ impl AgentVault {
                 ai_access::in_ai_folder(path) || rules.allows(path)
             }
         };
-        to_json(&crate::health::build_visible_report(&notes, &attachments, "", &visible))
+        let notes: Vec<_> = notes.iter().filter(|note| visible(&note.path)).cloned().collect();
+        let attachments: Vec<_> = attachments.iter().filter(|path| visible(path)).cloned().collect();
+        to_json(&crate::health::build_report(&notes, &attachments, ""))
     }
 
     /// The stored versions of a note, newest first.
@@ -708,6 +710,16 @@ mod tests {
         assert!(agent.backlinks("Plan").unwrap().as_array().unwrap().is_empty());
         assert!(agent.tags(None).unwrap().as_array().unwrap().is_empty());
         assert!(agent.tasks().unwrap().as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn hidden_notes_do_not_change_the_visible_health_report() {
+        let (vault, data) = vault_with_notes();
+        share(&vault, &data, "Home.md", true);
+        let agent = open(&vault, &data, false).shared_only();
+        let with_hidden = agent.health().unwrap();
+        std::fs::remove_file(vault.path().join("Plan.md")).unwrap();
+        assert_eq!(with_hidden, agent.health().unwrap());
     }
 
     #[test]
