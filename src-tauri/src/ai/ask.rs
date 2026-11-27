@@ -1,4 +1,4 @@
-//! "Ask your vault": embed the vault's notes into a per-vault store, then answer a question
+//! "Ask your vault": embed the notes the user shared into a per-vault store, then answer a question
 //! from the passages closest to it. Indexing sends notes to the embedding provider; answering
 //! sends the selected passages to the chat provider.
 
@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use super::{AiState, EmbeddingProfile};
+use crate::ai_access::{self, AccessRules};
 use crate::index;
 use crate::semantic::{self, Chunk, Match, StoredChunk};
 use crate::vector_store::VectorStore;
@@ -49,6 +50,52 @@ pub struct Answer {
     pub sources: Vec<Match>,
 }
 
+/// The notes the user shared with AI, without those that say `ai: false`.
+fn shared_files(app_data_dir: &Path, vault_root: &Path) -> Result<Vec<index::ScannedNoteFile>, String> {
+    let rules = AccessRules::load(app_data_dir, vault_root)?;
+    let mut files = index::scan_dir_files_from_disk(vault_root, vault_root)?;
+    files.retain(|file| rules.allows(&file.path) && !ai_access::blocks_ai(&file.content));
+    Ok(files)
+}
+
+/// One note read afresh, if it is still shared.
+fn shared_file(app_data_dir: &Path, vault_root: &Path, path: &str) -> Result<Option<index::ScannedNoteFile>, String> {
+    let target = vault_root.join(path);
+    if !AccessRules::load(app_data_dir, vault_root)?.allows(path) || !target.is_file() {
+        return Ok(None);
+    }
+    let file = index::scan_single_file_from_disk(vault_root, &target)?;
+    Ok((!ai_access::blocks_ai(&file.content)).then_some(file))
+}
+
+/// Deletes the stored passages of notes the user no longer shares. Deleted notes are left to
+/// the index run that reports them.
+fn revoke(store: &mut VectorStore, app_data_dir: &Path, vault_root: &Path) -> Result<(), String> {
+    let rules = AccessRules::load(app_data_dir, vault_root)?;
+    let revoked: Vec<String> = store
+        .note_status("")?
+        .into_iter()
+        .map(|(path, ..)| path)
+        .filter(|path| {
+            !rules.allows(path)
+                || match std::fs::read(vault_root.join(path)) {
+                    Ok(bytes) => ai_access::blocks_ai(&String::from_utf8_lossy(&bytes)),
+                    Err(e) => e.kind() != std::io::ErrorKind::NotFound,
+                }
+        })
+        .collect();
+    store.remove_notes(&revoked)
+}
+
+/// Applies a changed note selection to the index at once. A vault never indexed stays that way.
+pub fn revoke_unshared(app_data_dir: &Path, vault_root: &Path) -> Result<(), String> {
+    let db = store_path(app_data_dir, vault_root);
+    if !db.exists() {
+        return Ok(());
+    }
+    revoke(&mut VectorStore::open(&db)?, app_data_dir, vault_root)
+}
+
 fn listing(files: &[index::ScannedNoteFile]) -> Vec<(String, i64)> {
     files.iter().map(|f| (f.path.clone(), f.fs_modified_ms)).collect()
 }
@@ -56,8 +103,9 @@ fn listing(files: &[index::ScannedNoteFile]) -> Vec<(String, i64)> {
 /// What an index run would send to the embedding model, without sending anything.
 pub fn index_status(ai: &AiState, app_data_dir: &Path, vault_root: &Path) -> Result<IndexStatus, String> {
     let model = ai.embedding_profile()?.identity();
-    let files = index::scan_dir_files_from_disk(vault_root, vault_root)?;
-    let store = VectorStore::open(&store_path(app_data_dir, vault_root))?;
+    let files = shared_files(app_data_dir, vault_root)?;
+    let mut store = VectorStore::open(&store_path(app_data_dir, vault_root))?;
+    revoke(&mut store, app_data_dir, vault_root)?;
     let plan = store.plan(&listing(&files), &model)?;
     Ok(IndexStatus { notes_to_embed: plan.stale.len(), notes_to_remove: plan.removed.len(), notes_total: files.len() })
 }
@@ -78,9 +126,11 @@ pub async fn index_vault(ai: &AiState, app_data_dir: &Path, vault_root: &Path) -
     let root = vault_root.to_owned();
     let db = store_path(app_data_dir, vault_root);
     let index_model = model.clone();
+    let data = app_data_dir.to_owned();
     let (mut store, files, removed_count) = tokio::task::spawn_blocking(move || {
-        let mut files = index::scan_dir_files_from_disk(&root, &root)?;
+        let mut files = shared_files(&data, &root)?;
         let mut store = VectorStore::open(&db)?;
+        revoke(&mut store, &data, &root)?;
         let plan = store.plan(&listing(&files), &index_model)?;
         // A partial filesystem scan does not prove the note was removed.
         let removed: Vec<_> = plan.removed.into_iter().filter(|path| {
@@ -92,26 +142,52 @@ pub async fn index_vault(ai: &AiState, app_data_dir: &Path, vault_root: &Path) -
         Ok::<_, String>((store, files, removed.len()))
     }).await.map_err(|e| format!("Cannot prepare the vault index: {e}"))??;
 
-    let embedded_notes = files.len();
+    let mut embedded_notes = 0;
     let mut passages = 0;
     for file in files {
-        let (path, modified_ms, chunks, inputs) = tokio::task::spawn_blocking(move || {
-            let chunks = semantic::chunk_note(&file.path, &file.content);
-            let inputs: Vec<_> = chunks.iter().map(|c| c.embedding_input(&file.title)).collect();
-            (file.path, file.fs_modified_ms, chunks, inputs)
-        }).await.map_err(|e| format!("Cannot prepare note passages: {e}"))?;
-        let embedded = ai.embed_for_profile(&profile, &inputs).await?;
+        // Read the note again just before sending it: the user may have hidden it meanwhile.
+        let (data, root, path) = (app_data_dir.to_owned(), vault_root.to_owned(), file.path);
+        let prepared = tokio::task::spawn_blocking(move || {
+            Ok::<_, String>(shared_file(&data, &root, &path)?.map(|file| {
+                let chunks = semantic::chunk_note(&file.path, &file.content);
+                let inputs: Vec<_> = chunks.iter().map(|c| c.embedding_input(&file.title)).collect();
+                (file.path, file.fs_modified_ms, file.content, chunks, inputs)
+            }))
+        }).await.map_err(|e| format!("Cannot prepare note passages: {e}"))??;
+        let Some((path, modified_ms, content, chunks, inputs)) = prepared else {
+            continue;
+        };
+        let mut vectors = Vec::new();
+        for batch in inputs.chunks(super::EMBED_BATCH) {
+            let current = shared_file(app_data_dir, vault_root, &path)?;
+            if current.as_ref().is_none_or(|file| file.content != content) {
+                revoke(&mut store, app_data_dir, vault_root)?;
+                return Err("The note changed or is no longer shared. Update the index before trying again.".into());
+            }
+            vectors.extend(ai.embed_for_profile(&profile, batch).await?.vectors);
+        }
         let stored: Vec<StoredChunk> = chunks
             .into_iter()
-            .zip(embedded.vectors)
+            .zip(vectors)
             .map(|(chunk, vector)| StoredChunk { chunk, vector })
             .collect();
-        passages += stored.len();
+        let count = stored.len();
         let model = model.clone();
-        store = tokio::task::spawn_blocking(move || {
-            store.replace_note(&path, modified_ms, &model, &stored)?;
-            Ok::<_, String>(store)
+        let (data, root) = (app_data_dir.to_owned(), vault_root.to_owned());
+        let (returned, saved) = tokio::task::spawn_blocking(move || {
+            let shared = shared_file(&data, &root, &path)?.is_some_and(|file| file.content == content);
+            if shared {
+                store.replace_note(&path, modified_ms, &model, &stored)?;
+            } else {
+                store.remove_notes(&[path])?;
+            }
+            Ok::<_, String>((store, shared))
         }).await.map_err(|e| format!("Cannot save note passages: {e}"))??;
+        store = returned;
+        if saved {
+            embedded_notes += 1;
+            passages += count;
+        }
     }
     Ok(IndexReport { embedded_notes, removed_notes: removed_count, passages })
 }
@@ -128,8 +204,9 @@ pub async fn search_passages(
     search_for_profile(ai, app_data_dir, vault_root, question, limit, &profile).await
 }
 
-fn has_current_passages(db: &Path, vault_root: &Path, model: &str) -> Result<bool, String> {
-    let mut store = VectorStore::open(db)?;
+fn has_current_passages(app_data_dir: &Path, vault_root: &Path, model: &str) -> Result<bool, String> {
+    let mut store = VectorStore::open(&store_path(app_data_dir, vault_root))?;
+    revoke(&mut store, app_data_dir, vault_root)?;
     let mut removed = Vec::new();
     let mut available = false;
     for (path, modified_ms, has_passages) in store.note_status(model)? {
@@ -150,9 +227,10 @@ fn has_current_passages(db: &Path, vault_root: &Path, model: &str) -> Result<boo
     Ok(available)
 }
 
-fn current_chunks(db: &Path, vault_root: &Path, identity: &str) -> Result<Vec<StoredChunk>, String> {
-    let files = index::scan_dir_files_from_disk(vault_root, vault_root)?;
-    let mut store = VectorStore::open(db)?;
+fn current_chunks(app_data_dir: &Path, vault_root: &Path, identity: &str) -> Result<Vec<StoredChunk>, String> {
+    let files = shared_files(app_data_dir, vault_root)?;
+    let mut store = VectorStore::open(&store_path(app_data_dir, vault_root))?;
+    revoke(&mut store, app_data_dir, vault_root)?;
     let plan = store.plan(&listing(&files), identity)?;
     // A partial filesystem scan does not prove the note was removed.
     let removed: Vec<_> = plan.removed.into_iter().filter(|path| {
@@ -168,21 +246,21 @@ async fn search_for_profile(
     ai: &AiState, app_data_dir: &Path, vault_root: &Path, question: &str,
     limit: usize, profile: &EmbeddingProfile,
 ) -> Result<Vec<Match>, String> {
-    let db = store_path(app_data_dir, vault_root);
+    let data = app_data_dir.to_owned();
     let root = vault_root.to_owned();
     let model = profile.identity();
-    let (check_db, check_root, check_model) = (db.clone(), root.clone(), model.clone());
-    let available = tokio::task::spawn_blocking(move || has_current_passages(&check_db, &check_root, &check_model))
+    let (check_data, check_root, check_model) = (data.clone(), root.clone(), model.clone());
+    let available = tokio::task::spawn_blocking(move || has_current_passages(&check_data, &check_root, &check_model))
         .await.map_err(|e| format!("Cannot check indexed passages: {e}"))??;
     if !available {
         return Err("Index the vault first. Ask your vault has no embedded notes yet.".into());
     }
     let query = ai.embed_for_profile(profile, &[question.to_string()]).await?.vectors.remove(0);
-    // A note can be changed or deleted while the network request is pending.
+    // A note can be changed, hidden, or deleted while the network request is pending.
     tokio::task::spawn_blocking(move || {
-        let stored = current_chunks(&db, &root, &model)?;
+        let stored = current_chunks(&data, &root, &model)?;
         if stored.is_empty() {
-            return Err("The indexed notes changed or were deleted. Update the index before asking again.".into());
+            return Err("The indexed notes changed, were deleted, or are no longer shared. Update the index before asking again.".into());
         }
         Ok(semantic::top_matches(&stored, &query, limit))
     }).await.map_err(|e| format!("Cannot search indexed passages: {e}"))?
@@ -211,6 +289,14 @@ pub async fn ask(ai: &AiState, app_data_dir: &Path, vault_root: &Path, question:
     let profile = ai.embedding_profile()?;
     let sources = search_for_profile(ai, app_data_dir, vault_root, question, CONTEXT_PASSAGES, &profile).await?;
     let (answer, _) = ai.chat_for_vault(&profile, SYSTEM, &build_user_message(question, &sources)).await?;
+    // Permission can change while the provider prepares the answer. Do not return revoked
+    // passages or an answer derived from them, and purge their stored vectors as well.
+    let (data, root, identity) = (app_data_dir.to_owned(), vault_root.to_owned(), profile.identity());
+    let current = tokio::task::spawn_blocking(move || current_chunks(&data, &root, &identity))
+        .await.map_err(|e| format!("Cannot recheck answer sources: {e}"))??;
+    if sources.iter().any(|source| !current.iter().any(|stored| stored.chunk == source.chunk)) {
+        return Err("The answer sources changed or are no longer shared. Ask again after updating the index.".into());
+    }
     Ok(Answer { answer, sources })
 }
 

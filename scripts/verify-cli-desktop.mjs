@@ -77,7 +77,9 @@ try {
   const mcp = spawnSync(cli, ['--vault', vault, '--read-only', 'mcp'], { env, windowsHide: true, encoding: 'utf8', input: requests.map(JSON.stringify).join('\n') + '\n', timeout: 15000 });
   expect(mcp.status).toBe(0); expect(mcp.stderr).toBe('');
   const replies = mcp.stdout.trim().split('\n').map(JSON.parse);
-  expect(replies.length).toBe(3); expect(replies[2].result.isError).toBe(false);
+  expect(replies.length).toBe(3);
+  // Nothing in this vault is selected for AI, so the server refuses the note.
+  expect(replies[2].result.isError).toBe(true); expect(replies[2].result.content[0].text).toContain('not shared');
   const tools = replies[1].result.tools.map(tool => tool.name);
   expect(tools).toContain('read_note');
   for (const name of ['create_note', 'append_to_note', 'edit_note', 'delete_note', 'update_context']) {

@@ -140,6 +140,60 @@ test('Ask cleans deleted-only indexes, prevents duplicate submits, and discards 
   } finally { await browser.close(); }
 });
 
+test('Ask clears visible and pending answers when access changes', async () => {
+  const bundle = await bundleHarness('AppHarness');
+  const browser = await launchBrowser();
+  try {
+    const page = await openHarness(browser, bundle);
+    await configureAsk(page);
+    await page.evaluate(() => window.__review.askStore.open());
+    const picker = page.locator('summary', {hasText: 'Notes AI can read'});
+    if (await picker.count()) await picker.click();
+    await page.locator('#ask-question').fill('Question');
+    await page.getByRole('button', {name: 'Ask', exact: true}).click();
+    await expect(page.locator('.answer')).toBeVisible();
+    await page.getByRole('checkbox', {name: 'Whole vault', exact: true}).click();
+    await expect(page.locator('.answer')).toHaveCount(0);
+    await page.evaluate(() => {
+      window.__review.askControl.ask = () => new Promise(resolve => { window.__finishAsk = resolve; });
+    });
+    await page.locator('#ask-question').fill('Pending question');
+    await page.getByRole('button', {name: 'Ask', exact: true}).click();
+    await page.getByRole('checkbox', {name: 'Whole vault', exact: true}).click();
+    await page.evaluate(() => window.__finishAsk({answer: 'Revoked reply', sources: []}));
+    await expect(page.locator('.answer')).toHaveCount(0);
+    await expect(page.getByRole('button', {name: 'Ask', exact: true})).toBeEnabled();
+  } finally { await browser.close(); }
+});
+
+test('Ask selects the notes AI can read from the keyboard', async () => {
+  const bundle = await bundleHarness('AppHarness');
+  const browser = await launchBrowser();
+  try {
+    const page = await openHarness(browser, bundle);
+    await configureAsk(page);
+    await page.evaluate(() => {
+      window.__review.askControl.status = async () => ({notesToEmbed: 0, notesToRemove: 0, notesTotal: 0});
+      window.__review.askStore.open();
+    });
+    await expect(page.getByText('No notes are selected.', {exact: false})).toBeVisible();
+    await page.locator('summary', {hasText: 'Notes AI can read'}).click();
+    await expect(page.getByRole('checkbox', {name: 'Diary.md ai: false'})).toBeDisabled();
+    const toggle = page.getByRole('button', {name: 'Show or hide Work', exact: true});
+    await toggle.press('Enter');
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await page.getByRole('checkbox', {name: 'Plan.md', exact: true}).press('Space');
+    await page.getByRole('checkbox', {name: 'Whole vault', exact: true}).press('Space');
+    assert.deepEqual(await page.evaluate(() => window.__review.accessControl.sets), [['Work/Plan.md', true], ['', true]]);
+    const violations = [];
+    for (const theme of ['light', 'dark', 'high-contrast']) {
+      await page.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme);
+      violations.push(...await auditPage(page, `${theme}: Ask note selection`));
+    }
+    assert.deepEqual(violations, [], JSON.stringify(violations, null, 2));
+  } finally { await browser.close(); }
+});
+
 test('Ask replaces Settings, keeps modal focus, and passes accessibility in its main states', async () => {
   const bundle = await bundleHarness('AppHarness');
   const browser = await launchBrowser();

@@ -150,7 +150,7 @@
       return;
     }
     screen.target = captured;
-    void aiStore.start(aiStore.operation(), captured.text);
+    void aiStore.start(aiStore.operation(), captured.text, captured.note);
   }
 
   function apply(placement: AiPlacement) {

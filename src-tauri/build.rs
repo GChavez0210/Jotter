@@ -82,6 +82,8 @@ const COMMANDS: &[&str] = &[
     "ask_index_vault",
     "ask_vault",
     "ask_delete_index",
+    "ai_access_overview",
+    "ai_access_set",
     "ai_cancel",
     "get_cli_path",
     "check_for_update",

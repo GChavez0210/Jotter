@@ -112,6 +112,17 @@ pub fn build_report(
     attachments: &[String],
     templates_folder: &str,
 ) -> HealthReport {
+    build_visible_report(notes, attachments, templates_folder, &|_| true)
+}
+
+/// Like [`build_report`], listing only entries whose paths `visible` accepts. Links still
+/// resolve against every note, so a link to a hidden note does not count as broken.
+pub(crate) fn build_visible_report(
+    notes: &[ScannedNoteFile],
+    attachments: &[String],
+    templates_folder: &str,
+    visible: &dyn Fn(&str) -> bool,
+) -> HealthReport {
     let templates_prefix = templates_folder.trim_matches('/').to_lowercase();
     let in_templates = |path: &str| {
         !templates_prefix.is_empty()
@@ -180,7 +191,7 @@ pub fn build_report(
         .collect();
     let mut unused: Vec<String> = attachments
         .iter()
-        .filter(|path| !used.contains(*path))
+        .filter(|path| !used.contains(*path) && visible(path))
         .filter(|path| {
             let name = path.rsplit('/').next().unwrap_or(path).to_lowercase();
             !frontmatter.iter().any(|fm| fm.contains(&name))
@@ -191,13 +202,13 @@ pub fn build_report(
 
     let mut empty: Vec<String> = notes
         .iter()
-        .filter(|n| !in_templates(&n.path) && is_empty_note(&n.content))
+        .filter(|n| !in_templates(&n.path) && visible(&n.path) && is_empty_note(&n.content))
         .map(|n| n.path.clone())
         .collect();
     empty.sort();
 
     let mut by_title: BTreeMap<String, Vec<(String, String)>> = BTreeMap::new();
-    for note in notes.iter().filter(|n| !in_templates(&n.path)) {
+    for note in notes.iter().filter(|n| !in_templates(&n.path) && visible(&n.path)) {
         by_title
             .entry(normalize_link_target(&note.title))
             .or_default()
@@ -215,6 +226,7 @@ pub fn build_report(
         })
         .collect();
 
+    broken.retain(|link| visible(&link.source_path));
     broken.sort_by(|a, b| {
         (a.source_path.as_str(), a.line_number).cmp(&(b.source_path.as_str(), b.line_number))
     });

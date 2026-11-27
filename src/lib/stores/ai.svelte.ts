@@ -173,14 +173,14 @@ class AiStore {
   }
 
   /** Runs `operation` on `text`. A cancelled or superseded request never changes `run`. */
-  async start(operation: AiOperation, text: string) {
+  async start(operation: AiOperation, text: string, note = text) {
     const kind = operation.kind;
     this.cancel(kind);
     this.panelOperation = kind;
     const operationId = crypto.randomUUID();
     this.runs[kind] = { phase: 'running', operationId };
     try {
-      const result = await aiRun({ operationId, operation, text });
+      const result = await aiRun({ operationId, operation, text, note });
       if (this.isRunning(kind, operationId)) this.runs[kind] = { phase: 'done', result };
     } catch (err) {
       if (this.isRunning(kind, operationId)) this.runs[kind] = { phase: 'error', message: String(err) };

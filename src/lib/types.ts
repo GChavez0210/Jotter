@@ -276,6 +276,20 @@ export interface AiConfig {
   askVaultEnabled: boolean;
 }
 
+export interface AiNoteAccess {
+  path: string;
+  shared: boolean;
+  /** The note says `ai: false`. */
+  blocked: boolean;
+}
+
+/** The vault's notes and folders, and which of them AI features may read. */
+export interface AiAccessOverview {
+  vaultShared: boolean;
+  folders: { path: string; shared: boolean }[];
+  notes: AiNoteAccess[];
+}
+
 export interface AskIndexStatus {
   notesToEmbed: number;
   notesToRemove: number;
@@ -326,6 +340,8 @@ export interface AiRequest {
   operationId: string;
   operation: AiOperation;
   text: string;
+  /** The whole note `text` comes from. */
+  note: string;
 }
 
 export interface AiResult {

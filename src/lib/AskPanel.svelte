@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import AiAccess from './AiAccess.svelte';
   import Button from './ui/Button.svelte';
   import Dialog from './ui/Dialog.svelte';
   import { askIndexStatus, askIndexVault, askVault } from './ipc';
@@ -24,6 +25,14 @@
   let notice = $state('');
   let error = $state('');
   let phase = $state<'idle' | 'indexing' | 'asking'>('idle');
+  let choosing = $state(false);
+  let accessGeneration = 0;
+
+  function accessChanged() {
+    accessGeneration++;
+    answer = null;
+    void refreshStatus();
+  }
 
   async function refreshStatus() {
     try {
@@ -62,10 +71,12 @@
     notice = '';
     answer = null;
     phase = 'asking';
+    const generation = accessGeneration;
     try {
-      answer = await askVault(question);
+      const result = await askVault(question);
+      if (generation === accessGeneration) answer = result;
     } catch (err) {
-      error = String(err);
+      if (generation === accessGeneration) error = String(err);
     } finally {
       phase = 'idle';
     }
@@ -97,11 +108,18 @@
               {phase === 'indexing' ? m.ask_indexing() : status.notesToEmbed > 0
                 ? m.ask_index_button({ count: status.notesToEmbed }) : m.ask_cleanup_button()}
             </Button>
+          {:else if status.notesTotal === 0}
+            <span>{m.ask_index_empty()}</span>
           {:else}
             <span>{m.ask_index_current({ total: status.notesTotal })}</span>
           {/if}
         </div>
       {/if}
+
+      <details bind:open={choosing}>
+        <summary>{m.ai_access_title()}</summary>
+        {#if choosing}<AiAccess onChange={accessChanged} />{/if}
+      </details>
 
       <form
         class="question"
@@ -181,6 +199,11 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--space-3);
+  }
+
+  summary {
+    min-height: 24px;
+    cursor: pointer;
   }
 
   .question {

@@ -1140,7 +1140,11 @@
   export function captureAiTarget(scope: AiScope): AiTarget | null {
     if (!view) return null;
     const range = aiTargetRange(view.state, scope);
-    return range && { ...range, operation: captureEditorOperation(view, editorGeneration) };
+    return range && {
+      ...range,
+      note: view.state.doc.toString(),
+      operation: captureEditorOperation(view, editorGeneration),
+    };
   }
 
   /** Applies an AI result as one undo step. Returns false when the note changed since capture. */

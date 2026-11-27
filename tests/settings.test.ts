@@ -336,6 +336,7 @@ test('the MCP setup prompt names the installed CLI and quotes it for each client
   assert.ok(prompt.includes(String.raw`"command": "C:\\Program Files\\Jotter\\jotter.exe"`));
   assert.ok(prompt.includes('- Arguments: ["mcp"]'));
   assert.ok(prompt.includes('get_context'));
+  assert.ok(prompt.includes('only the notes I select'));
 
   const readOnly = mcpSetupPrompt('/usr/bin/jotter', true);
   assert.ok(readOnly.includes('codex mcp add jotter -- /usr/bin/jotter --read-only mcp'));

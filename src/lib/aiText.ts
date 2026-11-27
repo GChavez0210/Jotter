@@ -18,6 +18,8 @@ export interface AiRange {
 /** A captured range plus a handle that tells whether the note changed since. */
 export interface AiTarget extends AiRange {
   operation: ReturnType<typeof captureEditorOperation>;
+  /** The whole note, which may forbid AI in its properties. */
+  note: string;
 }
 
 /**
