@@ -105,12 +105,28 @@ export const spellSuggest = async () => [] as string[];
 export const spellAddWord = async () => {};
 export const openSnippetsFolder = async () => {};
 
-import type { AiConfig, AiRequest, AiResult, AiStatus, AskAnswer, AskIndexReport, AskIndexStatus } from '../src/lib/types';
+import type { AiAccessOverview, AiConfig, AiRequest, AiResult, AiStatus, AskAnswer, AskIndexReport, AskIndexStatus } from '../src/lib/types';
 export const askControl = {
   status: async (): Promise<AskIndexStatus> => ({ notesToEmbed: 0, notesToRemove: 0, notesTotal: 2 }),
   index: async (): Promise<AskIndexReport> => ({ embeddedNotes: 0, removedNotes: 0, passages: 0 }),
   ask: async (_question: string): Promise<AskAnswer> => ({ answer: 'An answer', sources: [] }),
   deleteIndex: async (): Promise<void> => {},
+};
+export const accessControl = {
+  overview: {
+    vaultShared: false,
+    folders: [{ path: 'Work', shared: false }],
+    notes: [
+      { path: 'Work/Plan.md', shared: false, blocked: false },
+      { path: 'Diary.md', shared: false, blocked: true },
+    ],
+  } as AiAccessOverview,
+  sets: [] as [string, boolean][],
+};
+export const aiAccessOverview = async () => accessControl.overview;
+export const aiAccessSet = async (path: string, shared: boolean) => {
+  accessControl.sets.push([path, shared]);
+  return accessControl.overview;
 };
 export const askIndexStatus = () => askControl.status();
 export const askIndexVault = () => askControl.index();

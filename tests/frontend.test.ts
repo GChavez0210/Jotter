@@ -58,6 +58,7 @@ import { captureEdit, normalizeCaptureNote } from '../src/lib/quickCapture';
 import { editsMatch, reverseEdits } from '../src/lib/linkUpdates';
 import { collectCheckableWords, findCheckableWords, matchDictionaries, resolveNoteLanguages } from '../src/lib/spellcheck';
 import { invalidateImagePreviews, cachedImage, rememberImage, imagePreviewEpoch } from '../src/lib/imagePreviewCache';
+import { buildAccessTree } from '../src/lib/aiAccessTree';
 import { aiResultChange, aiTargetRange } from '../src/lib/aiText';
 import { aiPopoverPosition, clampAiPopoverPosition } from '../src/lib/aiPopover';
 import { noteMoveDestination } from '../src/lib/noteMove';
@@ -1221,6 +1222,23 @@ test('tray and close-button settings reach the backend once per change', async (
   await systemStore.syncWindowBehavior();
   assert.deepEqual(calls, ['true:false', 'true:true', 'false:false']);
   assert.equal(systemStore.trayError, '');
+});
+
+test('the AI note tree marks mixed folders and ignores blocked notes', () => {
+  const folder = (shared: boolean, notes: [string, boolean, boolean][]) => buildAccessTree({
+    vaultShared: false,
+    folders: [{path: 'Work', shared}],
+    notes: notes.map(([path, noteShared, blocked]) => ({path, shared: noteShared, blocked})),
+  });
+  const full = folder(true, [['Work/A.md', true, false], ['Work/B.md', false, true]]);
+  assert.equal(full.children[0].state, 'all');
+  assert.equal(full.state, 'some');
+  // Every note selected one by one still leaves out notes added later.
+  assert.equal(folder(false, [['Work/A.md', true, false]]).children[0].state, 'some');
+  assert.equal(folder(false, [['Work/A.md', false, false]]).state, 'none');
+  assert.equal(folder(true, [['Work/A.md', false, false]]).children[0].state, 'some');
+  const ordered = folder(false, [['Alpha.md', false, false], ['Work/A.md', false, false]]);
+  assert.deepEqual(ordered.children.map((row) => row.name), ['Work', 'Alpha.md']);
 });
 
 test('AI targets skip frontmatter and results apply as one undoable step', () => {

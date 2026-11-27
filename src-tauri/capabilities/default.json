@@ -100,6 +100,8 @@
     "allow-ask-index-vault",
     "allow-ask-vault",
     "allow-ask-delete-index",
+    "allow-ai-access-overview",
+    "allow-ai-access-set",
     "allow-ai-cancel",
     "allow-get-cli-path",
     "allow-check-for-update",

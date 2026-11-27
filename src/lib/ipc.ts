@@ -8,6 +8,7 @@ import {
   type CaptureResult,
 } from './quickCapture';
 import type {
+  AiAccessOverview,
   AiConfig,
   AiProvider,
   AiRequest,
@@ -476,6 +477,15 @@ export async function aiSaveKey(provider: AiProvider, key: string): Promise<AiSt
 
 export async function aiDeleteKey(provider: AiProvider): Promise<AiStatus> {
   return invoke<AiStatus>('ai_delete_key', { provider });
+}
+
+export async function aiAccessOverview(): Promise<AiAccessOverview> {
+  return invoke<AiAccessOverview>('ai_access_overview');
+}
+
+/** Shares or unshares a note or folder with AI. An empty path means the whole vault. */
+export async function aiAccessSet(relPath: string, shared: boolean): Promise<AiAccessOverview> {
+  return invoke<AiAccessOverview>('ai_access_set', { relPath, shared });
 }
 
 /** How many notes an index run would send to the embedding provider. Sends nothing. */

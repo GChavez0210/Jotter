@@ -28,9 +28,11 @@ export function mcpSetupPrompt(cliPath: string | null, readOnly: boolean): strin
   const args = mcpArgs(readOnly);
   const shellLine = (shell: 'powershell' | 'posix') => [shellQuote(command, shell), ...args].join(' ');
   const jsonEntry = JSON.stringify({ jotter: { command, args } }, null, 2);
-  const access = readOnly
-    ? 'It is read-only: you can search and read notes, but not change them.'
-    : 'You can search, read, create, edit, append to, tag, rename, and delete notes, and add to my daily note. Changed notes keep their previous text in version history, and deleted notes go to the system trash.';
+  const access = `You see only the notes I select in Jotter under Settings > AI, plus the _context folder. ${
+    readOnly
+      ? 'It is read-only: you can search and read those notes, but not change them.'
+      : 'You can search, read, create, edit, append to, tag, rename, and delete those notes. Changed notes keep their previous text in version history, and deleted notes go to the system trash.'
+  }`;
   return `Set up the Jotter MCP server for me.
 
 Jotter is my Markdown notes app. Its command-line tool runs an MCP server over stdio that gives you tools for my notes, plus a shared context note that records what I am working on. ${access} With no --vault argument, it opens the vault I last opened in the Jotter app.

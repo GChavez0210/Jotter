@@ -233,6 +233,19 @@ Put `.css` files in the app data `snippets` folder, then turn each one on in **S
 
 ---
 
+## What AI Can Read
+
+Ask your vault and MCP assistants read nothing until you select it. Choose notes in **Settings → AI → Notes AI can read**, or from the Ask your vault panel.
+
+- Select single notes, folders, or the whole vault. A selected folder includes notes you add to it later. Clear a note or folder inside it to keep that part private.
+- Put `ai: false` in a note's properties to block it whatever you select. Jotter also refuses to send that note to Rewrite, Translate, or Summarize.
+- Clearing a selection deletes the note's stored passages from the Ask your vault index.
+- MCP assistants can also read and write the `_context` folder.
+
+The selection is stored in Jotter's app data folder, not in the vault, so it does not sync between computers. It follows notes that you or an assistant rename in Jotter. A note renamed in another program takes the setting of its folder, so use `ai: false` for notes that must stay private.
+
+The selection limits Ask your vault and the MCP server. An assistant with direct access to your files, or one that runs `jotter` commands other than `mcp` in a shell, reads the whole vault.
+
 ## Command line and MCP server
 
 `jotter` is a command-line tool that lets scripts and AI agents work on a vault without the app. The installers include it:
@@ -259,7 +272,7 @@ Without `--vault`, the CLI uses the vault you last opened in the app, so an inst
 
 - **Safe writes.** Writes use the app's atomic write path. Before `append` or a link rewrite replaces a note's text, the CLI saves that text to the note's version history, so the app's timeline shows it and can restore it. `delete` moves to the Recycle Bin. `rename` moves version history and rewrites links to the note or folder unless you pass `--no-update-links`.
 - **Limits.** Pass `--read-only` to refuse every write. A command works on the one vault you name, and paths cannot leave it. The CLI has no access to the AI keys in your keychain.
-- **MCP.** `jotter mcp` serves the same operations as tools over standard input and output, for any MCP client. Add `--read-only` to list and run only the tools that do not change the vault. For Claude Code, run `claude mcp add jotter -- jotter mcp`. **Settings → AI → Connect AI assistants (MCP)** shows a setup prompt with the installed `jotter` path, with a **Read only** switch and a **Copy prompt** button. Paste the prompt into an assistant such as Claude Code, Codex, or Claude Desktop, and the assistant adds the server to its own configuration. Other clients take the same command, `jotter` with the argument `mcp`, in their MCP server settings. The Windows `.exe` installer can replace `jotter.exe` while MCP clients are running, including across successive updates. Each client picks up the new version when it restarts the server. Close MCP clients before uninstalling: the `.exe` uninstaller stops if a CLI executable is still locked, so it can remove the CLI completely without administrator access.
+- **MCP.** `jotter mcp` serves the same operations as tools over standard input and output, for any MCP client. It sees only the [notes you selected](#what-ai-can-read), and refuses to read, change, move, or delete the others. Add `--read-only` to list and run only the tools that do not change the vault. For Claude Code, run `claude mcp add jotter -- jotter mcp`. **Settings → AI → Connect AI assistants (MCP)** shows a setup prompt with the installed `jotter` path, with a **Read only** switch and a **Copy prompt** button. Paste the prompt into an assistant such as Claude Code, Codex, or Claude Desktop, and the assistant adds the server to its own configuration. Other clients take the same command, `jotter` with the argument `mcp`, in their MCP server settings. The Windows `.exe` installer can replace `jotter.exe` while MCP clients are running, including across successive updates. Each client picks up the new version when it restarts the server. Close MCP clients before uninstalling: the `.exe` uninstaller stops if a CLI executable is still locked, so it can remove the CLI completely without administrator access.
 - **Editing.** `edit` (MCP `edit_note`) replaces exact text in a note. The text must appear once, or pass `--all` (`replace_all`) to replace every occurrence; a note with Windows line endings still matches text written with plain line breaks. `props` (`set_properties`) sets or removes frontmatter properties and leaves the rest of the note as it was. New values are written as JSON, which YAML reads as-is, such as `status: "done"`. `tag` (`update_tags`) adds and removes tags in the frontmatter `tags` list; tags written as `#tag` in the body stay, and the answer lists them. Each edit keeps the note's previous text in version history.
 - **Daily note.** `daily` (`append_to_daily`) adds text to the end of today's daily note. It creates a missing note the way the app does: `YYYY-MM-DD.md` in the daily folder from Settings, from the daily template, with `{{date}}`, `{{time}}`, and `{{title}}` filled in. Other template variables stay as written.
 - **Vaults.** `jotter vaults` and the MCP tool `list_vaults` list the vaults the app has opened, newest first, and mark the one in use. The MCP tool `open_vault` switches a running server to one of them by name or path, so an assistant can move between vaults without a restart. It accepts only vaults from that list and the one the server started on, so an assistant cannot open an arbitrary folder. A read-only server stays read-only in every vault. Add `--lock-vault` (`jotter mcp --lock-vault`) to keep the server on its starting vault: it then hides `list_vaults` and refuses `open_vault`.

@@ -70,7 +70,7 @@ fn state_with(provider: AiProvider, base: &str) -> (tempfile::TempDir, AiState, 
 }
 
 fn request(operation: AiOperation, text: &str) -> AiRequest {
-    AiRequest { operation_id: "op-1".into(), operation, text: text.into() }
+    AiRequest { operation_id: "op-1".into(), operation, text: text.into(), note: text.into() }
 }
 
 fn block_on<F: std::future::Future>(future: F) -> F::Output {
@@ -290,6 +290,7 @@ fn indexing_embeds_new_notes_once_and_skips_unchanged_ones() {
     let vault = tempfile::tempdir().unwrap();
     std::fs::write(vault.path().join("Rent.md"), "# Rent\nRent is 900 a month.\n").unwrap();
     let data = tempfile::tempdir().unwrap();
+    share(data.path(), vault.path(), "", true);
 
     let (base, server) = fake_server(json!({"data":[{"index":0,"embedding":[1.0,0.0]}]}), Duration::ZERO);
     let (_dir, state, _) = state_with(AiProvider::OpenaiCompatible, &base);
@@ -307,6 +308,86 @@ fn indexing_embeds_new_notes_once_and_skips_unchanged_ones() {
     // The fake server is gone, so a second run that tried to embed would fail.
     let again = block_on(ask::index_vault(&state, data.path(), vault.path())).unwrap();
     assert_eq!(again.embedded_notes, 0);
+}
+
+fn share(data: &std::path::Path, vault: &std::path::Path, path: &str, allowed: bool) {
+    crate::ai_access::AccessRules::update(data, vault, |rules| rules.set(path, allowed)).unwrap();
+}
+
+fn stored_passages(data: &std::path::Path, vault: &std::path::Path, profile: &EmbeddingProfile) -> usize {
+    crate::vector_store::VectorStore::open(&ask::store_path(data, vault)).unwrap()
+        .load(&profile.identity()).unwrap().len()
+}
+
+#[test]
+fn only_selected_notes_are_embedded_and_unselecting_deletes_their_vectors() {
+    let vault = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    std::fs::write(vault.path().join("A.md"), "Shared text").unwrap();
+    std::fs::write(vault.path().join("B.md"), "Unselected text").unwrap();
+    std::fs::write(vault.path().join("C.md"), "---\nai: false\n---\nBlocked text").unwrap();
+    let (base, server) = fake_server(json!({"data":[{"index":0,"embedding":[1.0,0.0]}]}), Duration::ZERO);
+    let (_dir, state, _) = state_with(AiProvider::OpenaiCompatible, &base);
+    let profile = enable_ask(&state);
+
+    assert_eq!(ask::index_status(&state, data.path(), vault.path()).unwrap().notes_total, 0);
+    assert_eq!(block_on(ask::index_vault(&state, data.path(), vault.path())).unwrap().embedded_notes, 0);
+    share(data.path(), vault.path(), "A.md", true);
+    share(data.path(), vault.path(), "C.md", true);
+    assert_eq!(ask::index_status(&state, data.path(), vault.path()).unwrap().notes_total, 1);
+    assert_eq!(block_on(ask::index_vault(&state, data.path(), vault.path())).unwrap().embedded_notes, 1);
+    let sent = server.join().unwrap();
+    assert!(sent.contains("Shared text") && !sent.contains("Unselected") && !sent.contains("Blocked"));
+
+    share(data.path(), vault.path(), "A.md", false);
+    ask::revoke_unshared(data.path(), vault.path()).unwrap();
+    assert_eq!(stored_passages(data.path(), vault.path(), &profile), 0);
+}
+
+#[test]
+fn a_note_marked_ai_false_after_indexing_is_removed_and_never_answered_from() {
+    let vault = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    let note = vault.path().join("A.md");
+    std::fs::write(&note, "Sensitive text").unwrap();
+    share(data.path(), vault.path(), "", true);
+    let (_dir, state, _) = state_with(AiProvider::OpenaiCompatible, "http://127.0.0.1:9");
+    let profile = enable_ask(&state);
+    seed_ask_note(&state, data.path(), vault.path());
+    std::fs::write(&note, "---\nai: false\n---\nSensitive text").unwrap();
+    let error = block_on(ask::ask(&state, data.path(), vault.path(), "Question")).unwrap_err();
+    assert!(error.contains("Index the vault first"));
+    assert_eq!(stored_passages(data.path(), vault.path(), &profile), 0);
+}
+
+#[test]
+fn unselecting_a_note_during_question_embedding_prevents_sending_it_to_chat() {
+    let vault = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    std::fs::write(vault.path().join("A.md"), "Sensitive text").unwrap();
+    share(data.path(), vault.path(), "", true);
+    let (data_path, vault_path) = (data.path().to_owned(), vault.path().to_owned());
+    let (base, server) = fake_server_with_hook(json!({"data":[{"index":0,"embedding":[1.0,0.0]}]}), Duration::ZERO, move || {
+        share(&data_path, &vault_path, "A.md", false);
+    });
+    let (_dir, state, _) = state_with(AiProvider::OpenaiCompatible, &base);
+    enable_ask(&state);
+    seed_ask_note(&state, data.path(), vault.path());
+    let error = block_on(ask::ask(&state, data.path(), vault.path(), "Question")).unwrap_err();
+    assert!(error.contains("no longer shared"));
+    server.join().unwrap();
+}
+
+#[test]
+fn a_note_marked_ai_false_is_never_sent_to_rewrite_even_as_a_selection() {
+    let (_dir, state, _) = state_with(AiProvider::OpenaiCompatible, "http://127.0.0.1:9");
+    let request = AiRequest {
+        operation_id: "blocked".into(),
+        operation: AiOperation::Summarize,
+        text: "A harmless selection".into(),
+        note: "---\nai: false\n---\nA harmless selection".into(),
+    };
+    assert_eq!(block_on(state.run(request)).unwrap_err(), AI_BLOCKED);
 }
 
 fn enable_ask(state: &AiState) -> EmbeddingProfile {
@@ -329,6 +410,7 @@ fn seed_ask_note(state: &AiState, data: &std::path::Path, vault: &std::path::Pat
 fn embedding_identity_includes_provider_and_full_endpoint() {
     let vault = tempfile::tempdir().unwrap();
     let data = tempfile::tempdir().unwrap();
+    share(data.path(), vault.path(), "", true);
     std::fs::write(vault.path().join("A.md"), "Body").unwrap();
     let (_dir, state, _) = state_with(AiProvider::OpenaiCompatible, "http://127.0.0.1:9/v1");
     let original = enable_ask(&state);
@@ -350,6 +432,7 @@ fn embedding_identity_includes_provider_and_full_endpoint() {
 fn deleted_and_modified_notes_are_never_used_as_answer_sources() {
     let vault = tempfile::tempdir().unwrap();
     let data = tempfile::tempdir().unwrap();
+    share(data.path(), vault.path(), "", true);
     let note = vault.path().join("A.md");
     std::fs::write(&note, "Sensitive text").unwrap();
     let (_dir, state, _) = state_with(AiProvider::OpenaiCompatible, "http://127.0.0.1:9");
@@ -373,6 +456,7 @@ fn deleted_and_modified_notes_are_never_used_as_answer_sources() {
 fn turning_ask_off_during_query_embedding_prevents_chat() {
     let vault = tempfile::tempdir().unwrap();
     let data = tempfile::tempdir().unwrap();
+    share(data.path(), vault.path(), "", true);
     std::fs::write(vault.path().join("A.md"), "Sensitive text").unwrap();
     let state_slot = Arc::new(Mutex::new(None::<Arc<AiState>>));
     let slot = state_slot.clone();
@@ -398,6 +482,7 @@ fn turning_ask_off_during_query_embedding_prevents_chat() {
 fn changing_models_during_indexing_never_stores_mislabeled_vectors() {
     let vault = tempfile::tempdir().unwrap();
     let data = tempfile::tempdir().unwrap();
+    share(data.path(), vault.path(), "", true);
     std::fs::write(vault.path().join("A.md"), "First note").unwrap();
     std::fs::write(vault.path().join("B.md"), "Second note").unwrap();
     let state_slot = Arc::new(Mutex::new(None::<Arc<AiState>>));
@@ -423,6 +508,7 @@ fn changing_models_during_indexing_never_stores_mislabeled_vectors() {
 fn deleting_a_note_during_question_embedding_prevents_sending_it_to_chat() {
     let vault = tempfile::tempdir().unwrap();
     let data = tempfile::tempdir().unwrap();
+    share(data.path(), vault.path(), "", true);
     let note = vault.path().join("A.md");
     std::fs::write(&note, "Sensitive text").unwrap();
     let (base, server) = fake_server_with_hook(json!({"data":[{"index":0,"embedding":[1.0,0.0]}]}), Duration::ZERO, move || {

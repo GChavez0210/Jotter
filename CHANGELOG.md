@@ -4,6 +4,14 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 
 ## [Unreleased]
 
+### Added
+
+- **Notes AI can read.** Select the notes, folders, or whole vault that Ask your vault and MCP assistants may read, in Settings → AI or the Ask your vault panel. Add `ai: false` to a note's properties to block it, including from Rewrite, Translate, and Summarize.
+
+### Changed
+
+- **Ask your vault and MCP start with nothing selected.** After upgrading, select notes before you use them. Until then, assistants see only the `_context` folder. Ask your vault deletes the stored passages of unselected notes. The other `jotter` commands still read the whole vault.
+
 ## [0.8.0] - 2026-11-22
 
 ### Added

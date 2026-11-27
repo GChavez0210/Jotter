@@ -25,6 +25,8 @@ use secrets::SecretStore;
 /// About 25,000 words. Larger notes need a selection.
 pub const MAX_INPUT_CHARS: usize = 100_000;
 
+const AI_BLOCKED: &str = "This note has `ai: false` in its properties, so Jotter does not send it to an AI model.";
+
 const ASK_OFF: &str = "Ask your vault is off. Turn it on in Settings > AI.";
 
 /// Passages per embeddings request. Providers cap the batch size; 64 stays under every cap.
@@ -112,6 +114,8 @@ pub struct AiRequest {
     pub operation_id: String,
     pub operation: AiOperation,
     pub text: String,
+    /// The whole note `text` comes from, so an `ai: false` note is refused even for a selection.
+    pub note: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -375,6 +379,10 @@ impl AiState {
         let id = request.operation_id.trim().to_string();
         if id.is_empty() || id.len() > 100 {
             return Err("The request has an invalid operation ID.".into());
+        }
+
+        if crate::ai_access::blocks_ai(&request.note) || crate::ai_access::blocks_ai(&request.text) {
+            return Err(AI_BLOCKED.into());
         }
 
         let prepared = self.prepare()?;

@@ -22,6 +22,7 @@
   import { spellingStore } from './stores/spelling.svelte';
   import { askDeleteIndex, copyToClipboard, exportSettingsFile, getCliPath, importSettingsFile, openDictionariesFolder } from './ipc';
   import { mcpSetupPrompt } from './mcpSetup';
+  import AiAccess from './AiAccess.svelte';
   import { appStorage } from './appStorage';
   import { saveBeforeLeaving } from './saveBeforeLeaving';
   import { tabsStore } from './stores/tabs.svelte';
@@ -154,6 +155,7 @@
   let styleDraft = $state<string | null>(null);
   // `undefined` until the backend answers; `null` when this copy of Jotter has no CLI.
   let cliPath = $state<string | null | undefined>(undefined);
+  let choosingNotes = $state(false);
   let mcpReadOnly = $state(false);
   let mcpNotice = $state('');
   let mcpError = $state('');
@@ -1235,6 +1237,19 @@
               {:else if aiNotice}
                 <div class="setting-desc" role="status">{aiNotice}</div>
               {/if}
+            {/if}
+
+            {#if vaultStore.vaultSnapshot}
+              <div class="setting-card column-card">
+                <div class="setting-info">
+                  <div class="setting-label">{m.ai_access_title()}</div>
+                  <div class="setting-desc">{m.ai_access_desc()}</div>
+                </div>
+                <details bind:open={choosingNotes}>
+                  <summary class="setting-label">{m.ai_access_choose()}</summary>
+                  {#if choosingNotes}<AiAccess />{/if}
+                </details>
+              </div>
             {/if}
 
             <div class="setting-card column-card">

@@ -25,6 +25,7 @@ pub mod tray;
 pub use jotter_core::types;
 pub mod updates;
 pub use jotter_core::vault;
+pub use jotter_core::ai_access;
 pub use jotter_core::vector_store;
 pub use jotter_core::versions;
 
@@ -720,6 +721,12 @@ fn rename_entry(
     let vault_root = require_active_vault(&state)?;
     let _write_lock = jotter_core::vault_lock::VaultWriteLock::acquire(&app_data_dir_of(&state), &vault_root)?;
     let res = rename_vault_entry(&vault_root, &old_rel_path, &new_rel_path)?;
+    // The AI selection follows the note, so a hidden note stays hidden.
+    if let Err(err) = crate::ai_access::AccessRules::update(&app_data_dir_of(&state), &vault_root, |rules| {
+        rules.rename(&res.old_rel_path, &res.new_rel_path)
+    }) {
+        eprintln!("Cannot move the AI note selection: {err}");
+    }
     mark_self_write(&state.recent_self_writes, &res.old_rel_path);
     mark_self_write(&state.recent_self_writes, &res.new_rel_path);
 
@@ -792,6 +799,9 @@ fn delete_entry(state: State<'_, AppState>, rel_path: String) -> Result<VaultSna
     mark_self_write(&state.recent_self_writes, &clean);
 
     let snapshot = delete_vault_entry(&vault_root, &clean)?;
+    if let Err(err) = crate::ai_access::AccessRules::update(&app_data_dir_of(&state), &vault_root, |rules| rules.forget(&clean)) {
+        eprintln!("Cannot update the AI note selection: {err}");
+    }
     // The entry is in the trash, so an index failure is logged instead of reported as a failed delete.
     let conn = state.sqlite_conn.lock_recover();
     if let Err(err) = delete_indexed_path(&conn, &clean) {
@@ -1828,6 +1838,35 @@ async fn ask_vault(
     crate::ai::ask::ask(&ai, &data, &root, &question).await
 }
 
+/// The notes and folders of the vault, and which of them AI features may read.
+#[tauri::command(async)]
+fn ai_access_overview(state: State<'_, AppState>) -> Result<crate::ai_access::AccessOverview, String> {
+    let root = require_active_vault(&state)?;
+    let rules = crate::ai_access::AccessRules::load(&app_data_dir(&state), &root)?;
+    crate::ai_access::overview(&root, &rules)
+}
+
+/// Shares or unshares a note or folder with AI. An empty path means the whole vault.
+#[tauri::command(async)]
+fn ai_access_set(
+    state: State<'_, AppState>,
+    rel_path: String,
+    shared: bool,
+) -> Result<crate::ai_access::AccessOverview, String> {
+    let _operation = state.vault_operation.lock_recover();
+    let root = require_active_vault(&state)?;
+    let data = app_data_dir(&state);
+    let _write_lock = jotter_core::vault_lock::VaultWriteLock::acquire(&data, &root)?;
+    let path = if rel_path.is_empty() {
+        rel_path
+    } else {
+        crate::vault::resolve_safe_vault_path(&root, &rel_path)?.1
+    };
+    let rules = crate::ai_access::AccessRules::update(&data, &root, |rules| rules.set(&path, shared))?;
+    crate::ai::ask::revoke_unshared(&data, &root)?;
+    crate::ai_access::overview(&root, &rules)
+}
+
 #[tauri::command]
 fn ai_cancel(ai: State<'_, Arc<crate::ai::AiState>>, operation_id: String) -> bool {
     ai.cancel(&operation_id)
@@ -2011,6 +2050,8 @@ pub fn run() {
             ask_index_vault,
             ask_vault,
             ask_delete_index,
+            ai_access_overview,
+            ai_access_set,
             ai_cancel,
             get_cli_path,
             check_for_update,
