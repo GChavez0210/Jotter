@@ -1183,7 +1183,7 @@
   "ai_folder_report": "Notes created: {created}. Notes moved: {moved}.",
   "ai_folder_kept": "Left in _context because the AI folder has a note with the same name: {notes}.",
   "ai_folder_instructions": "Let assistants edit instructions",
-  "ai_folder_instructions_desc": "Covers AGENTS.md, Preferences.md, and the Instructions folder. While off, assistants can only propose changes to them.",
+  "ai_folder_instructions_desc": "Covers AGENTS.md, CLAUDE.md, Preferences.md, and Instructions folders at any depth in AI. While off, assistants can only propose changes to them.",
   "ai_folder_unsaved": "Save your open notes first, then try again.",
   "sidebar_ask_title": "Ask a question about your notes ({shortcut})",
   "ai_access_folder_count": "{shared} of {total}",

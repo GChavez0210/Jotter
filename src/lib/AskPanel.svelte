@@ -40,6 +40,13 @@
       ? m.ask_sent_to({ destination: search })
       : m.ask_sent_split({ search, answer: aiDestination(config, config.provider) });
   });
+  let accessGeneration = 0;
+
+  function accessChanged() {
+    accessGeneration++;
+    answer = null;
+    void refreshStatus();
+  }
 
   async function refreshStatus() {
     try {
@@ -80,12 +87,15 @@
     answer = null;
     asked = sent.trim();
     phase = 'asking';
+    const generation = accessGeneration;
     try {
-      answer = await askVault(sent);
-      // A question typed while waiting stays in the box.
-      if (question === sent) question = '';
+      const result = await askVault(sent);
+      if (generation === accessGeneration) {
+        answer = result;
+        if (question === sent) question = '';
+      }
     } catch (err) {
-      error = String(err);
+      if (generation === accessGeneration) error = String(err);
     } finally {
       phase = 'idle';
     }
@@ -116,7 +126,7 @@
             fill
             onOverview={(next, changed) => {
               overview = next;
-              if (changed) void refreshStatus();
+              if (changed) accessChanged();
             }}
           />
           <div class="index muted">

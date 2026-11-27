@@ -232,4 +232,25 @@ mod tests {
         assert!(set_up(data.path(), vault.path()).unwrap_err().contains("already named"));
         assert!(!status(data.path(), vault.path()).unwrap().set_up);
     }
+
+    #[cfg(windows)]
+    #[test]
+    fn setup_status_rejects_a_junction_before_scanning_private_notes() {
+        let vault = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("Private.md"), "private fixture").unwrap();
+        let link = vault.path().join("AI");
+        let result = std::process::Command::new("cmd")
+            .args(["/c", "mklink", "/J"])
+            .arg(&link).arg(outside.path()).output().unwrap();
+        assert!(result.status.success());
+        let before = status(data.path(), vault.path());
+        let setup = set_up(data.path(), vault.path());
+        fs::remove_dir(&link).unwrap();
+        assert!(before.is_err(), "{before:?}");
+        assert!(setup.is_err());
+        assert_eq!(fs::read_to_string(outside.path().join("Private.md")).unwrap(), "private fixture");
+        assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 1);
+    }
 }

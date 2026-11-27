@@ -151,25 +151,35 @@ pub async fn index_vault(ai: &AiState, app_data_dir: &Path, vault_root: &Path) -
             Ok::<_, String>(shared_file(&data, &root, &path)?.map(|file| {
                 let chunks = semantic::chunk_note(&file.path, &file.content);
                 let inputs: Vec<_> = chunks.iter().map(|c| c.embedding_input(&file.title)).collect();
-                (file.path, file.fs_modified_ms, chunks, inputs)
+                (file.path, file.fs_modified_ms, file.content, chunks, inputs)
             }))
         }).await.map_err(|e| format!("Cannot prepare note passages: {e}"))??;
-        let Some((path, modified_ms, chunks, inputs)) = prepared else {
+        let Some((path, modified_ms, content, chunks, inputs)) = prepared else {
             continue;
         };
-        let embedded = ai.embed_for_profile(&profile, &inputs).await?;
+        let mut vectors = Vec::new();
+        for batch in inputs.chunks(super::EMBED_BATCH) {
+            let current = shared_file(app_data_dir, vault_root, &path)?;
+            if current.as_ref().is_none_or(|file| file.content != content) {
+                revoke(&mut store, app_data_dir, vault_root)?;
+                return Err("The note changed or is no longer shared. Update the index before trying again.".into());
+            }
+            vectors.extend(ai.embed_for_profile(&profile, batch).await?.vectors);
+        }
         let stored: Vec<StoredChunk> = chunks
             .into_iter()
-            .zip(embedded.vectors)
+            .zip(vectors)
             .map(|(chunk, vector)| StoredChunk { chunk, vector })
             .collect();
         let count = stored.len();
         let model = model.clone();
         let (data, root) = (app_data_dir.to_owned(), vault_root.to_owned());
         let (returned, saved) = tokio::task::spawn_blocking(move || {
-            let shared = shared_file(&data, &root, &path)?.is_some();
+            let shared = shared_file(&data, &root, &path)?.is_some_and(|file| file.content == content);
             if shared {
                 store.replace_note(&path, modified_ms, &model, &stored)?;
+            } else {
+                store.remove_notes(&[path])?;
             }
             Ok::<_, String>((store, shared))
         }).await.map_err(|e| format!("Cannot save note passages: {e}"))??;

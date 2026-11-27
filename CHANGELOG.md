@@ -14,6 +14,7 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 
 ### Changed
 
+- **MCP setup prompt.** The copied instructions explain note selection, `ai: false`, protected instructions, and the AI folder destinations. Read-only connections interview you and propose context for you to save.
 - **Ask your vault and MCP start with nothing selected.** After upgrading, select notes before you use them. Until then, assistants see only the AI folder, once you set it up. Ask your vault deletes the stored passages of unselected notes. The other `jotter` commands still read the whole vault.
 - **MCP assistants change notes only in the AI folder.** Instruction notes need a separate switch. Over MCP, `append_to_daily` writes to `AI/Daily/` instead of your daily note.
 - **`_context` moves into `AI`.** Set up the AI folder to move your shared context and saved conversations.
