@@ -1,6 +1,7 @@
 <script lang="ts">
   import { defaultCaptureShortcut, defaultSummonShortcut, shortcutLabel } from './platform';
   import { onMount } from 'svelte';
+  import { settingsDrafts } from './settingsDrafts.svelte';
   import { getVersion } from '@tauri-apps/api/app';
   import aboutLogo from '../assets/about-jack.png';
   import Icon from './ui/Icon.svelte';
@@ -141,19 +142,17 @@
   }
   let aiNotice = $state('');
   let aiBusy = $state(false);
-  let keyDraft = $state('');
   const backupDateFormat = $derived(new Intl.DateTimeFormat(i18n.locale, { dateStyle: 'medium', timeStyle: 'short' }));
-  let caldavUrlDraft = $state('');
-  let caldavUserDraft = $state('');
-  let caldavPasswordDraft = $state('');
   // Show the saved address and user name when the vault changes, never the password.
   $effect(() => {
     const { url, username } = caldavStore.config;
-    caldavUrlDraft = url;
-    caldavUserDraft = username;
-    caldavPasswordDraft = '';
+    const source = JSON.stringify([vaultStore.vaultSnapshot?.rootPath, url, username]);
+    if (settingsDrafts.caldavSource === source) return;
+    settingsDrafts.caldavSource = source;
+    settingsDrafts.caldavUrl = url;
+    settingsDrafts.caldavUser = username;
+    settingsDrafts.caldavPassword = '';
   });
-  let styleDraft = $state<string | null>(null);
   // `undefined` until the backend answers; `null` when this copy of Jotter has no CLI.
   let cliPath = $state<string | null | undefined>(undefined);
   let choosingNotes = $state(false);
@@ -196,7 +195,7 @@
       return false;
     }
   });
-  const styleValue = $derived(styleDraft ?? aiStore.status?.config.styleInstructions ?? '');
+  const styleValue = $derived(settingsDrafts.style ?? aiStore.status?.config.styleInstructions ?? '');
 
   /** Runs an AI settings change and shows Rust's validation message when it fails. */
   async function aiChange(task: () => Promise<void>, success = '') {
@@ -214,9 +213,10 @@
   }
 
   function saveStyle(text: string, success = m.settings_ai_style_saved()) {
+    const draft = settingsDrafts.style;
     return aiChange(async () => {
       await aiStore.updateConfig((c) => (c.styleInstructions = text));
-      styleDraft = null;
+      if (settingsDrafts.style === draft) settingsDrafts.style = null;
     }, success);
   }
   let rebuildStatus = $state('');
@@ -846,8 +846,8 @@
                 class="setting-card"
                 onsubmit={(e) => {
                   e.preventDefault();
-                  void caldavStore.connect(caldavUrlDraft, caldavUserDraft, caldavPasswordDraft).then(() => {
-                    caldavPasswordDraft = '';
+                  void caldavStore.connect(settingsDrafts.caldavUrl, settingsDrafts.caldavUser, settingsDrafts.caldavPassword).then(() => {
+                    settingsDrafts.caldavPassword = '';
                   });
                 }}
               >
@@ -870,24 +870,24 @@
                 <div class="field-row">
                   <label class="text-field">
                     <span>{m.settings_caldav_url()}</span>
-                    <input type="url" spellcheck="false" autocomplete="off" bind:value={caldavUrlDraft} />
+                    <input type="url" spellcheck="false" autocomplete="off" bind:value={settingsDrafts.caldavUrl} />
                   </label>
                   <label class="text-field">
                     <span>{m.settings_caldav_username()}</span>
-                    <input type="text" spellcheck="false" autocomplete="off" bind:value={caldavUserDraft} />
+                    <input type="text" spellcheck="false" autocomplete="off" bind:value={settingsDrafts.caldavUser} />
                   </label>
                   <label class="text-field">
                     <span>{caldavStore.hasPassword ? m.settings_caldav_replace_password() : m.settings_caldav_password()}</span>
-                    <input type="password" spellcheck="false" autocomplete="off" bind:value={caldavPasswordDraft} />
+                    <input type="password" spellcheck="false" autocomplete="off" bind:value={settingsDrafts.caldavPassword} />
                   </label>
                 </div>
                 <div class="button-row">
                   <Button
                     type="submit"
                     disabled={caldavStore.busy ||
-                      !caldavUrlDraft.trim() ||
-                      !caldavUserDraft.trim() ||
-                      (!caldavPasswordDraft && !caldavStore.hasPassword)}
+                      !settingsDrafts.caldavUrl.trim() ||
+                      !settingsDrafts.caldavUser.trim() ||
+                      (!settingsDrafts.caldavPassword && !caldavStore.hasPassword)}
                   >
                     {m.settings_caldav_save()}
                   </Button>
@@ -1062,7 +1062,7 @@
                   options={AI_PROVIDER_OPTIONS}
                   value={aiProvider}
                   onchange={(next) => {
-                    keyDraft = '';
+                    settingsDrafts.aiKey = '';
                     void aiChange(() => aiStore.updateConfig((c) => (c.provider = next)));
                   }}
                 />
@@ -1122,19 +1122,19 @@
                     class="key-row"
                     onsubmit={(e) => {
                       e.preventDefault();
-                      const key = keyDraft;
+                      const key = settingsDrafts.aiKey;
                       void aiChange(async () => {
                         await aiStore.saveKey(aiProvider, key);
-                        keyDraft = '';
+                        if (settingsDrafts.aiKey === key) settingsDrafts.aiKey = '';
                       }, m.settings_ai_key_saved_notice());
                     }}
                   >
                     <label class="text-field">
                       <span>{aiKey?.state === 'saved' ? m.settings_ai_replace_key() : m.settings_ai_key()}</span>
-                      <input type="password" autocomplete="off" spellcheck="false" bind:value={keyDraft} />
+                      <input type="password" autocomplete="off" spellcheck="false" bind:value={settingsDrafts.aiKey} />
                     </label>
                     <div class="button-row">
-                      <Button type="submit" disabled={aiBusy || !keyDraft.trim()}>{m.settings_ai_save_key()}</Button>
+                      <Button type="submit" disabled={aiBusy || !settingsDrafts.aiKey.trim()}>{m.settings_ai_save_key()}</Button>
                       {#if aiKey && aiKey.state !== 'none'}
                         <Button
                           variant="danger"
@@ -1227,10 +1227,10 @@
                   maxlength={AI_STYLE_LIMIT}
                   placeholder={aiStore.status.defaultStyleInstructions}
                   value={styleValue}
-                  oninput={(e) => (styleDraft = (e.currentTarget as HTMLTextAreaElement).value)}
+                  oninput={(e) => (settingsDrafts.style = (e.currentTarget as HTMLTextAreaElement).value)}
                   onblur={() => {
-                    if (styleDraft !== null && styleDraft !== aiStore.status?.config.styleInstructions) {
-                      void saveStyle(styleDraft);
+                    if (settingsDrafts.style !== null && settingsDrafts.style !== aiStore.status?.config.styleInstructions) {
+                      void saveStyle(settingsDrafts.style);
                     }
                   }}
                 ></textarea>

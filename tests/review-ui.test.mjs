@@ -140,6 +140,55 @@ test('Ask cleans deleted-only indexes, prevents duplicate submits, and discards 
   } finally { await browser.close(); }
 });
 
+test('Settings keeps unsaved drafts when Ask replaces the dialog', async () => {
+  const bundle = await bundleHarness('AppHarness');
+  const browser = await launchBrowser();
+  try {
+    const page = await openHarness(browser, bundle);
+    await configureAsk(page);
+    await page.evaluate(async () => {
+      const {aiStore, aiControl} = window.__review;
+      await aiStore.updateConfig(c => {c.provider = 'openai-compatible';});
+      aiControl.getStatus = async () => aiStore.status;
+    });
+    await page.keyboard.press('Control+,');
+    await page.getByRole('button', {name: 'AI', exact: true}).click();
+    await page.locator('input[type="password"]').fill('synthetic-unsaved-key');
+    await page.locator('#ai-style').fill('Synthetic unsaved writing style');
+    await page.keyboard.press('Control+j');
+    await expect(page.locator('#ask-question')).toBeVisible();
+    await page.keyboard.press('Control+,');
+    await page.getByRole('button', {name: 'AI', exact: true}).click();
+    await expect(page.locator('input[type="password"]')).toHaveValue('synthetic-unsaved-key');
+    await expect(page.locator('#ai-style')).toHaveValue('Synthetic unsaved writing style');
+  } finally { await browser.close(); }
+});
+
+test('Ask suppresses downloads during a vault transition and preserves active dialogs', async () => {
+  const bundle = await bundleHarness('AppHarness');
+  const browser = await launchBrowser();
+  try {
+    const page = await openHarness(browser, bundle);
+    await configureAsk(page);
+    const prevented = await page.evaluate(() => {
+      const {tabsStore} = window.__review;
+      tabsStore.vaultTransition = true;
+      const event = new KeyboardEvent('keydown', {key: 'j', ctrlKey: true, bubbles: true, cancelable: true});
+      window.dispatchEvent(event);
+      tabsStore.vaultTransition = false;
+      return event.defaultPrevented;
+    });
+    assert.equal(prevented, true);
+    await page.evaluate(() => {
+      window.__review.updateStore.info = {version: '0.9.0', currentVersion: '0.8.0', notes: '', date: '2026-11-26', canInstall: true};
+      window.__review.updateStore.dialogOpen = true;
+      window.__review.askStore.open();
+    });
+    await expect(page.getByRole('dialog')).toHaveCount(1);
+    await expect(page.getByRole('dialog', {name: 'Ask your vault', exact: true})).toHaveCount(0);
+  } finally { await browser.close(); }
+});
+
 test('Ask clears visible and pending answers when access changes', async () => {
   const bundle = await bundleHarness('AppHarness');
   const browser = await launchBrowser();
