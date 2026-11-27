@@ -240,11 +240,34 @@ Ask your vault and MCP assistants read nothing until you select it. Choose notes
 - Select single notes, folders, or the whole vault. A selected folder includes notes you add to it later. Clear a note or folder inside it to keep that part private.
 - Put `ai: false` in a note's properties to block it whatever you select. Jotter also refuses to send that note to Rewrite, Translate, or Summarize.
 - Clearing a selection deletes the note's stored passages from the Ask your vault index.
-- MCP assistants can also read and write the `_context` folder.
+- MCP assistants also read the [AI folder](#the-ai-folder), and change notes nowhere else.
 
 The selection is stored in Jotter's app data folder, not in the vault, so it does not sync between computers. It follows notes that you or an assistant rename in Jotter. A note renamed in another program takes the setting of its folder, so use `ai: false` for notes that must stay private.
 
 The selection limits Ask your vault and the MCP server. An assistant with direct access to your files, or one that runs `jotter` commands other than `mcp` in a shell, reads the whole vault.
+
+## The AI Folder
+
+The `AI` folder holds what assistants need to know about you, and what they produce. Jotter offers to create it when you turn on AI or copy the MCP setup prompt, and **Settings → AI → AI folder** creates it at any time. Setup overwrites nothing.
+
+| Path | Contents |
+| :--- | :--- |
+| `AI/AGENTS.md` | Layout and rules, which `get_context` returns to every assistant |
+| `AI/Context.md` | What you are working on |
+| `AI/Preferences.md` | How you like answers |
+| `AI/Instructions/` | Standing rules, one topic per note |
+| `AI/Workflows/` | Repeatable jobs, one folder each |
+| `AI/Daily/` | `YYYY-MM-DD.md` logs of what assistants did |
+| `AI/Outputs/` | Drafts and results |
+| `AI/Conversations/` | Saved conversation summaries, created on first use |
+
+- MCP assistants can create, edit, rename, and delete notes only in this folder. Before you set it up, they change nothing.
+- `AGENTS.md`, `CLAUDE.md`, `Preferences.md`, and `Instructions/` stay read-only to assistants until you turn on **Let assistants edit instructions**.
+- A note with `ai: false` stays hidden, even inside the folder.
+- Notes that already exist in a folder named `AI` become readable and editable when you set it up. The confirmation says how many.
+- Setup moves the notes in `_context/`, used by earlier versions, into `AI/` and updates links to them. A note whose name is taken stays where it is.
+- Your notes outside the folder win link names: `[[2026-01-02]]` opens your daily note, not the assistants' log.
+- Renaming or deleting the folder in Jotter withdraws access until you set it up again.
 
 ## Command line and MCP server
 
@@ -272,13 +295,13 @@ Without `--vault`, the CLI uses the vault you last opened in the app, so an inst
 
 - **Safe writes.** Writes use the app's atomic write path. Before `append` or a link rewrite replaces a note's text, the CLI saves that text to the note's version history, so the app's timeline shows it and can restore it. `delete` moves to the Recycle Bin. `rename` moves version history and rewrites links to the note or folder unless you pass `--no-update-links`.
 - **Limits.** Pass `--read-only` to refuse every write. A command works on the one vault you name, and paths cannot leave it. The CLI has no access to the AI keys in your keychain.
-- **MCP.** `jotter mcp` serves the same operations as tools over standard input and output, for any MCP client. It sees only the [notes you selected](#what-ai-can-read), and refuses to read, change, move, or delete the others. Add `--read-only` to list and run only the tools that do not change the vault. For Claude Code, run `claude mcp add jotter -- jotter mcp`. **Settings → AI → Connect AI assistants (MCP)** shows a setup prompt with the installed `jotter` path, with a **Read only** switch and a **Copy prompt** button. Paste the prompt into an assistant such as Claude Code, Codex, or Claude Desktop, and the assistant adds the server to its own configuration. Other clients take the same command, `jotter` with the argument `mcp`, in their MCP server settings. The Windows `.exe` installer can replace `jotter.exe` while MCP clients are running, including across successive updates. Each client picks up the new version when it restarts the server. Close MCP clients before uninstalling: the `.exe` uninstaller stops if a CLI executable is still locked, so it can remove the CLI completely without administrator access.
+- **MCP.** `jotter mcp` serves the same operations as tools over standard input and output, for any MCP client. It reads only the [notes you selected](#what-ai-can-read) and the [AI folder](#the-ai-folder), and changes only the AI folder. Add `--read-only` to list and run only the tools that do not change the vault. For Claude Code, run `claude mcp add jotter -- jotter mcp`. **Settings → AI → Connect AI assistants (MCP)** shows a setup prompt with the installed `jotter` path, with a **Read only** switch and a **Copy prompt** button. Paste the prompt into an assistant such as Claude Code, Codex, or Claude Desktop, and the assistant adds the server to its own configuration. Other clients take the same command, `jotter` with the argument `mcp`, in their MCP server settings. The Windows `.exe` installer can replace `jotter.exe` while MCP clients are running, including across successive updates. Each client picks up the new version when it restarts the server. Close MCP clients before uninstalling: the `.exe` uninstaller stops if a CLI executable is still locked, so it can remove the CLI completely without administrator access.
 - **Editing.** `edit` (MCP `edit_note`) replaces exact text in a note. The text must appear once, or pass `--all` (`replace_all`) to replace every occurrence; a note with Windows line endings still matches text written with plain line breaks. `props` (`set_properties`) sets or removes frontmatter properties and leaves the rest of the note as it was. New values are written as JSON, which YAML reads as-is, such as `status: "done"`. `tag` (`update_tags`) adds and removes tags in the frontmatter `tags` list; tags written as `#tag` in the body stay, and the answer lists them. Each edit keeps the note's previous text in version history.
-- **Daily note.** `daily` (`append_to_daily`) adds text to the end of today's daily note. It creates a missing note the way the app does: `YYYY-MM-DD.md` in the daily folder from Settings, from the daily template, with `{{date}}`, `{{time}}`, and `{{title}}` filled in. Other template variables stay as written.
+- **Daily note.** Over MCP, `append_to_daily` adds text to today's log in `AI/Daily/`. The `daily` command adds text to your own daily note. It creates a missing note the way the app does: `YYYY-MM-DD.md` in the daily folder from Settings, from the daily template, with `{{date}}`, `{{time}}`, and `{{title}}` filled in. Other template variables stay as written.
 - **Vaults.** `jotter vaults` and the MCP tool `list_vaults` list the vaults the app has opened, newest first, and mark the one in use. The MCP tool `open_vault` switches a running server to one of them by name or path, so an assistant can move between vaults without a restart. It accepts only vaults from that list and the one the server started on, so an assistant cannot open an arbitrary folder. A read-only server stays read-only in every vault. Add `--lock-vault` (`jotter mcp --lock-vault`) to keep the server on its starting vault: it then hides `list_vaults` and refuses `open_vault`.
-- **Conversation notes.** `save-conversation` (`save_conversation`) saves text to `_context/Conversations/<date> <title>.md`. Later saves with the same title add to that note, even on another day, so each conversation keeps one note. `get_context` returns the five most recently changed conversation notes as `recentConversations`, so a new conversation can pick up where an earlier one stopped. Titles lose characters that file names cannot hold.
-- **Scoped MCP writes.** Start the server with `jotter mcp --write-folder Inbox --allow-write-tool create_note --allow-write-tool append_to_note` to allow only creation and appends inside an existing `Inbox/` folder. Repeat either option to allow more folders or tools. Folder scope locks the session to its starting vault and allows only tools that write to one explicit note path. The tool allowlist can also be used on its own. `--read-only` still disables all writes.
-- **Shared context.** `_context/Context.md` holds what you are working on. The MCP tools `get_context` and `update_context` (and the `context` and `set-context` commands) read and replace it, and the server tells each client to call `get_context` first. Every assistant connected to the same vault, such as Claude and ChatGPT, sees the same note. `update_context` is a write, so it is absent under `--read-only`; the previous text stays in version history.
+- **Conversation notes.** `save-conversation` (`save_conversation`) saves text to `AI/Conversations/<date> <title>.md`. Later saves with the same title add to that note, even on another day, so each conversation keeps one note. `get_context` returns the five most recently changed conversation notes as `recentConversations`, so a new conversation can pick up where an earlier one stopped. Titles lose characters that file names cannot hold.
+- **Scoped MCP writes.** Start the server with `jotter mcp --write-folder AI/Outputs --allow-write-tool create_note --allow-write-tool append_to_note` to allow only creation and appends inside `AI/Outputs/`. Write folders must be inside the AI folder. Repeat either option to allow more folders or tools. Folder scope locks the session to its starting vault and allows only tools that write to one explicit note path. The tool allowlist can also be used on its own. `--read-only` still disables all writes.
+- **Shared context.** `AI/Context.md` holds what you are working on. The MCP tools `get_context` and `update_context` (and the `context` and `set-context` commands) read and replace it, and the server tells each client to call `get_context` first. Every assistant connected to the same vault, such as Claude and ChatGPT, sees the same note. `update_context` is a write, so it is absent under `--read-only`; the previous text stays in version history.
 - **Index.** Every read scans the files, so the answer is always current. A running MCP server keeps its search and link indexes and rebuilds them only when a note has changed since the last call, so repeated searches skip most of the work.
 
 ## Accessibility

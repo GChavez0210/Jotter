@@ -26,6 +26,7 @@ pub use jotter_core::types;
 pub mod updates;
 pub use jotter_core::vault;
 pub use jotter_core::ai_access;
+pub use jotter_core::ai_folder;
 pub use jotter_core::vector_store;
 pub use jotter_core::versions;
 
@@ -1867,6 +1868,50 @@ fn ai_access_set(
     crate::ai_access::overview(&root, &rules)
 }
 
+#[tauri::command(async)]
+fn ai_folder_status(state: State<'_, AppState>) -> Result<crate::ai_folder::AiFolderStatus, String> {
+    let root = require_active_vault(&state)?;
+    crate::ai_folder::status(&app_data_dir(&state), &root)
+}
+
+/// Creates the folder assistants work in, after the user confirmed it.
+#[tauri::command(async)]
+fn ai_folder_set_up(state: State<'_, AppState>) -> Result<crate::ai_folder::SetupReport, String> {
+    let _operation = state.vault_operation.lock_recover();
+    let root = require_active_vault(&state)?;
+    let report = crate::ai_folder::set_up(&app_data_dir(&state), &root)?;
+    // The file watcher indexes the new paths. Edit times and pins have to follow here.
+    let file = pins_file(&state, &root);
+    let pins = crate::pins::load_pins(&file);
+    let mut moved_pins = pins.clone();
+    for note in &report.moved {
+        if let Err(err) = rename_edit_log_paths(&state.sqlite_conn.lock_recover(), &note.from, &note.to) {
+            eprintln!("Cannot move the edit times of {}: {err}", note.from);
+        }
+        moved_pins = crate::pins::rename_pins(&moved_pins, &note.from, &note.to);
+    }
+    if moved_pins != pins {
+        if let Err(err) = crate::pins::save_pins(&file, &root, &moved_pins) {
+            eprintln!("Cannot move pins into the AI folder: {err}");
+        }
+    }
+    Ok(report)
+}
+
+/// Lets assistants change the notes that instruct them, or stops them.
+#[tauri::command(async)]
+fn ai_folder_edit_instructions(
+    state: State<'_, AppState>,
+    allowed: bool,
+) -> Result<crate::ai_folder::AiFolderStatus, String> {
+    let _operation = state.vault_operation.lock_recover();
+    let root = require_active_vault(&state)?;
+    let data = app_data_dir(&state);
+    let _write_lock = jotter_core::vault_lock::VaultWriteLock::acquire(&data, &root)?;
+    crate::ai_access::AccessRules::update(&data, &root, |rules| rules.edit_instructions = allowed)?;
+    crate::ai_folder::status(&data, &root)
+}
+
 #[tauri::command]
 fn ai_cancel(ai: State<'_, Arc<crate::ai::AiState>>, operation_id: String) -> bool {
     ai.cancel(&operation_id)
@@ -2052,6 +2097,9 @@ pub fn run() {
             ask_delete_index,
             ai_access_overview,
             ai_access_set,
+            ai_folder_status,
+            ai_folder_set_up,
+            ai_folder_edit_instructions,
             ai_cancel,
             get_cli_path,
             check_for_update,

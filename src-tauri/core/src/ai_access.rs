@@ -10,11 +10,25 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// The folder assistants keep their own notes in. The MCP server always shares it.
-pub const AI_FOLDER: &str = "_context";
+/// The folder assistants work in. Once the user sets it up, the MCP server reads it and
+/// writes only inside it.
+pub const AI_FOLDER: &str = "AI";
 
 pub fn in_ai_folder(path: &str) -> bool {
     path.strip_prefix(AI_FOLDER).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+}
+
+/// Whether the path in the AI folder tells assistants how to behave: the preferences, the
+/// instruction notes, and any `AGENTS.md` or `CLAUDE.md`. Case is ignored, so another
+/// spelling cannot slip past.
+fn is_instructions(path: &str) -> bool {
+    let path = path.to_lowercase();
+    let Some(rest) = path.strip_prefix("ai/") else {
+        return false;
+    };
+    rest == "preferences.md"
+        || rest.split('/').next() == Some("instructions")
+        || matches!(rest.rsplit('/').next(), Some("agents.md" | "claude.md"))
 }
 
 /// Whether the note's frontmatter sets `ai` to a false value. It reads more leniently than the
@@ -95,9 +109,16 @@ fn is_within(path: &str, folder: &str) -> bool {
 /// The user's selection for one vault: vault-relative note and folder paths, each shared or
 /// not. The empty path is the whole vault. The nearest rule above a note decides.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AccessRules {
     #[serde(default)]
     rules: BTreeMap<String, bool>,
+    /// The user set up the AI folder, so assistants may use it.
+    #[serde(default)]
+    pub ai_folder: bool,
+    /// Assistants may also change the notes that instruct them.
+    #[serde(default)]
+    pub edit_instructions: bool,
 }
 
 impl AccessRules {
@@ -144,6 +165,25 @@ impl AccessRules {
         }
     }
 
+    /// Whether an MCP assistant may read the path: the user selected it, or it is in the AI
+    /// folder.
+    pub fn can_read(&self, path: &str) -> bool {
+        (self.ai_folder && in_ai_folder(path)) || self.allows(path)
+    }
+
+    /// Why an MCP assistant may not change the path, if it may not.
+    pub fn check_write(&self, path: &str) -> Result<(), String> {
+        if !self.ai_folder {
+            Err("The AI folder is not set up, so assistants cannot change notes. Ask the user to set it up in Jotter under Settings > AI.".into())
+        } else if !in_ai_folder(path) {
+            Err(format!("Assistants can change only notes in the {AI_FOLDER} folder, and '{path}' is outside it."))
+        } else if !self.edit_instructions && is_instructions(path) {
+            Err(format!("'{path}' holds instructions for assistants. Show the user the new text, or ask them to allow these edits in Jotter under Settings > AI."))
+        } else {
+            Ok(())
+        }
+    }
+
     /// Shares or unshares a note or folder, replacing the choices made inside it.
     pub fn set(&mut self, path: &str, allowed: bool) {
         self.rules.retain(|rule, _| !is_within(rule, path));
@@ -156,6 +196,10 @@ impl AccessRules {
     pub fn rename(&mut self, from: &str, to: &str) {
         if from.is_empty() || to.is_empty() {
             return;
+        }
+        // The setup covers the folder the user agreed to, not one later moved to its name.
+        if from == AI_FOLDER {
+            self.ai_folder = false;
         }
         let moved: Vec<(String, bool)> = self
             .rules
@@ -172,6 +216,9 @@ impl AccessRules {
     /// Drops the shares of a deleted note or folder, so a later one with the same name starts
     /// private. Choices to hide it stay, in case it comes back from the trash.
     pub fn forget(&mut self, path: &str) {
+        if path == AI_FOLDER {
+            self.ai_folder = false;
+        }
         self.rules.retain(|rule, allowed| !(*allowed && is_within(rule, path)));
     }
 }
@@ -291,6 +338,36 @@ mod tests {
         assert!(AccessRules::load(data.path(), vault.path()).unwrap().allows("A.md"));
         fs::write(AccessRules::file(data.path(), vault.path()), "{").unwrap();
         assert!(AccessRules::load(data.path(), vault.path()).is_err());
+    }
+
+    #[test]
+    fn assistants_write_only_in_the_set_up_folder_and_not_in_its_instructions() {
+        let mut rules = AccessRules::default();
+        assert!(!rules.can_read("AI/Context.md"));
+        assert!(rules.check_write("AI/Context.md").unwrap_err().contains("not set up"));
+        rules.ai_folder = true;
+        rules.set("", true);
+        assert!(rules.can_read("AI/Context.md"));
+        assert!(rules.check_write("AI/Context.md").is_ok());
+        assert!(rules.check_write("AI/Workflows/Report/Workflow.md").is_ok());
+        for path in ["Plan.md", "AIX/a.md", "ai-notes.md"] {
+            assert!(rules.check_write(path).unwrap_err().contains("outside"), "{path}");
+        }
+        let instructions = [
+            "AI/AGENTS.md", "AI/agents.md", "AI/Preferences.md", "AI/Instructions",
+            "AI/instructions/Tone.md", "AI/Workflows/AGENTS.md", "AI/Outputs/CLAUDE.md",
+        ];
+        for path in instructions {
+            assert!(rules.check_write(path).unwrap_err().contains("instructions"), "{path}");
+        }
+        rules.edit_instructions = true;
+        assert!(instructions.iter().all(|path| rules.check_write(path).is_ok()));
+        // Moving the folder away withdraws the setup, even if another takes its name.
+        rules.rename("AI", "Old AI");
+        assert!(!rules.ai_folder);
+        rules.ai_folder = true;
+        rules.rename("Private", "AI");
+        assert!(!rules.ai_folder);
     }
 
     #[test]

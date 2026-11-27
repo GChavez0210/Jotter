@@ -3,6 +3,7 @@
 
 pub mod agent;
 pub mod ai_access;
+pub mod ai_folder;
 pub mod frontmatter;
 pub mod fs_atomic;
 pub mod health;

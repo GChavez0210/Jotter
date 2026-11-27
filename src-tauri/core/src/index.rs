@@ -41,6 +41,12 @@ pub fn normalize_link_target(raw: &str) -> String {
     stripped.trim().to_lowercase()
 }
 
+/// Which of two notes with the same name a bare link means: the lower rank. Notes outside the
+/// AI folder come first, so an assistant's daily log never captures a link to the user's own.
+fn link_rank(path: &str) -> (bool, usize, &str) {
+    (crate::ai_access::in_ai_folder(path), path.len(), path)
+}
+
 /// Converts a `SystemTime` to milliseconds since UNIX_EPOCH.
 pub fn system_time_to_ms(time: SystemTime) -> i64 {
     time.duration_since(UNIX_EPOCH)
@@ -189,8 +195,7 @@ impl WikiLinkResolver {
                 .unwrap_or_default();
             if !stem.is_empty() {
                 match stem_map.get(&stem) {
-                    Some(existing)
-                        if (existing.len(), existing.as_str()) <= (path.len(), path.as_str()) => {}
+                    Some(existing) if link_rank(existing) <= link_rank(path) => {}
                     _ => {
                         stem_map.insert(stem, path.clone());
                     }

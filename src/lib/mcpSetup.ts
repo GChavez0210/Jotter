@@ -28,10 +28,10 @@ export function mcpSetupPrompt(cliPath: string | null, readOnly: boolean): strin
   const args = mcpArgs(readOnly);
   const shellLine = (shell: 'powershell' | 'posix') => [shellQuote(command, shell), ...args].join(' ');
   const jsonEntry = JSON.stringify({ jotter: { command, args } }, null, 2);
-  const access = `You see only the notes I select in Jotter under Settings > AI, plus the _context folder. ${
+  const access = `You see only the notes I select in Jotter under Settings > AI, plus the AI folder, where my context and instructions for you live. ${
     readOnly
       ? 'It is read-only: you can search and read those notes, but not change them.'
-      : 'You can search, read, create, edit, append to, tag, rename, and delete those notes. Changed notes keep their previous text in version history, and deleted notes go to the system trash.'
+      : 'You can create, edit, tag, rename, and delete notes only in the AI folder; everything else is read-only. Changed notes keep their previous text in version history, and deleted notes go to the system trash.'
   }`;
   return `Set up the Jotter MCP server for me.
 
@@ -54,11 +54,16 @@ Steps:
 ${jsonEntry}
    If you cannot change your own configuration, tell me the file to edit and the exact entry to add.
 2. If the client must restart to load the server, tell me.
-3. Once the jotter tools are available, call get_context and summarize what it says.
+3. Once the jotter tools are available, call get_context. If setUp is false, ask me to set up the AI folder in Jotter under Settings > AI, and wait. Otherwise follow the instructions it returns, read AI/Preferences.md, and summarize what you learned.${
+    readOnly
+      ? ''
+      : `
+4. Interview me: ask a few short questions about my work, my current focus, and how I like answers. Then save what I told you about my work and focus with update_context. Write my answer preferences to AI/Preferences.md. If Jotter refuses that edit, show me the text so I can paste it in myself. Keep what those notes already say unless I change it.`
+  }
 
 From then on, call get_context at the start of each conversation${
     readOnly
       ? '.'
-      : `, and call update_context when my focus, decisions, or open questions change. When a conversation reaches a decision, a summary, or open questions worth keeping, save them with save_conversation under a short title, and reuse that title for later saves in the same conversation.`
+      : `, and call update_context when my focus, decisions, or open questions change. Log the work you finish with append_to_daily. When a conversation reaches a decision, a summary, or open questions worth keeping, save them with save_conversation under a short title, and reuse that title for later saves in the same conversation.`
   } If I ask to work in another vault, use list_vaults and open_vault.`;
 }

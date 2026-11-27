@@ -337,13 +337,15 @@ test('the MCP setup prompt names the installed CLI and quotes it for each client
   assert.ok(prompt.includes('- Arguments: ["mcp"]'));
   assert.ok(prompt.includes('get_context'));
   assert.ok(prompt.includes('only the notes I select'));
+  assert.ok(prompt.includes('Interview me') && prompt.includes('append_to_daily'));
 
   const readOnly = mcpSetupPrompt('/usr/bin/jotter', true);
   assert.ok(readOnly.includes('codex mcp add jotter -- /usr/bin/jotter --read-only mcp'));
   assert.ok(readOnly.includes('"--read-only",'));
   assert.ok(!readOnly.includes('update_context') && !readOnly.includes('save_conversation'));
   assert.ok(prompt.includes('update_context') && prompt.includes('save_conversation'));
-  assert.ok(readOnly.includes('open_vault'));
+  assert.ok(readOnly.includes('open_vault') && readOnly.includes('setUp is false'));
+  assert.ok(!readOnly.includes('Interview me') && !readOnly.includes('append_to_daily'));
 
   assert.ok(mcpSetupPrompt(null, false).includes('- Command: jotter\n'));
 });
