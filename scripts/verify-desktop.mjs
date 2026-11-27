@@ -1,5 +1,6 @@
 import { chromium, expect } from '@playwright/test';
-import { spawn } from 'node:child_process';
+import { spawn, execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { mkdir, writeFile, readFile, rename, chmod, stat, rmdir } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { setTimeout as pause } from 'node:timers/promises';
@@ -7,10 +8,15 @@ import { setTimeout as pause } from 'node:timers/promises';
 if (process.platform !== 'win32') throw new Error('This verification harness requires Windows WebView2. Test other platforms manually.');
 
 // Run against the built app with isolated WebView storage, app data, and disposable notes.
+// Also isolate Tauri's own window-state directory when building the test executable:
+// TAURI_CONFIG={"app":{"appDirectoriesOverride":"../native-framework-profile"}}
 const root = resolve(`src-tauri/target/desktop-verification/${Date.now()}`);
 const vault = join(root, 'vault');
 await mkdir(vault, {recursive:true});
 await mkdir(join(root, 'app-data/Jotter/snippets'), {recursive:true});
+await writeFile(join(root, 'app-data/Jotter/recent_vaults.json'), JSON.stringify([
+  { path: vault, name: 'vault', lastOpenedMs: Date.now() },
+]));
 await writeFile(join(root, 'app-data/Jotter/snippets/verify.css'), ':root { --verify-snippet: loaded; }\n.cm-content { line-height: 1.8; }');
 // The headings and the plain fence feed the outline check; the rest feeds rendering and spelling.
 const note = '# Verification\n\nWe receive the budget.\n\nA mispeled word.\n\nInline $x^2$.\n\n$$ x^2 + y^2 $$\n\n```mermaid\ngraph TD; A-->B\n```\n\n> ```mermaid\n> graph TD; C-->D\n> ```\n\n    $$ indented code $$\n\n## Details\n\n```\n# not a heading\n```\n\n## Wrap up\n\nEnd.\n';
@@ -39,6 +45,20 @@ let logs = '';
 app.stdout.on('data',(data)=>logs+=data);
 app.stderr.on('data',(data)=>logs+=data);
 const checks = [];
+const exec = promisify(execFile);
+let mainWindowHandle;
+async function appVisible() {
+  // Capture the main window while visible; process enumeration can select a helper after hiding.
+  if (!mainWindowHandle) {
+    const {stdout} = await exec('powershell.exe', ['-NoProfile', '-Command',
+      `(Get-Process -Id ${app.pid}).MainWindowHandle.ToInt64()`], {windowsHide:true, timeout:5000});
+    mainWindowHandle = stdout.trim();
+    if (!/^[1-9]\d*$/.test(mainWindowHandle)) throw Error('The test app has no main window handle');
+  }
+  const probe = `Add-Type -Name JotterWindowProbe -Namespace Native -MemberDefinition '[System.Runtime.InteropServices.DllImport("user32.dll")] public static extern bool IsWindowVisible(System.IntPtr handle);'; [Native.JotterWindowProbe]::IsWindowVisible([System.IntPtr]${mainWindowHandle})`;
+  const {stdout} = await exec('powershell.exe', ['-NoProfile', '-Command', probe], {windowsHide:true, timeout:5000});
+  return stdout.trim().toLowerCase() === 'true';
+}
 let browser;
 let page;
 try {
@@ -63,6 +83,12 @@ try {
     window.fetch=async(input,options)=>{
       const response=await fetch(input,options);
       const command=new URL(typeof input==='string'?input:input.url).pathname.split('/').at(-1);
+      if(command==='open_vault'&&response.headers.get('Tauri-Response')==='ok') {
+        window.__verifyVaultGeneration=(await response.clone().json()).generation;
+      }
+      if(command==='save_note'&&response.headers.get('Tauri-Response')==='ok') {
+        window.__verifyVaultGeneration=JSON.parse(options.body).vaultGeneration;
+      }
       if((command==='configure_summon'||command==='configure_window_behavior')&&response.headers.get('Tauri-Response')==='ok') {
         window.__verifySettingsCalls.push({command,args:JSON.parse(options.body)});
       }
@@ -79,8 +105,10 @@ try {
   await writeFile(join(root,'outside.md'),'OUTSIDE-VAULT-FIXTURE');
   const rejectedHistoryPaths = await page.evaluate(async()=> {
     const invoke=window.__TAURI_INTERNALS__.invoke;
+    const generation=window.__verifyVaultGeneration;
+    if(typeof generation!=='number') throw Error('The vault opening response has no generation');
     const commands=[
-      ['save_note',{relPath:'../outside.md',content:'changed'}],
+      ['save_note',{relPath:'../outside.md',content:'changed',vaultGeneration:generation,expected:{content:'OUTSIDE-VAULT-FIXTURE'}}],
       ['list_note_versions',{relPath:'../outside.md'}],
       ['read_note_version',{relPath:'../outside.md',id:'1000'}],
       ['restore_note_version',{relPath:'../outside.md',id:'1000'}],
@@ -289,6 +317,7 @@ try {
   await page.reload();
   // Reload reopens the last vault on Home with no tabs, so the note is reopened below.
   await expect(page.getByRole('region',{name:'Home'})).toBeVisible();
+  await expect(page.locator('.app-shell')).not.toHaveAttribute('inert');
   await page.keyboard.press('Control+o');
   await page.getByPlaceholder('Find a note by name').fill('Verification');
   await page.keyboard.press('Enter');
@@ -381,7 +410,8 @@ try {
   await page.evaluate(async()=>{
     const invoke=window.__TAURI_INTERNALS__.invoke;
     await invoke('create_note',{relPath:'HistoryStorage.md',initialContent:'original history text'});
-    await invoke('save_note',{relPath:'HistoryStorage.md',content:'saved current text'});
+    await invoke('save_note',{relPath:'HistoryStorage.md',content:'saved current text',
+      vaultGeneration:window.__verifyVaultGeneration,expected:{content:'original history text'}});
   });
   let historyHash=0xcbf29ce484222325n;
   for(const byte of Buffer.from('historystorage.md')) historyHash=BigInt.asUintN(64,(historyHash^BigInt(byte))*0x100000001b3n);
@@ -390,7 +420,8 @@ try {
   await rename(historyMarker,join(historyDir,'marker-backup.json'));
   await mkdir(historyMarker);
   try {
-    await page.evaluate(()=>window.__TAURI_INTERNALS__.invoke('save_note',{relPath:'HistoryStorage.md',content:'latest protected text'}));
+    await page.evaluate(()=>window.__TAURI_INTERNALS__.invoke('save_note',{relPath:'HistoryStorage.md',content:'latest protected text',
+      vaultGeneration:window.__verifyVaultGeneration,expected:{content:'saved current text'}}));
     const restoreError=await page.evaluate(async()=>{
       const invoke=window.__TAURI_INTERNALS__.invoke;
       const versions=await invoke('list_note_versions',{relPath:'HistoryStorage.md'});
@@ -406,6 +437,7 @@ try {
   checks.push('Unavailable history storage leaves ordinary saves working and prevents unsafe restoration');
 
   // A read-only destination forces the actual atomic write to fail.
+  expect(await appVisible()).toBe(true);
   await chmod(join(vault,'Verification.md'),0o444);
   await page.locator('.cm-content').click();
   await page.keyboard.press('Control+End');
@@ -417,7 +449,7 @@ try {
   expect(await readFile(join(vault,'Verification.md'),'utf8')).not.toContain('SAVE-FAILURE-PROBE');
   await chmod(join(vault,'Verification.md'),0o666);
   await page.evaluate(()=>window.__TAURI_INTERNALS__.invoke('plugin:window|close',{label:'main'}));
-  await expect.poll(()=>page.evaluate(()=>window.__TAURI_INTERNALS__.invoke('plugin:window|is_visible',{label:'main'}))).toBe(false);
+  await expect.poll(appVisible).toBe(false);
   expect(await readFile(join(vault,'Verification.md'),'utf8')).toContain('SAVE-FAILURE-PROBE');
   await page.evaluate(()=>window.__TAURI_INTERNALS__.invoke('keep_app_open'));
   checks.push('Native close retains edits on real write failure, then saves and hides in tray after retry');
@@ -430,7 +462,7 @@ try {
     const callbacks = window.__TAURI_INTERNALS__.callbacks;
     const set = callbacks.set.bind(callbacks);
     callbacks.set = (id, callback) => set(id, data => setTimeout(()=>callback(data),6500));
-    void window.__TAURI_INTERNALS__.invoke('plugin:event|emit',{event:'quit-requested',payload:true});
+    void window.__TAURI_INTERNALS__.invoke('plugin:event|emit_to',{target:{kind:'AnyLabel',label:'main'},event:'quit-requested',payload:true});
   });
   await pause(5500);
   expect(app.exitCode).toBe(null);
