@@ -262,7 +262,7 @@ The `AI` folder holds what assistants need to know about you, and what they prod
 | `AI/Conversations/` | Saved conversation summaries, created on first use |
 
 - MCP assistants can create, edit, rename, and delete notes only in this folder. Before you set it up, they change nothing.
-- `AGENTS.md`, `CLAUDE.md`, `Preferences.md`, and `Instructions/` stay read-only to assistants until you turn on **Let assistants edit instructions**.
+- `AGENTS.md`, `CLAUDE.md`, `Preferences.md`, and `Instructions/` at any depth stay read-only to assistants until you turn on **Let assistants edit instructions**. The switch starts off; read-only MCP connections still cannot write when it is on.
 - A note with `ai: false` stays hidden, even inside the folder.
 - Notes that already exist in a folder named `AI` become readable and editable when you set it up. The confirmation says how many.
 - Setup moves the notes in `_context/`, used by earlier versions, into `AI/` and updates links to them. A note whose name is taken stays where it is.

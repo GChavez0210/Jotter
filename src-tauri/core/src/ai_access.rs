@@ -26,9 +26,8 @@ fn is_instructions(path: &str) -> bool {
     let Some(rest) = path.strip_prefix("ai/") else {
         return false;
     };
-    rest == "preferences.md"
-        || rest.split('/').next() == Some("instructions")
-        || matches!(rest.rsplit('/').next(), Some("agents.md" | "claude.md"))
+    rest.split('/').any(|part| part == "instructions")
+        || matches!(rest.rsplit('/').next(), Some("agents.md" | "claude.md" | "preferences.md"))
 }
 
 /// Whether the note's frontmatter sets `ai` to a false value. It reads more leniently than the
@@ -364,6 +363,7 @@ mod tests {
         let instructions = [
             "AI/AGENTS.md", "AI/agents.md", "AI/Preferences.md", "AI/Instructions",
             "AI/instructions/Tone.md", "AI/Workflows/AGENTS.md", "AI/Outputs/CLAUDE.md",
+            "AI/Outputs/Preferences.md", "AI/Workflows/Job/InStrUcTiOnS/Style.md",
         ];
         for path in instructions {
             assert!(rules.check_write(path).unwrap_err().contains("instructions"), "{path}");

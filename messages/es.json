@@ -1183,7 +1183,7 @@
   "ai_folder_report": "Notas creadas: {created}. Notas movidas: {moved}.",
   "ai_folder_kept": "Se quedan en _context porque la carpeta AI tiene una nota con el mismo nombre: {notes}.",
   "ai_folder_instructions": "Permitir que los asistentes editen las instrucciones",
-  "ai_folder_instructions_desc": "Incluye AGENTS.md, Preferences.md y la carpeta Instructions. Si está desactivado, los asistentes solo pueden proponer cambios.",
+  "ai_folder_instructions_desc": "Incluye AGENTS.md, CLAUDE.md, Preferences.md y las carpetas Instructions en cualquier nivel de AI. Si está desactivado, los asistentes solo pueden proponer cambios.",
   "ai_folder_unsaved": "Guarda primero las notas abiertas y vuelve a intentarlo.",
   "ask_title": "Pregunta a tu bóveda",
   "ask_question_label": "Pregunta",
