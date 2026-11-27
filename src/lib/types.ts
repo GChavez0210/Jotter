@@ -290,6 +290,21 @@ export interface AiAccessOverview {
   notes: AiNoteAccess[];
 }
 
+export interface AiFolderStatus {
+  setUp: boolean;
+  /** Assistants may change the notes that instruct them. */
+  editInstructions: boolean;
+  existingNotes: number;
+  /** Notes in `_context` that setting up moves into the folder. */
+  legacyNotes: number;
+}
+
+export interface AiFolderSetup {
+  created: string[];
+  moved: { from: string; to: string }[];
+  kept: string[];
+}
+
 export interface AskIndexStatus {
   notesToEmbed: number;
   notesToRemove: number;

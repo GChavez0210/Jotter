@@ -337,13 +337,15 @@ test('the MCP setup prompt names the installed CLI and quotes it for each client
   assert.ok(prompt.includes('- Arguments: ["mcp"]'));
   assert.ok(prompt.includes('get_context'));
   assert.ok(prompt.includes('only the notes I select'));
+  assert.ok(prompt.includes('Interview me') && prompt.includes('append_to_daily'));
 
   const readOnly = mcpSetupPrompt('/usr/bin/jotter', true);
   assert.ok(readOnly.includes('codex mcp add jotter -- /usr/bin/jotter --read-only mcp'));
   assert.ok(readOnly.includes('"--read-only",'));
   assert.ok(!readOnly.includes('update_context') && !readOnly.includes('save_conversation'));
   assert.ok(prompt.includes('update_context') && prompt.includes('save_conversation'));
-  assert.ok(readOnly.includes('open_vault'));
+  assert.ok(readOnly.includes('open_vault') && readOnly.includes('setUp is false'));
+  assert.ok(readOnly.includes('Interview me') && !readOnly.includes('append_to_daily'));
 
   assert.ok(mcpSetupPrompt(null, false).includes('- Command: jotter\n'));
 });
@@ -360,4 +362,23 @@ test('the MCP prompt escapes metacharacters and apostrophes for each named shell
   assert.ok(prompt.includes(`Claude Code (Bash/Zsh): claude mcp add --scope user jotter -- ${posix} mcp`));
   const ordinary = mcpSetupPrompt(String.raw`C:\Users\me\Jotter\jotter.exe`, true);
   assert.ok(ordinary.includes(String.raw`-- 'C:\Users\me\Jotter\jotter.exe' --read-only mcp`));
+});
+
+test('the MCP prompt describes access, protected instructions, and AI destinations', async () => {
+  const { mcpSetupPrompt } = await import('../src/lib/mcpSetup');
+  for (const readOnly of [false, true]) {
+    const prompt = mcpSetupPrompt(null, readOnly);
+    for (const text of ['ai: false', 'off by default', 'AI/AGENTS.md', 'AI/Instructions/',
+      'AI/Workflows/', 'AI/Outputs/', 'AI/Context.md', 'Interview me', 'direct file access']) {
+      assert.ok(prompt.includes(text), text);
+    }
+    assert.doesNotMatch(prompt, /_context\/|_context folder/);
+    if (readOnly) {
+      assert.ok(prompt.includes('show me the proposed context'));
+      assert.ok(!prompt.includes('update_context') && !prompt.includes('append_to_daily'));
+    } else {
+      assert.ok(prompt.includes('AI/Daily/') && prompt.includes('AI/Conversations/'));
+      assert.ok(prompt.includes('edit instructions'));
+    }
+  }
 });

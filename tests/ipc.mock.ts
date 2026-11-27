@@ -105,7 +105,7 @@ export const spellSuggest = async () => [] as string[];
 export const spellAddWord = async () => {};
 export const openSnippetsFolder = async () => {};
 
-import type { AiAccessOverview, AiConfig, AiRequest, AiResult, AiStatus, AskAnswer, AskIndexReport, AskIndexStatus } from '../src/lib/types';
+import type { AiAccessOverview, AiFolderSetup, AiFolderStatus, AiConfig, AiRequest, AiResult, AiStatus, AskAnswer, AskIndexReport, AskIndexStatus } from '../src/lib/types';
 export const askControl = {
   status: async (): Promise<AskIndexStatus> => ({ notesToEmbed: 0, notesToRemove: 0, notesTotal: 2 }),
   index: async (): Promise<AskIndexReport> => ({ embeddedNotes: 0, removedNotes: 0, passages: 0 }),
@@ -127,6 +127,20 @@ export const aiAccessOverview = async () => accessControl.overview;
 export const aiAccessSet = async (path: string, shared: boolean) => {
   accessControl.sets.push([path, shared]);
   return accessControl.overview;
+};
+export const folderControl = {
+  status: { setUp: false, editInstructions: false, existingNotes: 2, legacyNotes: 1 } as AiFolderStatus,
+  setUps: 0,
+};
+export const aiFolderStatus = async () => ({ ...folderControl.status });
+export const aiFolderSetUp = async (): Promise<AiFolderSetup> => {
+  folderControl.setUps++;
+  folderControl.status = { ...folderControl.status, setUp: true, legacyNotes: 0 };
+  return { created: ['AI/AGENTS.md'], moved: [{ from: '_context/Context.md', to: 'AI/Context.md' }], kept: [] };
+};
+export const aiFolderEditInstructions = async (editInstructions: boolean) => {
+  folderControl.status = { ...folderControl.status, editInstructions };
+  return { ...folderControl.status };
 };
 export const askIndexStatus = () => askControl.status();
 export const askIndexVault = () => askControl.index();

@@ -84,8 +84,8 @@ impl AgentVault {
         })
     }
 
-    /// Hides every note the user has not shared with AI assistants. Reads leave those notes
-    /// out, and writes to them are refused.
+    /// Hides every note the user has not shared with AI assistants, and allows writes only in
+    /// the AI folder.
     pub fn shared_only(mut self) -> Self {
         self.shared_only = true;
         self
@@ -111,26 +111,43 @@ impl AgentVault {
         Ok(files)
     }
 
-    /// The path to act on for a note, folder, or attachment that exists or is about to. A
-    /// shared-only handle refuses paths the user has not shared.
+    /// The path to read for a note, folder, or attachment. A shared-only handle refuses paths
+    /// the user has not shared.
     fn permit(&self, path: &str) -> Result<String, String> {
         let (_, clean) = vault::resolve_safe_vault_path(&self.root, path)?;
         let Some(rules) = self.rules()? else {
             return Ok(clean);
         };
         let spelled = ai_access::disk_spelling(&self.root, &clean).ok_or_else(|| not_shared(&clean))?;
-        let abs = self.root.join(&spelled);
-        let allowed = ai_access::in_ai_folder(&spelled) || rules.allows(&spelled);
-        let blocked = abs.is_file()
-            && spelled.to_ascii_lowercase().ends_with(".md")
-            && std::fs::read(&abs).map_or(true, |bytes| ai_access::blocks_ai(&String::from_utf8_lossy(&bytes)));
-        if !allowed || blocked {
+        if !rules.can_read(&spelled) || self.is_blocked(&spelled) {
             return Err(not_shared(&clean));
         }
         Ok(spelled)
     }
 
-    /// Refuses to move or delete a folder that holds a note the caller cannot see.
+    /// The path to change or create. A shared-only handle allows only the AI folder.
+    fn permit_write(&self, path: &str) -> Result<String, String> {
+        let (_, clean) = vault::resolve_safe_vault_path(&self.root, path)?;
+        let Some(rules) = self.rules()? else {
+            return Ok(clean);
+        };
+        let spelled = ai_access::disk_spelling(&self.root, &clean).ok_or_else(|| not_shared(&clean))?;
+        rules.check_write(&spelled)?;
+        if self.is_blocked(&spelled) {
+            return Err(not_shared(&clean));
+        }
+        Ok(spelled)
+    }
+
+    /// Whether the note at `path` says `ai: false`, or cannot be read to find out.
+    fn is_blocked(&self, path: &str) -> bool {
+        let abs = self.root.join(path);
+        abs.is_file()
+            && path.to_ascii_lowercase().ends_with(".md")
+            && std::fs::read(&abs).map_or(true, |bytes| ai_access::blocks_ai(&String::from_utf8_lossy(&bytes)))
+    }
+
+    /// Refuses to move or delete a folder that holds a note the caller may not change.
     fn permit_contents(&self, clean: &str) -> Result<(), String> {
         let Some(rules) = self.rules()? else {
             return Ok(());
@@ -139,10 +156,10 @@ impl AgentVault {
         if abs.is_dir()
             && index::scan_dir_files_from_disk(&self.root, &abs)?
                 .iter()
-                .any(|file| !is_shared(&rules, &file.path, &file.content))
+                .any(|file| rules.check_write(&file.path).is_err() || ai_access::blocks_ai(&file.content))
         {
             return Err(format!(
-                "'{clean}' holds notes that are not shared with AI assistants, so it cannot be moved or deleted"
+                "'{clean}' holds notes that assistants may not change, so it cannot be moved or deleted"
             ));
         }
         Ok(())
@@ -226,7 +243,7 @@ impl AgentVault {
     }
 
     fn create_locked(&self, path: &str, content: &str) -> Result<Value, String> {
-        let path = self.permit(&vault::ensure_md_extension(path))?;
+        let path = self.permit_write(&vault::ensure_md_extension(path))?;
         let (_, doc) = vault::create_vault_note(&self.root, &path, content)?;
         to_json(&doc)
     }
@@ -239,7 +256,7 @@ impl AgentVault {
     }
 
     fn append_locked(&self, path: &str, text: &str, create_missing: bool) -> Result<Value, String> {
-        let clean = self.permit(&vault::ensure_md_extension(path))?;
+        let clean = self.permit_write(&vault::ensure_md_extension(path))?;
         let abs = self.root.join(&clean);
         if !abs.exists() {
             if !create_missing {
@@ -259,6 +276,11 @@ impl AgentVault {
     /// unless `update_links` is false; each rewritten note keeps its old text in version history.
     pub fn rename(&self, from: &str, to: &str, update_links: bool) -> Result<Value, String> {
         let _write_lock = self.write_lock()?;
+        self.rename_locked(from, to, update_links)
+    }
+
+    /// The caller holds the vault write lock across a larger operation.
+    pub(crate) fn rename_locked(&self, from: &str, to: &str, update_links: bool) -> Result<Value, String> {
         let from = &self.existing_entry(from)?;
         self.permit_contents(from)?;
         let to = &self.permit_destination(from, to)?;
@@ -279,16 +301,21 @@ impl AgentVault {
         });
         let mut links_updated = 0;
         let mut notes_updated = 0;
+        let mut links_skipped = 0;
         for note in &plan.notes {
             let (abs, clean) = vault::resolve_safe_vault_path(&self.root, &note.path)?;
-            let mut visible = !self.shared_only;
+            if self.permit_write(&clean).is_err() {
+                // Counted only for notes the assistant can see.
+                if std::fs::read_to_string(&abs).is_ok_and(|text| is_shared(&rules, &clean, &text)) {
+                    links_skipped += note.edits.len();
+                }
+                continue;
+            }
             if let Ok(previous) = std::fs::read_to_string(&abs) {
-                visible |= is_shared(&rules, &clean, &previous);
                 self.keep_previous(&clean, &previous);
             }
-            // Links in hidden notes are rewritten too, but the answer does not count them.
             let applied = crate::link_update::apply_edits_to_note(&self.root, &clean, &note.edits)?.applied;
-            if applied > 0 && visible {
+            if applied > 0 {
                 links_updated += applied;
                 notes_updated += 1;
             }
@@ -298,6 +325,7 @@ impl AgentVault {
             "newPath": renamed.new_rel_path,
             "linksUpdated": links_updated,
             "notesUpdated": notes_updated,
+            "linksSkipped": links_skipped,
         }))
     }
 
@@ -317,31 +345,28 @@ impl AgentVault {
     fn existing_entry(&self, path: &str) -> Result<String, String> {
         let (abs, clean) = vault::resolve_safe_vault_path(&self.root, path)?;
         if abs.exists() {
-            return self.permit(&clean);
+            let permitted = self.permit_write(&clean)?;
+            if self.shared_only && permitted == ai_access::AI_FOLDER {
+                return Err("The AI folder itself cannot be moved or deleted".to_string());
+            }
+            return Ok(permitted);
         }
         let (note_abs, note_clean) = vault::resolve_safe_vault_path(&self.root, &vault::ensure_md_extension(path))?;
         if note_abs.is_file() {
-            self.permit(&note_clean)
+            self.permit_write(&note_clean)
         } else {
-            self.permit(&clean)?;
+            self.permit_write(&clean)?;
             Err(format!("Nothing exists at '{clean}'"))
         }
     }
 
-    /// Where a rename may put `from`. A shared-only handle may not move anything out of sight.
+    /// Where a rename may put `from`.
     fn permit_destination(&self, from: &str, to: &str) -> Result<String, String> {
-        let Some(mut rules) = self.rules()? else {
+        if !self.shared_only {
             return Ok(to.to_string());
-        };
-        let is_note = self.root.join(from).is_file() && from.to_ascii_lowercase().ends_with(".md");
-        let to = if is_note { vault::ensure_md_extension(to) } else { to.to_string() };
-        let (_, clean) = vault::resolve_safe_vault_path(&self.root, &to)?;
-        let spelled = ai_access::disk_spelling(&self.root, &clean).ok_or_else(|| not_shared(&clean))?;
-        rules.rename(from, &spelled);
-        if !ai_access::in_ai_folder(&spelled) && !rules.allows(&spelled) {
-            return Err(not_shared(&clean));
         }
-        Ok(spelled)
+        let is_note = self.root.join(from).is_file() && from.to_ascii_lowercase().ends_with(".md");
+        self.permit_write(&if is_note { vault::ensure_md_extension(to) } else { to.to_string() })
     }
 
     pub fn backlinks(&self, path: &str) -> Result<Value, String> {
@@ -378,7 +403,7 @@ impl AgentVault {
             if path.to_ascii_lowercase().ends_with(".md") {
                 shared.contains(path)
             } else {
-                ai_access::in_ai_folder(path) || rules.allows(path)
+                rules.can_read(path)
             }
         };
         let notes: Vec<_> = notes.iter().filter(|note| visible(&note.path)).cloned().collect();
@@ -417,16 +442,24 @@ impl AgentVault {
 
     /// The shared context note every assistant reads first, and the other notes in its folder.
     pub fn context(&self) -> Result<Value, String> {
-        let (abs, _) = vault::resolve_safe_vault_path(&self.root, CONTEXT_NOTE)?;
-        let content = if abs.exists() { Some(vault::read_vault_note(&self.root, CONTEXT_NOTE)?.content) } else { None };
-        let content = content.filter(|text| !self.shared_only || !ai_access::blocks_ai(text));
+        let content = self.readable_text(CONTEXT_NOTE)?;
+        let instructions = self.readable_text(AGENTS_NOTE)?;
+        let set_up = self.rules()?.is_none_or(|rules| rules.ai_folder);
         let prefix = format!("{CONTEXT_FOLDER}/");
         let conversations_prefix = format!("{CONVERSATIONS_FOLDER}/");
         let cards = index::query_note_cards(&*self.index()?)?;
         let others: Vec<&str> = cards
             .iter()
             .map(|card| card.path.as_str())
-            .filter(|path| path.starts_with(&prefix) && *path != CONTEXT_NOTE && !path.starts_with(&conversations_prefix))
+            .filter(|path| {
+                path.starts_with(&prefix)
+                    && *path != CONTEXT_NOTE
+                    && *path != AGENTS_NOTE
+                    // Logs and results pile up; `list_notes` finds them when needed.
+                    && ![CONVERSATIONS_FOLDER, DAILY_LOG_FOLDER, OUTPUTS_FOLDER]
+                        .iter()
+                        .any(|folder| path.strip_prefix(folder).is_some_and(|rest| rest.starts_with('/')))
+            })
             .collect();
         let mut conversations: Vec<_> = cards.iter().filter(|card| card.path.starts_with(&conversations_prefix)).collect();
         conversations.sort_by_key(|card| std::cmp::Reverse(card.modified_ms));
@@ -440,8 +473,19 @@ impl AgentVault {
             "exists": content.is_some(),
             "content": content.unwrap_or_default(),
             "otherNotes": others,
+            "setUp": set_up,
+            "instructions": instructions.unwrap_or_default(),
             "recentConversations": recent,
         }))
+    }
+
+    /// The text of a note, or `None` when it is missing or the caller may not read it.
+    fn readable_text(&self, path: &str) -> Result<Option<String>, String> {
+        let (abs, _) = vault::resolve_safe_vault_path(&self.root, path)?;
+        if !abs.exists() || (self.shared_only && self.permit(path).is_err()) {
+            return Ok(None);
+        }
+        Ok(Some(vault::read_vault_note(&self.root, path)?.content))
     }
 
     /// Replaces `old_text` with `new_text` in a note. `old_text` must appear exactly once unless
@@ -535,7 +579,7 @@ impl AgentVault {
         Ok(json!({ "path": clean, "tags": tags, "stillInBody": still_in_body }))
     }
 
-    /// Saves notes from a conversation to `_context/Conversations/<date> <title>.md`. A later call
+    /// Saves notes from a conversation to `AI/Conversations/<date> <title>.md`. A later call
     /// with the same title appends to that note, even on another day, so one conversation keeps
     /// one note.
     pub fn save_conversation(&self, title: &str, text: &str) -> Result<Value, String> {
@@ -563,9 +607,20 @@ impl AgentVault {
     }
 
     /// Adds `text` to the end of today's daily note, creating the note the way the app does:
-    /// in the daily folder from Settings, from the daily template, named `YYYY-MM-DD.md`.
+    /// in the daily folder from Settings, from the daily template, named `YYYY-MM-DD.md`. A
+    /// shared-only handle writes to the AI folder's log for today instead.
     pub fn append_to_daily(&self, text: &str) -> Result<Value, String> {
         let _write_lock = self.write_lock()?;
+        if self.shared_only {
+            let date = chrono::Local::now().format("%Y-%m-%d").to_string();
+            let clean = self.permit_write(&format!("{DAILY_LOG_FOLDER}/{date}.md"))?;
+            let created = !self.root.join(&clean).exists();
+            if created {
+                self.create_locked(&clean, &format!("# {date}\n\n"))?;
+            }
+            self.append_locked(&clean, text, false)?;
+            return Ok(json!({ "path": clean, "created": created }));
+        }
         let settings = self.app_settings();
         let setting = |key: &str, default: &str| {
             settings.get(key).and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| default.to_string())
@@ -574,16 +629,12 @@ impl AgentVault {
         let now = chrono::Local::now();
         let date = now.format("%Y-%m-%d").to_string();
         let path = if folder.is_empty() { format!("{date}.md") } else { format!("{folder}/{date}.md") };
-        let clean = self.permit(&path)?;
-        let abs = self.root.join(&clean);
+        let (abs, clean) = vault::resolve_safe_vault_path(&self.root, &path)?;
         let created = !abs.exists();
         if created {
             let template_path = setting("jotter.dailyTemplatePath", "Templates/Daily.md");
             let template = (!template_path.is_empty())
-                .then(|| {
-                    let template = self.permit(&vault::ensure_md_extension(&template_path)).ok()?;
-                    vault::read_vault_note(&self.root, &template).ok()
-                })
+                .then(|| vault::read_vault_note(&self.root, &vault::ensure_md_extension(&template_path)).ok())
                 .flatten()
                 .map(|doc| doc.content)
                 .unwrap_or_else(|| DEFAULT_DAILY_TEMPLATE.to_string());
@@ -608,7 +659,7 @@ impl AgentVault {
 
     /// The vault path of an existing note. A name without `.md` finds the note.
     fn existing_note(&self, path: &str) -> Result<String, String> {
-        let clean = self.permit(&vault::ensure_md_extension(path))?;
+        let clean = self.permit_write(&vault::ensure_md_extension(path))?;
         if self.root.join(&clean).is_file() {
             Ok(clean)
         } else {
@@ -632,7 +683,7 @@ impl AgentVault {
     /// Replaces the context note. The text it replaces stays in version history.
     pub fn set_context(&self, text: &str) -> Result<Value, String> {
         let _write_lock = self.write_lock()?;
-        self.permit(CONTEXT_NOTE)?;
+        self.permit_write(CONTEXT_NOTE)?;
         let (abs, _) = vault::resolve_safe_vault_path(&self.root, CONTEXT_NOTE)?;
         let text = with_final_newline(text);
         if !abs.exists() {
@@ -646,8 +697,11 @@ impl AgentVault {
 }
 
 const CONTEXT_FOLDER: &str = ai_access::AI_FOLDER;
-const CONTEXT_NOTE: &str = "_context/Context.md";
-const CONVERSATIONS_FOLDER: &str = "_context/Conversations";
+const CONTEXT_NOTE: &str = "AI/Context.md";
+const AGENTS_NOTE: &str = "AI/AGENTS.md";
+const CONVERSATIONS_FOLDER: &str = "AI/Conversations";
+const DAILY_LOG_FOLDER: &str = "AI/Daily";
+const OUTPUTS_FOLDER: &str = "AI/Outputs";
 const RECENT_CONVERSATIONS: usize = 5;
 /// The app's built-in daily template, used when the configured template note is missing.
 const DEFAULT_DAILY_TEMPLATE: &str = "## Today\n\n- [ ] \n\n## Log\n\n";
@@ -670,7 +724,7 @@ fn is_iso_date(text: &str) -> bool {
 }
 
 fn is_shared(rules: &AccessRules, path: &str, content: &str) -> bool {
-    (ai_access::in_ai_folder(path) || rules.allows(path)) && !ai_access::blocks_ai(content)
+    rules.can_read(path) && !ai_access::blocks_ai(content)
 }
 
 /// One message for a hidden note and a missing one, so a caller cannot probe for names.
@@ -718,6 +772,10 @@ mod tests {
         assert!(agent.tasks().unwrap().as_array().unwrap().is_empty());
     }
 
+    fn set_up_ai(vault: &tempfile::TempDir, data: &tempfile::TempDir) {
+        crate::ai_folder::set_up(data.path(), vault.path()).unwrap();
+    }
+
     #[test]
     fn hidden_notes_do_not_change_the_visible_health_report() {
         let (vault, data) = vault_with_notes();
@@ -746,35 +804,83 @@ mod tests {
     fn hidden_notes_cannot_be_read_or_changed_through_any_call() {
         let (vault, data) = vault_with_notes();
         std::fs::write(vault.path().join("Sub/Secret.md"), "---\nai: false\n---\nzebra [[Gone]]").unwrap();
-        std::fs::write(vault.path().join("Sub/Open.md"), "open").unwrap();
+        set_up_ai(&vault, &data);
         share(&vault, &data, "", true);
         share(&vault, &data, "Home.md", false);
         let agent = open(&vault, &data, false).shared_only();
         for path in ["Home", "Sub/Secret"] {
-            let results = [
-                agent.read(path),
-                agent.append(path, "x", true),
-                agent.create(path, "x"),
-                agent.edit(path, "zebra", "x", false),
-                agent.set_properties(path, &Map::new(), &["ai".into()]),
-                agent.update_tags(path, &["a".into()], &[]),
-                agent.rename(path, "Moved", true),
-                agent.delete(path),
-                agent.backlinks(path),
-                agent.versions(path),
-            ];
-            for result in results {
+            for result in [agent.read(path), agent.backlinks(path), agent.versions(path)] {
                 assert!(result.unwrap_err().contains("not shared"));
             }
         }
         assert!(agent.search("zebra", 10).unwrap().as_array().unwrap().is_empty());
         assert!(!agent.health().unwrap().to_string().contains("Secret"));
-        assert!(agent.delete("Sub").unwrap_err().contains("holds notes"));
-        assert!(agent.rename("Sub", "Elsewhere", true).unwrap_err().contains("holds notes"));
-        // A shared note cannot be moved over to the hidden side.
-        share(&vault, &data, "Hidden", false);
-        assert!(agent.rename("Sub/Open", "Hidden/Open", true).unwrap_err().contains("not shared"));
-        assert!(vault.path().join("Sub/Secret.md").exists() && vault.path().join("Home.md").exists());
+    }
+
+    #[test]
+    fn a_shared_only_handle_changes_nothing_outside_the_ai_folder() {
+        let (vault, data) = vault_with_notes();
+        set_up_ai(&vault, &data);
+        share(&vault, &data, "", true);
+        let agent = open(&vault, &data, false).shared_only();
+        let results = [
+            agent.create("New", "x"),
+            agent.append("Plan", "x", false),
+            agent.edit("Plan", "oranges", "x", false),
+            agent.set_properties("Plan", &Map::new(), &["a".into()]),
+            agent.update_tags("Plan", &["a".into()], &[]),
+            agent.rename("Plan", "AI/Plan", true),
+            agent.delete("Plan"),
+            agent.delete("Sub"),
+            agent.create("AI/../New", "x"),
+        ];
+        for result in results {
+            assert!(result.is_err());
+        }
+        assert!(agent.create("AI/Outputs/Draft", "draft").is_ok());
+        assert!(agent.rename("AI/Outputs/Draft", "Draft", true).unwrap_err().contains("outside"));
+        assert_eq!(std::fs::read_to_string(vault.path().join("Plan.md")).unwrap(), "The plan about oranges");
+        assert!(!vault.path().join("New.md").exists() && !vault.path().join("Draft.md").exists());
+    }
+
+    #[test]
+    fn instructions_and_hidden_notes_in_the_ai_folder_are_protected() {
+        let (vault, data) = vault_with_notes();
+        set_up_ai(&vault, &data);
+        std::fs::write(vault.path().join("AI/Outputs/Mine.md"), "---\nai: false\n---\nkeep").unwrap();
+        let agent = open(&vault, &data, false).shared_only();
+        for result in [
+            agent.edit("AI/AGENTS", "Instructions", "x", false),
+            agent.append("AI/Preferences", "x", false),
+            agent.create("AI/Instructions/Tone", "x"),
+            agent.rename("AI/Context", "AI/Instructions/Context", true),
+            agent.delete("AI/Workflows"),
+            agent.delete("AI/Outputs"),
+            agent.delete("AI"),
+            agent.append("AI/Outputs/Mine", "x", false),
+        ] {
+            assert!(result.is_err());
+        }
+        assert!(agent.read("AI/Preferences").is_ok());
+        AccessRules::update(data.path(), vault.path(), |rules| rules.edit_instructions = true).unwrap();
+        assert!(agent.append("AI/Preferences", "- Brief", false).is_ok());
+        assert!(agent.create("AI/Instructions/Tone", "x").is_ok());
+        assert!(agent.delete("AI").unwrap_err().contains("itself"));
+    }
+
+    #[test]
+    fn a_rename_leaves_links_outside_the_ai_folder_alone() {
+        let (vault, data) = vault_with_notes();
+        set_up_ai(&vault, &data);
+        std::fs::write(vault.path().join("AI/Outputs/Draft.md"), "draft").unwrap();
+        std::fs::write(vault.path().join("AI/Outputs/Index.md"), "[[Draft]]").unwrap();
+        std::fs::write(vault.path().join("Home.md"), "[[Draft]]").unwrap();
+        share(&vault, &data, "Home.md", true);
+        let agent = open(&vault, &data, false).shared_only();
+        let renamed = agent.rename("AI/Outputs/Draft", "AI/Outputs/Final", true).unwrap();
+        assert_eq!((renamed["linksUpdated"].as_u64(), renamed["linksSkipped"].as_u64()), (Some(1), Some(1)));
+        assert_eq!(std::fs::read_to_string(vault.path().join("Home.md")).unwrap(), "[[Draft]]");
+        assert_eq!(std::fs::read_to_string(vault.path().join("AI/Outputs/Index.md")).unwrap(), "[[Final]]");
     }
 
     #[test]
@@ -787,16 +893,41 @@ mod tests {
     }
 
     #[test]
-    fn the_context_folder_is_shared_without_a_selection() {
+    fn the_ai_folder_works_once_set_up_and_logs_go_there() {
         let (vault, data) = vault_with_notes();
+        std::fs::create_dir(vault.path().join("AI")).unwrap();
+        std::fs::write(vault.path().join("AI/Context.md"), "private until set up").unwrap();
         let agent = open(&vault, &data, false).shared_only();
+        let before = agent.context().unwrap();
+        assert_eq!((before["setUp"].as_bool(), before["content"].as_str()), (Some(false), Some("")));
+        assert!(agent.set_context("x").unwrap_err().contains("not set up"));
+        assert!(agent.append_to_daily("x").unwrap_err().contains("not set up"));
+
+        set_up_ai(&vault, &data);
         agent.set_context("Launch").unwrap();
         agent.save_conversation("Kickoff", "Agreed").unwrap();
-        assert_eq!(agent.context().unwrap()["content"], "Launch\n");
-        assert!(agent.append_to_daily("log").unwrap_err().contains("not shared"));
-        std::fs::write(vault.path().join("_context/Context.md"), "---\nai: false\n---\nmine").unwrap();
+        let log = agent.append_to_daily("- Wrote the draft").unwrap();
+        let path = log["path"].as_str().unwrap();
+        assert!(path.starts_with("AI/Daily/"));
+        assert!(std::fs::read_to_string(vault.path().join(path)).unwrap().ends_with("- Wrote the draft\n"));
+        let context = agent.context().unwrap();
+        assert_eq!(context["content"], "Launch\n");
+        assert!(context["instructions"].as_str().unwrap().contains("AI assistants"));
+        assert_eq!(context["recentConversations"].as_array().unwrap().len(), 1);
+        assert!(!context["otherNotes"].to_string().contains("Daily"));
+
+        std::fs::write(vault.path().join("AI/Context.md"), "---\nai: false\n---\nmine").unwrap();
         assert_eq!(agent.context().unwrap()["content"], "");
         assert!(agent.set_context("x").is_err());
+    }
+
+    #[test]
+    fn a_users_daily_link_does_not_resolve_to_the_ai_log() {
+        let paths = vec!["AI/Daily/2026-01-02.md".to_string(), "Journal/Daily notes/2026-01-02.md".to_string()];
+        assert_eq!(
+            crate::index::resolve_wiki_link_path("Home.md", "2026-01-02", &paths).as_deref(),
+            Some("Journal/Daily notes/2026-01-02.md")
+        );
     }
 
     #[test]
@@ -830,7 +961,7 @@ mod tests {
         let context = agent.context().unwrap();
         assert_eq!(context["exists"], true);
         assert_eq!(context["content"], "Working on the launch\n");
-        let versions = agent.versions("_context/Context").unwrap();
+        let versions = agent.versions("AI/Context").unwrap();
         assert_eq!(versions.as_array().unwrap().len(), 1);
     }
 
@@ -1034,7 +1165,7 @@ mod tests {
         let first = agent.save_conversation("Launch: plan / budget?", "Decided the date.").unwrap();
         assert_eq!(first["created"], true);
         let path = first["path"].as_str().unwrap().to_string();
-        assert!(path.starts_with("_context/Conversations/") && path.ends_with(" Launch plan budget.md"), "{path}");
+        assert!(path.starts_with("AI/Conversations/") && path.ends_with(" Launch plan budget.md"), "{path}");
         let second = agent.save_conversation("launch plan budget", "Moved it a week.").unwrap();
         assert_eq!(second["path"], path.as_str());
         let text = agent.read(&path).unwrap()["content"].as_str().unwrap().to_string();

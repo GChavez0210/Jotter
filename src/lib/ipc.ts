@@ -9,6 +9,8 @@ import {
 } from './quickCapture';
 import type {
   AiAccessOverview,
+  AiFolderSetup,
+  AiFolderStatus,
   AiConfig,
   AiProvider,
   AiRequest,
@@ -486,6 +488,19 @@ export async function aiAccessOverview(): Promise<AiAccessOverview> {
 /** Shares or unshares a note or folder with AI. An empty path means the whole vault. */
 export async function aiAccessSet(relPath: string, shared: boolean): Promise<AiAccessOverview> {
   return invoke<AiAccessOverview>('ai_access_set', { relPath, shared });
+}
+
+export async function aiFolderStatus(): Promise<AiFolderStatus> {
+  return invoke<AiFolderStatus>('ai_folder_status');
+}
+
+/** Creates the AI folder and its notes, and moves `_context` into it. Overwrites nothing. */
+export async function aiFolderSetUp(): Promise<AiFolderSetup> {
+  return invoke<AiFolderSetup>('ai_folder_set_up');
+}
+
+export async function aiFolderEditInstructions(allowed: boolean): Promise<AiFolderStatus> {
+  return invoke<AiFolderStatus>('ai_folder_edit_instructions', { allowed });
 }
 
 /** How many notes an index run would send to the embedding provider. Sends nothing. */

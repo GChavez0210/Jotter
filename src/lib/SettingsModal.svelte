@@ -23,6 +23,7 @@
   import { askDeleteIndex, copyToClipboard, exportSettingsFile, getCliPath, importSettingsFile, openDictionariesFolder } from './ipc';
   import { mcpSetupPrompt } from './mcpSetup';
   import AiAccess from './AiAccess.svelte';
+  import AiFolder from './AiFolder.svelte';
   import { appStorage } from './appStorage';
   import { saveBeforeLeaving } from './saveBeforeLeaving';
   import { tabsStore } from './stores/tabs.svelte';
@@ -156,6 +157,7 @@
   // `undefined` until the backend answers; `null` when this copy of Jotter has no CLI.
   let cliPath = $state<string | null | undefined>(undefined);
   let choosingNotes = $state(false);
+  let aiFolder = $state<AiFolder>();
   let mcpReadOnly = $state(false);
   let mcpNotice = $state('');
   let mcpError = $state('');
@@ -168,6 +170,8 @@
     try {
       await copyToClipboard({ text: mcpPrompt, mode: 'markdown_source' });
       mcpNotice = m.settings_mcp_copied();
+      // The assistant needs the folder before it can write anything.
+      await aiFolder?.offer();
     } catch (err) {
       mcpError = m.settings_mcp_copy_failed({ error: String(err) });
     }
@@ -1040,7 +1044,10 @@
                   disabled={aiBusy}
                   onchange={(e) => {
                     const enabled = (e.currentTarget as HTMLInputElement).checked;
-                    void aiChange(() => aiStore.updateConfig((c) => (c.enabled = enabled)));
+                    void aiChange(async () => {
+                      await aiStore.updateConfig((c) => (c.enabled = enabled));
+                      if (enabled) await aiFolder?.offer();
+                    });
                   }}
                 />
               </div>
@@ -1240,6 +1247,7 @@
             {/if}
 
             {#if vaultStore.vaultSnapshot}
+              <AiFolder bind:this={aiFolder} />
               <div class="setting-card column-card">
                 <div class="setting-info">
                   <div class="setting-label">{m.ai_access_title()}</div>
@@ -1675,7 +1683,7 @@
     font-size: var(--fs-13);
   }
 
-  .setting-card {
+  .settings-section :global(.setting-card) {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1684,17 +1692,17 @@
     border-bottom: 1px solid var(--line-subtle);
   }
 
-  .setting-card:last-child {
+  .settings-section :global(.setting-card:last-child) {
     border-bottom: 0;
   }
 
-  .setting-card.column-card {
+  .settings-section :global(.setting-card.column-card) {
     flex-direction: column;
     align-items: stretch;
     gap: var(--space-3);
   }
 
-  .setting-row-top {
+  .settings-section :global(.setting-row-top) {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -1714,25 +1722,25 @@
     flex-wrap: wrap;
   }
 
-  .setting-info {
+  .settings-section :global(.setting-info) {
     display: flex;
     flex-direction: column;
     gap: 2px;
     min-width: 0;
   }
 
-  .setting-label {
+  .settings-section :global(.setting-label) {
     color: var(--text-primary);
     font-weight: 600;
   }
 
-  .setting-desc {
+  .settings-section :global(.setting-desc) {
     color: var(--text-muted);
     font-size: var(--fs-12);
     line-height: var(--leading-normal);
   }
 
-  .setting-desc code {
+  .settings-section :global(.setting-desc code) {
     font-family: var(--font-mono);
     font-size: 0.95em;
   }
@@ -1768,7 +1776,7 @@
     outline-offset: 0;
   }
 
-  .field-error {
+  .settings-section :global(.field-error) {
     color: var(--text-danger);
     font-size: var(--fs-12);
   }
@@ -1811,7 +1819,7 @@
     outline-offset: 0;
   }
 
-  .button-row {
+  .settings-section :global(.button-row) {
     display: flex;
     flex-shrink: 0;
     gap: var(--space-2);
@@ -1851,7 +1859,7 @@
   }
 
   /* Switch built on a native checkbox so keyboard and screen readers work unchanged. */
-  .fluent-toggle {
+  .settings-section :global(.fluent-toggle) {
     appearance: none;
     position: relative;
     width: 36px;
@@ -1867,7 +1875,7 @@
       border-color var(--transition-fast);
   }
 
-  .fluent-toggle::before {
+  .settings-section :global(.fluent-toggle::before) {
     content: '';
     position: absolute;
     top: 3px;
@@ -1879,22 +1887,22 @@
     transition: transform var(--transition-fast);
   }
 
-  .fluent-toggle:checked {
+  .settings-section :global(.fluent-toggle:checked) {
     border-color: var(--accent);
     background: var(--accent);
   }
 
-  .fluent-toggle:checked::before {
+  .settings-section :global(.fluent-toggle:checked::before) {
     transform: translateX(16px);
     background: var(--on-accent);
   }
 
   @media (forced-colors: active) {
-    .fluent-toggle {
+    .settings-section :global(.fluent-toggle) {
       appearance: auto;
     }
 
-    .fluent-toggle::before {
+    .settings-section :global(.fluent-toggle::before) {
       display: none;
     }
   }

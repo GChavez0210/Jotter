@@ -194,6 +194,43 @@ test('Ask selects the notes AI can read from the keyboard', async () => {
   } finally { await browser.close(); }
 });
 
+test('turning AI on offers the AI folder and waits for confirmation', async () => {
+  const bundle = await bundleHarness('AppHarness');
+  const browser = await launchBrowser();
+  try {
+    const page = await openHarness(browser, bundle);
+    await configureAsk(page);
+    await page.evaluate(async () => {
+      const {aiControl} = window.__review;
+      const status = await aiControl.getStatus();
+      aiControl.getStatus = async () => ({...status, config: {...status.config, enabled: false}});
+    });
+    await page.keyboard.press('Control+,');
+    await page.getByRole('button', {name: 'AI', exact: true}).click();
+    await page.getByRole('checkbox', {name: 'Use AI', exact: true}).click();
+    const create = page.getByRole('button', {name: 'Create the folder', exact: true});
+    await expect(create).toBeFocused();
+    await expect(page.getByText('Notes already in it that assistants will be able to read and change: 2.', {exact: false})).toBeVisible();
+    assert.equal(await page.evaluate(() => window.__review.folderControl.setUps), 0);
+    const violations = [];
+    for (const theme of ['light', 'dark', 'high-contrast']) {
+      await page.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme);
+      violations.push(...await auditPage(page, `${theme}: AI folder confirmation`));
+    }
+    await create.press('Enter');
+    const instructions = page.getByRole('checkbox', {name: 'Let assistants edit instructions', exact: true});
+    await expect(instructions).not.toBeChecked();
+    await instructions.press('Space');
+    await expect(instructions).toBeChecked();
+    assert.equal(await page.evaluate(() => window.__review.folderControl.status.editInstructions), true);
+    for (const theme of ['light', 'dark', 'high-contrast']) {
+      await page.evaluate(t => document.documentElement.setAttribute('data-theme', t), theme);
+      violations.push(...await auditPage(page, `${theme}: AI folder ready`));
+    }
+    assert.deepEqual(violations, [], JSON.stringify(violations, null, 2));
+  } finally { await browser.close(); }
+});
+
 test('Ask replaces Settings, keeps modal focus, and passes accessibility in its main states', async () => {
   const bundle = await bundleHarness('AppHarness');
   const browser = await launchBrowser();
