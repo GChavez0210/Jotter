@@ -289,6 +289,14 @@ pub async fn ask(ai: &AiState, app_data_dir: &Path, vault_root: &Path, question:
     let profile = ai.embedding_profile()?;
     let sources = search_for_profile(ai, app_data_dir, vault_root, question, CONTEXT_PASSAGES, &profile).await?;
     let (answer, _) = ai.chat_for_vault(&profile, SYSTEM, &build_user_message(question, &sources)).await?;
+    // Permission can change while the provider prepares the answer. Do not return revoked
+    // passages or an answer derived from them, and purge their stored vectors as well.
+    let (data, root, identity) = (app_data_dir.to_owned(), vault_root.to_owned(), profile.identity());
+    let current = tokio::task::spawn_blocking(move || current_chunks(&data, &root, &identity))
+        .await.map_err(|e| format!("Cannot recheck answer sources: {e}"))??;
+    if sources.iter().any(|source| !current.iter().any(|stored| stored.chunk == source.chunk)) {
+        return Err("The answer sources changed or are no longer shared. Ask again after updating the index.".into());
+    }
     Ok(Answer { answer, sources })
 }
 

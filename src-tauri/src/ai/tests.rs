@@ -17,39 +17,47 @@ fn fake_server(reply: serde_json::Value, delay: Duration) -> (String, JoinHandle
 }
 
 fn fake_server_with_hook(reply: serde_json::Value, delay: Duration, hook: impl FnOnce() + Send + 'static) -> (String, JoinHandle<String>) {
+    fake_server_steps(reply, delay, vec![Box::new(hook)])
+}
+
+fn fake_server_steps(reply: serde_json::Value, delay: Duration, hooks: Vec<Box<dyn FnOnce() + Send>>) -> (String, JoinHandle<String>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let base = format!("http://127.0.0.1:{}", listener.local_addr().unwrap().port());
     let handle = std::thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
-        stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-        let mut raw = Vec::new();
-        let mut buf = [0u8; 4096];
-        loop {
-            let n = stream.read(&mut buf).unwrap_or(0);
-            if n == 0 {
-                break;
-            }
-            raw.extend_from_slice(&buf[..n]);
-            let text = String::from_utf8_lossy(&raw);
-            if let Some(end) = text.find("\r\n\r\n") {
-                let length = text[..end]
-                    .lines()
-                    .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap()))
-                    .unwrap_or(0);
-                if raw.len() >= end + 4 + length {
+        let mut requests = String::new();
+        for hook in hooks {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            let mut raw = Vec::new();
+            let mut buf = [0u8; 4096];
+            loop {
+                let n = stream.read(&mut buf).unwrap_or(0);
+                if n == 0 {
                     break;
                 }
+                raw.extend_from_slice(&buf[..n]);
+                let text = String::from_utf8_lossy(&raw);
+                if let Some(end) = text.find("\r\n\r\n") {
+                    let length = text[..end]
+                        .lines()
+                        .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap()))
+                        .unwrap_or(0);
+                    if raw.len() >= end + 4 + length {
+                        break;
+                    }
+                }
             }
+            hook();
+            std::thread::sleep(delay);
+            let body = reply.to_string();
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            requests.push_str(&String::from_utf8_lossy(&raw));
         }
-        hook();
-        std::thread::sleep(delay);
-        let body = reply.to_string();
-        let _ = write!(
-            stream,
-            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-            body.len()
-        );
-        String::from_utf8_lossy(&raw).into_owned()
+        requests
     });
     (base, handle)
 }
@@ -397,6 +405,26 @@ fn unselecting_a_note_during_question_embedding_prevents_sending_it_to_chat() {
     let error = block_on(ask::ask(&state, data.path(), vault.path(), "Question")).unwrap_err();
     assert!(error.contains("no longer shared"));
     server.join().unwrap();
+}
+
+#[test]
+fn revoking_a_source_during_chat_discards_the_reply_and_sources() {
+    let vault = tempfile::tempdir().unwrap();
+    let data = tempfile::tempdir().unwrap();
+    std::fs::write(vault.path().join("A.md"), "Synthetic shared text").unwrap();
+    share(data.path(), vault.path(), "", true);
+    let (data_path, vault_path) = (data.path().to_owned(), vault.path().to_owned());
+    let (base, server) = fake_server_steps(json!({
+        "data":[{"index":0,"embedding":[1.0,0.0]}],
+        "choices":[{"message":{"content":"Synthetic answer [A.md:1]"},"finish_reason":"stop"}]
+    }), Duration::ZERO, vec![Box::new(|| {}), Box::new(move || share(&data_path, &vault_path, "A.md", false))]);
+    let (_dir, state, _) = state_with(AiProvider::OpenaiCompatible, &base);
+    let profile = enable_ask(&state);
+    seed_ask_note(&state, data.path(), vault.path());
+    let result = block_on(ask::ask(&state, data.path(), vault.path(), "Question"));
+    server.join().unwrap();
+    assert!(result.unwrap_err().contains("no longer shared"));
+    assert_eq!(stored_passages(data.path(), vault.path(), &profile), 0);
 }
 
 #[test]
