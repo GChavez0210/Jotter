@@ -266,6 +266,24 @@ mod tests {
         assert!(!status(data.path(), vault.path()).unwrap().set_up);
     }
 
+    #[test]
+    fn an_external_replacement_of_ai_does_not_inherit_setup_consent() {
+        let vault = tempfile::tempdir().unwrap();
+        let data = tempfile::tempdir().unwrap();
+        set_up(data.path(), vault.path()).unwrap();
+        fs::rename(vault.path().join("AI"), vault.path().join("Previous AI")).unwrap();
+        assert!(!status(data.path(), vault.path()).unwrap().set_up);
+        fs::create_dir(vault.path().join("AI")).unwrap();
+        fs::write(vault.path().join("AI/Context.md"), "private replacement").unwrap();
+        assert!(!status(data.path(), vault.path()).unwrap().set_up);
+        let agent = AgentVault::open(vault.path(), true, data.path()).unwrap().shared_only();
+        assert!(agent.read("AI/Context").is_err());
+        assert!(!agent.context().unwrap().to_string().contains("private replacement"));
+        set_up(data.path(), vault.path()).unwrap();
+        assert!(status(data.path(), vault.path()).unwrap().set_up);
+        assert_eq!(agent.read("AI/Context").unwrap()["content"], "private replacement");
+    }
+
     #[cfg(windows)]
     #[test]
     fn setup_status_rejects_a_junction_before_scanning_private_notes() {

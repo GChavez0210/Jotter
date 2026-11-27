@@ -267,7 +267,7 @@ The `AI` folder holds what assistants need to know about you, and what they prod
 - Notes that already exist in a folder named `AI` become readable and editable when you set it up. The confirmation says how many.
 - Setup moves the notes in `_context/`, used by earlier versions, into `AI/` and updates links to them. A note whose name is taken stays where it is.
 - Your notes outside the folder win link names: `[[2026-01-02]]` opens your daily note, not the assistants' log.
-- Renaming or deleting the folder in Jotter withdraws access until you set it up again.
+- Consent is tied to the folder's filesystem identity. A missing or replaced folder loses its automatic MCP access and write permission until you confirm setup again. Renaming or deleting the folder in Jotter also clears the instruction-editing switch.
 
 ## Command line and MCP server
 

@@ -18,6 +18,41 @@ pub fn in_ai_folder(path: &str) -> bool {
     path.strip_prefix(AI_FOLDER).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
+/// Consent belongs to one directory, rather than whatever later takes its path.
+fn ai_folder_identity(root: &Path) -> Result<String, String> {
+    if disk_spelling(root, AI_FOLDER).as_deref() != Some(AI_FOLDER) {
+        return Err("The AI folder is missing or was renamed.".into());
+    }
+    let (path, _) = crate::vault::resolve_safe_vault_path(root, AI_FOLDER)?;
+    if !path.is_dir() {
+        return Err("The AI folder is missing.".into());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = fs::metadata(&path).map_err(|e| format!("Cannot inspect the AI folder: {e}"))?;
+        let created = metadata.created().ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|time| time.as_nanos()).unwrap_or(0);
+        Ok(format!("{}:{}:{created}", metadata.dev(), metadata.ino()))
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use std::os::windows::io::AsRawHandle;
+        use windows::Win32::Foundation::HANDLE;
+        use windows::Win32::Storage::FileSystem::{GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION, FILE_FLAG_BACKUP_SEMANTICS};
+        let file = fs::OpenOptions::new().read(true).custom_flags(FILE_FLAG_BACKUP_SEMANTICS.0)
+            .open(&path).map_err(|e| format!("Cannot inspect the AI folder: {e}"))?;
+        let mut info = BY_HANDLE_FILE_INFORMATION::default();
+        // The file owns this handle and keeps it alive for the metadata call.
+        unsafe { GetFileInformationByHandle(HANDLE(file.as_raw_handle()), &mut info) }
+            .map_err(|e| format!("Cannot identify the AI folder: {e}"))?;
+        Ok(format!("{}:{}:{}:{}:{}", info.dwVolumeSerialNumber, info.nFileIndexHigh, info.nFileIndexLow,
+            info.ftCreationTime.dwHighDateTime, info.ftCreationTime.dwLowDateTime))
+    }
+}
+
 /// Whether the path in the AI folder tells assistants how to behave: the preferences, the
 /// instruction notes, and any `AGENTS.md` or `CLAUDE.md`. Case is ignored, so another
 /// spelling cannot slip past.
@@ -121,6 +156,8 @@ pub struct AccessRules {
     /// The user set up the AI folder, so assistants may use it.
     #[serde(default)]
     pub ai_folder: bool,
+    #[serde(default)]
+    ai_folder_identity: Option<String>,
     /// Assistants may also change the notes that instruct them.
     #[serde(default)]
     pub edit_instructions: bool,
@@ -136,9 +173,17 @@ impl AccessRules {
     pub fn load(app_data_dir: &Path, vault_root: &Path) -> Result<Self, String> {
         let file = Self::file(app_data_dir, vault_root);
         match fs::read(&file) {
-            Ok(bytes) => serde_json::from_slice(&bytes).map_err(|e| {
-                format!("Cannot read the AI note selection {}: {e}. Delete the file and select the notes again.", file.display())
-            }),
+            Ok(bytes) => {
+                let mut rules: Self = serde_json::from_slice(&bytes).map_err(|e| {
+                    format!("Cannot read the AI note selection {}: {e}. Delete the file and select the notes again.", file.display())
+                })?;
+                if rules.ai_folder && (rules.ai_folder_identity.is_none()
+                    || ai_folder_identity(vault_root).ok().as_ref() != rules.ai_folder_identity.as_ref()) {
+                    rules.ai_folder = false;
+                    rules.edit_instructions = false;
+                }
+                Ok(rules)
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
             Err(e) => Err(format!("Cannot read the AI note selection {}: {e}", file.display())),
         }
@@ -150,6 +195,9 @@ impl AccessRules {
         let current = Self::load(app_data_dir, vault_root)?;
         let mut next = current.clone();
         change(&mut next);
+        if next.ai_folder && !current.ai_folder {
+            next.ai_folder_identity = Some(ai_folder_identity(vault_root)?);
+        }
         if next != current {
             let bytes = serde_json::to_vec_pretty(&next).map_err(|e| format!("Cannot encode the AI note selection: {e}"))?;
             crate::fs_atomic::atomic_write_bytes(&Self::file(app_data_dir, vault_root), &bytes)?;
@@ -205,6 +253,7 @@ impl AccessRules {
         // The setup covers the folder the user agreed to, not one later moved to its name.
         if from == AI_FOLDER {
             self.ai_folder = false;
+            self.edit_instructions = false;
         }
         let moved: Vec<(String, bool)> = self
             .rules
@@ -223,6 +272,7 @@ impl AccessRules {
     pub fn forget(&mut self, path: &str) {
         if path == AI_FOLDER {
             self.ai_folder = false;
+            self.edit_instructions = false;
         }
         self.rules.retain(|rule, allowed| !(*allowed && is_within(rule, path)));
     }
