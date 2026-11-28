@@ -2443,7 +2443,7 @@ dependencies = [
 
 [[package]]
 name = "jotter-cli"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "clap",
  "jotter-core",
@@ -2453,7 +2453,7 @@ dependencies = [
 
 [[package]]
 name = "jotter-core"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "chrono",
  "comrak",
@@ -2470,7 +2470,7 @@ dependencies = [
 
 [[package]]
 name = "jotter-desktop"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "arboard",
  "base64 0.23.1",

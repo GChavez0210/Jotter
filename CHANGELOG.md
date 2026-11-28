@@ -4,6 +4,8 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-27
+
 ### Added
 
 - **Ask your vault button and shortcut.** Open the panel from the sidebar or with `Ctrl+J`. Note selection and indexing sit beside your question, the panel names the providers that receive your notes, and numbered citations open the note at the cited line.
@@ -12,7 +14,13 @@ All notable changes to Jotter are listed here, newest first. The format follows 
 
 - **Notes AI can read.** Select the notes, folders, or whole vault that Ask your vault and MCP assistants may read, in Settings → AI or the Ask your vault panel. Add `ai: false` to a note's properties to block it, including from Rewrite, Translate, and Summarize.
 
+- **OpenCode Go compatibility.** Jotter identifies itself in API requests and keeps a stable routing session while the Ask your vault dialog is open.
+- **Separate embedding URL.** Ask your vault can use a different base URL for embeddings. By default it uses the selected embedding provider's saved URL.
+
 ### Changed
+
+- **Ask your vault composer.** The send button sits inside the input. Enter sends the question and Shift+Enter adds a line.
+- **Sidebar and AI settings.** The Ask your vault button sits above New note. The Search notes box has more space below it, and AI setup and access descriptions are shorter.
 
 - **MCP setup prompt.** The copied instructions explain note selection, `ai: false`, protected instructions, and the AI folder destinations. Read-only connections interview you and propose context for you to save.
 - **Ask your vault and MCP start with nothing selected.** After upgrading, select notes before you use them. Until then, assistants see only the AI folder, once you set it up. Ask your vault deletes the stored passages of unselected notes. The other `jotter` commands still read the whole vault.
