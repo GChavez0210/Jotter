@@ -23,6 +23,7 @@
 
   let status = $state<AskIndexStatus | null>(null);
   let overview = $state<AiAccessOverview | null>(null);
+  const sessionId = crypto.randomUUID();
   let question = $state('');
   /** The question the current answer, or the pending request, belongs to. */
   let asked = $state('');
@@ -35,8 +36,8 @@
   const pending = $derived(!!status && (status.notesToEmbed > 0 || status.notesToRemove > 0));
   const destination = $derived.by(() => {
     if (!config) return '';
-    const search = aiDestination(config, config.embeddingProvider);
-    return config.embeddingProvider === config.provider
+    const search = aiDestination(config, config.embeddingProvider, config.embeddingBaseUrl ?? undefined);
+    return config.embeddingProvider === config.provider && config.embeddingBaseUrl == null
       ? m.ask_sent_to({ destination: search })
       : m.ask_sent_split({ search, answer: aiDestination(config, config.provider) });
   });
@@ -89,7 +90,7 @@
     phase = 'asking';
     const generation = accessGeneration;
     try {
-      const result = await askVault(sent);
+      const result = await askVault(sent, sessionId);
       if (generation === accessGeneration) {
         answer = result;
         if (question === sent) question = '';
@@ -208,7 +209,7 @@
               bind:value={question}
               use:focus
               onkeydown={(e) => {
-                if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
                   e.preventDefault();
                   void ask();
                 }
@@ -376,19 +377,30 @@
 
   .composer {
     display: flex;
-    align-items: flex-end;
-    gap: var(--space-2);
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-1);
+    padding: var(--space-2);
+    border: 1px solid var(--line-control);
+    border-radius: var(--radius-card);
+    background: var(--surface-field);
+  }
+
+  .composer:focus-within {
+    border-color: var(--accent);
+  }
+
+  .composer :global(button) {
+    align-self: flex-end;
   }
 
   textarea {
-    box-sizing: border-box;
-    flex: 1;
     min-width: 0;
     resize: none;
-    padding: var(--space-2);
-    border: 1px solid var(--line-control);
-    border-radius: var(--radius-control);
-    background: var(--surface-field);
+    padding: 0;
+    border: 0;
+    outline: none;
+    background: transparent;
     color: var(--text-primary);
     font: inherit;
   }

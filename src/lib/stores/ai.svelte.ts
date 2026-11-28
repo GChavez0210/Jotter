@@ -42,9 +42,8 @@ function endpointKey(provider: AiProvider): 'openaiCompatible' | 'anthropic' | '
 }
 
 /** The provider and server that receive what is sent to `provider`. */
-export function aiDestination(config: AiConfig, provider: AiProvider): string {
+export function aiDestination(config: AiConfig, provider: AiProvider, baseUrl = config[endpointKey(provider)].baseUrl): string {
   const label = AI_PROVIDER_LABELS[provider];
-  const { baseUrl } = config[endpointKey(provider)];
   const host = URL.canParse(baseUrl) ? new URL(baseUrl).host : '';
   return host ? `${label} (${host})` : label;
 }

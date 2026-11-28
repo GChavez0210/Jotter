@@ -25,6 +25,7 @@ pub struct ChatCall<'a> {
     pub base_url: &'a Url,
     pub model: &'a str,
     pub api_key: Option<&'a str>,
+    pub session_id: &'a str,
     pub system: &'a str,
     pub user: &'a str,
 }
@@ -54,6 +55,7 @@ pub async fn read_limited_body(
 
 pub fn build_client() -> reqwest::Client {
     reqwest::Client::builder()
+        .user_agent(concat!("Jotter/", env!("CARGO_PKG_VERSION")))
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(180))
         // A redirect could carry the key to another host, so never follow one.
@@ -195,9 +197,19 @@ pub fn describe_transport_error(provider: AiProvider, base_url: &Url, err: &reqw
     }
 }
 
-pub async fn send_chat(client: &reqwest::Client, call: &ChatCall<'_>) -> Result<(String, AiUsage), String> {
+fn chat_request(client: &reqwest::Client, call: &ChatCall<'_>) -> reqwest::RequestBuilder {
     let url = request_url(call.provider, call.base_url);
     let mut request = client.post(url).json(&request_body(call));
+    if call.provider == AiProvider::OpenaiCompatible
+        && call.base_url.scheme() == "https"
+        && call.base_url.host_str() == Some("opencode.ai")
+        && matches!(
+            call.base_url.path().trim_end_matches('/'),
+            "/inference/go/openai/v1" | "/zen/go/v1"
+        )
+    {
+        request = request.header("x-opencode-session", call.session_id);
+    }
     match (call.provider, call.api_key) {
         (AiProvider::Anthropic, Some(key)) => {
             request = request.header("x-api-key", key).header("anthropic-version", ANTHROPIC_VERSION);
@@ -208,7 +220,11 @@ pub async fn send_chat(client: &reqwest::Client, call: &ChatCall<'_>) -> Result<
         (_, Some(key)) => request = request.bearer_auth(key),
         (_, None) => {}
     }
-    let response = request
+    request
+}
+
+pub async fn send_chat(client: &reqwest::Client, call: &ChatCall<'_>) -> Result<(String, AiUsage), String> {
+    let response = chat_request(client, call)
         .send()
         .await
         .map_err(|e| describe_transport_error(call.provider, call.base_url, &e))?;
@@ -226,8 +242,23 @@ pub async fn send_chat(client: &reqwest::Client, call: &ChatCall<'_>) -> Result<
 mod tests {
     use super::*;
 
+    #[test]
+    fn opencode_go_requests_use_the_conversation_id() {
+        let client = build_client();
+        for base in ["https://opencode.ai/inference/go/openai/v1/", "https://opencode.ai/zen/go/v1"] {
+            let url = Url::parse(base).unwrap();
+            let mut call = call(AiProvider::OpenaiCompatible, &url);
+            for session in ["session-1", "session-1", "session-2"] {
+                call.session_id = session;
+                let request = chat_request(&client, &call).build().unwrap();
+                assert_eq!(request.headers()["x-opencode-session"].to_str().unwrap(), session);
+                assert!(request.url().path().ends_with("/chat/completions"));
+            }
+        }
+    }
+
     fn call<'a>(provider: AiProvider, url: &'a Url) -> ChatCall<'a> {
-        ChatCall { provider, base_url: url, model: "m", api_key: Some("k"), system: "sys", user: "hi" }
+        ChatCall { provider, base_url: url, model: "m", api_key: Some("k"), session_id: "session-1", system: "sys", user: "hi" }
     }
 
     #[test]

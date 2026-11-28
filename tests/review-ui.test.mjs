@@ -43,8 +43,8 @@ async function bundleHarness(fixture) {
 async function openHarness(browser, bundle) {
   const page = await browser.newPage();
   // The real page has a title and a language; the harness serves the same shell.
-  await page.route('http://review.test/', route => route.fulfill({contentType:'text/html', body:'<!doctype html><html lang="en"><head><title>Jotter</title></head><body></body></html>'}));
-  await page.goto('http://review.test/');
+  await page.route('https://review.test/', route => route.fulfill({contentType:'text/html', body:'<!doctype html><html lang="en"><head><title>Jotter</title></head><body></body></html>'}));
+  await page.goto('https://review.test/');
   // Component styles are compiled in, but the tokens and base rules come from real stylesheets.
   for (const sheet of ['src/styles/design-tokens.css', 'src/styles/picker.css', 'src/app.css']) {
     const css = await readFile(resolve(sheet), 'utf8');
@@ -121,10 +121,15 @@ test('Ask cleans deleted-only indexes, prevents duplicate submits, and discards 
     });
     await page.getByRole('button', {name: 'Remove deleted notes', exact: true}).click();
     await expect(page.getByText('Removed index entries: 1.', {exact: true})).toBeVisible();
-    await page.locator('#ask-question').fill('Question');
-    await page.getByRole('button', {name: 'Ask', exact: true}).click();
+    const question = page.locator('#ask-question');
+    await question.fill('Question');
+    await question.press('End');
+    await question.press('Shift+Enter');
+    await expect(question).toHaveValue('Question\n');
+    assert.equal(await page.evaluate(() => window.__askCalls), 0);
+    await question.press('Enter');
     await expect(page.getByRole('button', {name: 'Ask', exact: true})).toBeDisabled();
-    await page.locator('#ask-question').press('Control+Enter');
+    await question.press('Enter');
     assert.equal(await page.evaluate(() => window.__askCalls), 1);
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toHaveCount(0);
@@ -355,7 +360,10 @@ test('Ask replaces Settings, keeps modal focus, and passes accessibility in its 
     await expect(page.locator('#ask-question')).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toHaveCount(0);
-    await page.getByRole('button', {name: /^Ask your vault/}).click();
+    const askButton = page.getByRole('button', {name: 'Ask your vault', exact: true});
+    const [askBox, newNoteBox] = await Promise.all([askButton.boundingBox(), page.locator('.new-note').boundingBox()]);
+    assert.ok(askBox && newNoteBox && askBox.y + askBox.height <= newNoteBox.y);
+    await askButton.click();
     await expect(page.locator('#ask-question')).toBeFocused();
     await page.getByRole('dialog').getByRole('button', {name: 'Close', exact: true}).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
