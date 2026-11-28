@@ -1426,6 +1426,7 @@ test('AI settings serialize overlapping edits and recover after a failed save', 
   const originalSave = aiControl.saveConfig;
   const config: AiConfig = {
     enabled: true, provider: 'openai-compatible', styleInstructions: '',
+    askVaultEnabled: false, embeddingProvider: 'openai-compatible', embeddingModel: '', embeddingBaseUrl: null,
     openaiCompatible: {baseUrl:'https://old.example',model:'old'},
     anthropic: {baseUrl:'https://anthropic.example',model:'a'},
     ollama: {baseUrl:'http://localhost:11434',model:'o'},

@@ -1180,6 +1180,33 @@
                     onchange={(next) =>
                       void aiChange(() => aiStore.updateConfig((c) => (c.embeddingProvider = next)))}
                   />
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={aiStore.status.config.embeddingBaseUrl == null}
+                      disabled={aiBusy}
+                      onchange={(e) => {
+                        const useSameUrl = e.currentTarget.checked;
+                        void aiChange(() => aiStore.updateConfig((c) => (c.embeddingBaseUrl = useSameUrl ? null : '')));
+                      }}
+                    />
+                    {m.settings_ask_same_base_url()}
+                  </label>
+                  {#if aiStore.status.config.embeddingBaseUrl != null}
+                    <label class="text-field">
+                      <span>{m.settings_ask_base_url()}</span>
+                      <input
+                        type="url"
+                        spellcheck="false"
+                        value={aiStore.status.config.embeddingBaseUrl}
+                        disabled={aiBusy}
+                        onchange={(e) => {
+                          const value = e.currentTarget.value;
+                          void aiChange(() => aiStore.updateConfig((c) => (c.embeddingBaseUrl = value)));
+                        }}
+                      />
+                    </label>
+                  {/if}
                   <label class="text-field">
                     <span>{m.settings_ask_model()}</span>
                     <input

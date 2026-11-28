@@ -68,7 +68,7 @@ impl EmbeddingProfile {
         }
         Ok(Self {
             provider,
-            base_url: config::validate_base_url(provider, &config.endpoint(provider).base_url)?,
+            base_url: config::validate_base_url(provider, config.embedding_base_url())?,
             model: config.embedding_model.clone(),
         })
     }
@@ -254,7 +254,11 @@ impl AiState {
         if embedding && !embed::supports_embeddings(provider) {
             return Err(format!("{label} has no embeddings. Choose another provider for Ask your vault in Settings > AI."));
         }
-        if endpoint.base_url.is_empty() {
+        let base = if embedding { config.embedding_base_url() } else { &endpoint.base_url };
+        if base.is_empty() && embedding && config.embedding_base_url.is_some() {
+            return Err("Enter the embedding base URL in Settings > AI.".into());
+        }
+        if base.is_empty() {
             return Err(format!("Enter the {label} base URL in Settings > AI."));
         }
         let model = if embedding { config.embedding_model.clone() } else { endpoint.model.clone() };
@@ -265,7 +269,7 @@ impl AiState {
                 format!("Enter a {label} model name in Settings > AI.")
             });
         }
-        let base_url = config::validate_base_url(provider, &endpoint.base_url)?;
+        let base_url = config::validate_base_url(provider, base)?;
         let api_key = if provider.uses_key() {
             match settings.key_origins.get(&provider) {
                 Some(origin) if *origin == config::origin_of(&base_url) => {
@@ -286,6 +290,7 @@ impl AiState {
                         }
                     }
                 }
+                _ if embedding && config.embedding_base_url.is_some() && config::is_loopback_host(&base_url) => None,
                 Some(origin) => {
                     return Err(format!(
                         "The {label} base URL changed since you saved the key for {origin}. Enter the key again in Settings > AI to send it to the new address."
@@ -308,7 +313,7 @@ impl AiState {
     }
 
     /// Rechecks Ask consent and the retrieval profile before sending note passages to chat.
-    pub async fn chat_for_vault(&self, profile: &EmbeddingProfile, system: &str, user: &str) -> Result<(String, AiUsage), String> {
+    pub async fn chat_for_vault(&self, profile: &EmbeddingProfile, system: &str, user: &str, session_id: &str) -> Result<(String, AiUsage), String> {
         let prepared = {
             let settings = self.lock()?;
             Self::check_embedding_profile(&settings.config, profile)?;
@@ -319,6 +324,7 @@ impl AiState {
             base_url: &prepared.base_url,
             model: &prepared.model,
             api_key: prepared.api_key.as_deref(),
+            session_id,
             system,
             user,
         };
@@ -410,6 +416,7 @@ impl AiState {
             base_url: &prepared.base_url,
             model: &prepared.model,
             api_key: prepared.api_key.as_deref(),
+            session_id: &id,
             system: &system,
             user: &user,
         };

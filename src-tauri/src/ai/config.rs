@@ -65,6 +65,8 @@ pub struct AiConfig {
     pub embedding_provider: AiProvider,
     #[serde(default)]
     pub embedding_model: String,
+    #[serde(default)]
+    pub embedding_base_url: Option<String>,
     /// Ask your vault sends note passages to the embedding provider, so it has its own switch,
     /// off by default, separate from the general AI switch.
     #[serde(default)]
@@ -106,12 +108,19 @@ impl Default for AiConfig {
             style_instructions: default_style_instructions(),
             embedding_provider: default_embedding_provider(),
             embedding_model: String::new(),
+            embedding_base_url: None,
             ask_vault_enabled: false,
         }
     }
 }
 
 impl AiConfig {
+    pub fn embedding_base_url(&self) -> &str {
+        self.embedding_base_url
+            .as_deref()
+            .unwrap_or(&self.endpoint(self.embedding_provider).base_url)
+    }
+
     pub fn endpoint(&self, provider: AiProvider) -> &AiEndpoint {
         match provider {
             AiProvider::OpenaiCompatible => &self.openai_compatible,
@@ -144,6 +153,12 @@ impl AiConfig {
         }
         if self.embedding_provider == AiProvider::Anthropic {
             return Err("Anthropic has no embeddings. Choose OpenAI-compatible or Ollama for Ask your vault.".into());
+        }
+        if let Some(base_url) = &mut self.embedding_base_url {
+            *base_url = base_url.trim().trim_end_matches('/').to_string();
+            if !base_url.is_empty() {
+                validate_base_url(self.embedding_provider, base_url)?;
+            }
         }
         self.embedding_model = self.embedding_model.trim().to_string();
         if self.embedding_model.len() > 200 {

@@ -281,14 +281,14 @@ fn escape_prompt(text: &str) -> String {
         .replace('"', "&quot;").replace('\'', "&apos;")
 }
 
-pub async fn ask(ai: &AiState, app_data_dir: &Path, vault_root: &Path, question: &str) -> Result<Answer, String> {
+pub async fn ask(ai: &AiState, app_data_dir: &Path, vault_root: &Path, question: &str, session_id: &str) -> Result<Answer, String> {
     let question = question.trim();
     if question.is_empty() {
         return Err("Type a question first.".into());
     }
     let profile = ai.embedding_profile()?;
     let sources = search_for_profile(ai, app_data_dir, vault_root, question, CONTEXT_PASSAGES, &profile).await?;
-    let (answer, _) = ai.chat_for_vault(&profile, SYSTEM, &build_user_message(question, &sources)).await?;
+    let (answer, _) = ai.chat_for_vault(&profile, SYSTEM, &build_user_message(question, &sources), session_id).await?;
     // Permission can change while the provider prepares the answer. Do not return revoked
     // passages or an answer derived from them, and purge their stored vectors as well.
     let (data, root, identity) = (app_data_dir.to_owned(), vault_root.to_owned(), profile.identity());

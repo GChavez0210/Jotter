@@ -105,6 +105,9 @@ fn translate_sends_the_key_and_restores_protected_markdown() {
 
     let raw = server.join().unwrap();
     assert!(raw.starts_with("POST /chat/completions"));
+    let headers = raw.split("\r\n\r\n").next().unwrap();
+    assert!(headers.contains(concat!("user-agent: Jotter/", env!("CARGO_PKG_VERSION"))));
+    assert!(!headers.contains("x-opencode-session"));
     assert!(raw.to_ascii_lowercase().contains("authorization: bearer sk-test"));
     assert!(raw.contains("Run ⟦J0⟧ and open ⟦J1⟧."));
     assert!(!raw.contains("[[Plan]]"));
@@ -363,7 +366,7 @@ fn a_note_marked_ai_false_after_indexing_is_removed_and_never_answered_from() {
     let profile = enable_ask(&state);
     seed_ask_note(&state, data.path(), vault.path());
     std::fs::write(&note, "---\nai: false\n---\nSensitive text").unwrap();
-    let error = block_on(ask::ask(&state, data.path(), vault.path(), "Question")).unwrap_err();
+    let error = block_on(ask::ask(&state, data.path(), vault.path(), "Question", "session-1")).unwrap_err();
     assert!(error.contains("Index the vault first"));
     assert_eq!(stored_passages(data.path(), vault.path(), &profile), 0);
 }
@@ -402,7 +405,7 @@ fn unselecting_a_note_during_question_embedding_prevents_sending_it_to_chat() {
     let (_dir, state, _) = state_with(AiProvider::OpenaiCompatible, &base);
     enable_ask(&state);
     seed_ask_note(&state, data.path(), vault.path());
-    let error = block_on(ask::ask(&state, data.path(), vault.path(), "Question")).unwrap_err();
+    let error = block_on(ask::ask(&state, data.path(), vault.path(), "Question", "session-1")).unwrap_err();
     assert!(error.contains("no longer shared"));
     server.join().unwrap();
 }
@@ -421,7 +424,7 @@ fn revoking_a_source_during_chat_discards_the_reply_and_sources() {
     let (_dir, state, _) = state_with(AiProvider::OpenaiCompatible, &base);
     let profile = enable_ask(&state);
     seed_ask_note(&state, data.path(), vault.path());
-    let result = block_on(ask::ask(&state, data.path(), vault.path(), "Question"));
+    let result = block_on(ask::ask(&state, data.path(), vault.path(), "Question", "session-1"));
     server.join().unwrap();
     assert!(result.unwrap_err().contains("no longer shared"));
     assert_eq!(stored_passages(data.path(), vault.path(), &profile), 0);
@@ -472,7 +475,7 @@ fn embedding_identity_includes_provider_and_full_endpoint() {
     assert_eq!(ask::index_status(&state, data.path(), vault.path()).unwrap().notes_to_embed, 1);
     let mut config = state.status().unwrap().config;
     config.embedding_provider = AiProvider::OpenaiCompatible;
-    config.openai_compatible.base_url = "http://127.0.0.1:9/other".into();
+    config.embedding_base_url = Some("http://127.0.0.1:9/other".into());
     state.save_config(config).unwrap();
     assert_eq!(ask::index_status(&state, data.path(), vault.path()).unwrap().notes_to_embed, 1);
 }
@@ -489,7 +492,7 @@ fn deleted_and_modified_notes_are_never_used_as_answer_sources() {
     seed_ask_note(&state, data.path(), vault.path());
     std::fs::remove_file(&note).unwrap();
     assert_eq!(ask::index_status(&state, data.path(), vault.path()).unwrap().notes_to_remove, 1);
-    assert!(block_on(ask::ask(&state, data.path(), vault.path(), "Question")).unwrap_err().contains("Index the vault first"));
+    assert!(block_on(ask::ask(&state, data.path(), vault.path(), "Question", "session-1")).unwrap_err().contains("Index the vault first"));
     let mut store = crate::vector_store::VectorStore::open(&ask::store_path(data.path(), vault.path())).unwrap();
     assert!(store.load(&profile.identity()).unwrap().is_empty());
 
@@ -498,7 +501,7 @@ fn deleted_and_modified_notes_are_never_used_as_answer_sources() {
         path: "A.md".into(), heading: String::new(), line: 1, text: "Old text".into(),
     }, vector: vec![1.0, 0.0] };
     store.replace_note("A.md", 1, &profile.identity(), &[chunk]).unwrap();
-    assert!(block_on(ask::ask(&state, data.path(), vault.path(), "Question")).unwrap_err().contains("Index the vault first"));
+    assert!(block_on(ask::ask(&state, data.path(), vault.path(), "Question", "session-1")).unwrap_err().contains("Index the vault first"));
 }
 
 #[test]
@@ -520,10 +523,10 @@ fn turning_ask_off_during_query_embedding_prevents_chat() {
     let profile = enable_ask(&state);
     seed_ask_note(&state, data.path(), vault.path());
     *state_slot.lock().unwrap() = Some(state.clone());
-    let error = block_on(ask::ask(&state, data.path(), vault.path(), "Question")).unwrap_err();
+    let error = block_on(ask::ask(&state, data.path(), vault.path(), "Question", "session-1")).unwrap_err();
     assert_eq!(error, ASK_OFF);
     assert!(server.join().unwrap().starts_with("POST /embeddings"));
-    assert_eq!(block_on(state.chat_for_vault(&profile, "System", "Sensitive text")).unwrap_err(), ASK_OFF);
+    assert_eq!(block_on(state.chat_for_vault(&profile, "System", "Sensitive text", "session-1")).unwrap_err(), ASK_OFF);
     assert!(block_on(state.embed(&[])).is_err());
 }
 
@@ -566,7 +569,7 @@ fn deleting_a_note_during_question_embedding_prevents_sending_it_to_chat() {
     let (_dir, state, _) = state_with(AiProvider::OpenaiCompatible, &base);
     enable_ask(&state);
     seed_ask_note(&state, data.path(), vault.path());
-    assert!(block_on(ask::ask(&state, data.path(), vault.path(), "Question")).unwrap_err().contains("deleted"));
+    assert!(block_on(ask::ask(&state, data.path(), vault.path(), "Question", "session-1")).unwrap_err().contains("deleted"));
     server.join().unwrap();
 }
 

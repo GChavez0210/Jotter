@@ -272,6 +272,7 @@ export interface AiConfig {
   /** Which saved endpoint embeds notes for Ask your vault. Never `anthropic`. */
   embeddingProvider: AiProvider;
   embeddingModel: string;
+  embeddingBaseUrl: string | null;
   /** Ask your vault sends note passages to the embedding provider, so it has its own switch. */
   askVaultEnabled: boolean;
 }

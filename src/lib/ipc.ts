@@ -513,8 +513,8 @@ export async function askIndexVault(): Promise<AskIndexReport> {
   return invoke<AskIndexReport>('ask_index_vault');
 }
 
-export async function askVault(question: string): Promise<AskAnswer> {
-  return invoke<AskAnswer>('ask_vault', { question });
+export async function askVault(question: string, sessionId: string): Promise<AskAnswer> {
+  return invoke<AskAnswer>('ask_vault', { question, sessionId });
 }
 
 export async function askDeleteIndex(): Promise<void> {

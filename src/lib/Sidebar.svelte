@@ -367,25 +367,13 @@
 
     <button
       type="button"
-      class="search-btn find-btn"
+      class="search-btn"
       title={m.sidebar_find_note_title({ shortcut: shortcutLabel('Ctrl+O') })}
       onclick={() => (settingsStore.showQuickSwitcher = true)}
     >
       <Icon name="magnifying-glass" />
       <span>{m.sidebar_search_notes()}</span>
       <kbd>{shortcutLabel('Ctrl O')}</kbd>
-    </button>
-
-    <button
-      type="button"
-      class="search-btn ask-btn"
-      aria-haspopup="dialog"
-      title={m.sidebar_ask_title({ shortcut: shortcutLabel('Ctrl+J') })}
-      onclick={() => askStore.open()}
-    >
-      <Icon name="sparkle" />
-      <span>{m.ask_title()}</span>
-      <kbd>{shortcutLabel('Ctrl J')}</kbd>
     </button>
 
     <nav class="library" aria-label={m.sidebar_views()}>
@@ -609,15 +597,27 @@
     {/if}
 
     <div class="sidebar-footer">
-      <Button variant="primary" icon="note-pencil" class="new-note" onclick={() => startNewEntry('note', '')}>
-        {m.common_new_note()} <kbd>{shortcutLabel('Ctrl N')}</kbd>
+      <Button
+        variant="subtle"
+        icon="sparkle"
+        class="ask-btn"
+        aria-haspopup="dialog"
+        title={m.sidebar_ask_title({ shortcut: shortcutLabel('Ctrl+J') })}
+        onclick={() => askStore.open()}
+      >
+        {m.ask_title()}
       </Button>
-      <IconButton
-        icon="gear-six"
-        label={m.settings_title()}
-        tooltip={m.sidebar_settings_tooltip({ shortcut: shortcutLabel('Ctrl+,') })}
-        onclick={() => (settingsStore.showSettings = true)}
-      />
+      <div class="sidebar-footer-row">
+        <Button variant="primary" icon="note-pencil" class="new-note" onclick={() => startNewEntry('note', '')}>
+          {m.common_new_note()} <kbd>{shortcutLabel('Ctrl N')}</kbd>
+        </Button>
+        <IconButton
+          icon="gear-six"
+          label={m.settings_title()}
+          tooltip={m.sidebar_settings_tooltip({ shortcut: shortcutLabel('Ctrl+,') })}
+          onclick={() => (settingsStore.showSettings = true)}
+        />
+      </div>
     </div>
 
     <!-- Resize Sash. A focusable separator is the ARIA pattern for a window splitter, which
@@ -817,14 +817,6 @@
     white-space: nowrap;
   }
 
-  .find-btn {
-    margin-bottom: 0;
-  }
-
-  .ask-btn {
-    color: var(--text-primary);
-  }
-
   .library {
     display: flex;
     flex-direction: column;
@@ -975,13 +967,20 @@
 
   .sidebar-footer {
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: var(--space-1);
     flex: none;
     padding: var(--space-2);
     border-top: 1px solid var(--line-subtle);
   }
 
+  .sidebar-footer-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .sidebar-footer :global(.ask-btn),
   .sidebar-footer :global(.new-note) {
     flex: 1;
     justify-content: flex-start;

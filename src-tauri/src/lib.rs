@@ -1833,10 +1833,11 @@ async fn ask_vault(
     state: State<'_, AppState>,
     ai: State<'_, Arc<crate::ai::AiState>>,
     question: String,
+    session_id: String,
 ) -> Result<crate::ai::ask::Answer, String> {
     let root = require_active_vault(&state)?;
     let data = app_data_dir(&state);
-    crate::ai::ask::ask(&ai, &data, &root, &question).await
+    crate::ai::ask::ask(&ai, &data, &root, &question, &session_id).await
 }
 
 /// The notes and folders of the vault, and which of them AI features may read.
